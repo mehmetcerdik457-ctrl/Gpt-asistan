@@ -1,0 +1,19 @@
+<!doctype html><meta charset="utf-8"/><title>GA Lokal Sohbet</title>
+<style>body{font:16px system-ui;margin:0;background:#0b0b0f;color:#eaeaea}header{padding:14px 18px;background:#111;border-bottom:1px solid #222}main{max-width:820px;margin:0 auto;padding:16px}#chat{display:flex;flex-direction:column;gap:12px;margin-bottom:12px}.user{align-self:flex-end;background:#1e293b;color:#fff;padding:10px 12px;border-radius:14px 14px 0 14px;max-width:80%}.assistant{align-self:flex-start;background:#0f172a;color:#e2e8f0;padding:10px 12px;border-radius:14px 14px 14px 0;max-width:80%}#box{display:flex;gap:8px}textarea{flex:1;min-height:60px;max-height:180px;background:#0f0f13;color:#eaeaea;border:1px solid #333;border-radius:10px;padding:10px}button{padding:10px 14px;border-radius:10px;border:0;background:#3b82f6;color:#fff;font-weight:600;cursor:pointer}button:disabled{opacity:.6}</style>
+<header>GA Lokal Sohbet</header><main>
+  <div id="chat"></div>
+  <div id="box"><textarea id="input" placeholder="Yaz... (Enter: gönder, Shift+Enter: satır)"></textarea><button id="send">Gönder</button></div>
+  <small>Backend: /v1/chat/completions · Model: ga-local</small>
+</main>
+<script>
+let messages=[],chat=document.getElementById('chat'),input=document.getElementById('input'),btn=document.getElementById('send');
+function esc(s){return s.replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[m]))}
+function render(){chat.innerHTML=messages.map(m=>`<div class="${m.role}"><b>${m.role==='user'?'Sen':'Asistan'}:</b> ${esc(m.content)}</div>`).join('');window.scrollTo(0,document.body.scrollHeight)}
+async function send(){const t=input.value.trim();if(!t)return;btn.disabled=true;messages.push({role:'user',content:t});render();input.value='';
+  try{const r=await fetch('/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'ga-local',messages})});
+       const d=await r.json();const rep=(d&&d.choices&&d.choices[0]&&d.choices[0].message&&d.choices[0].message.content)||'(boş yanıt)';
+       messages.push({role:'assistant',content:rep});}
+  catch(e){messages.push({role:'assistant',content:'(hata: '+(e&&e.message||e)+')'});}
+  render();btn.disabled=false;}
+btn.onclick=send; input.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();}});
+</script>

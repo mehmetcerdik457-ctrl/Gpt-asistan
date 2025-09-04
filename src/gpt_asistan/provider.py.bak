@@ -1,0 +1,101 @@
+from typing import List, Dict, Any, Optional
+import os, httpx, time, re, math
+
+REMOTE_BASE = os.getenv("REMOTE_BASE") or os.getenv("OPENAI_BASE_URL")
+REMOTE_KEY  = os.getenv("REMOTE_KEY")  or os.getenv("OPENAI_API_KEY")
+REMOTE_MODEL= os.getenv("REMOTE_MODEL","gpt-4o-mini")
+
+async def call_openai(history: List[Dict[str, Any]]) -> Optional[str]:
+    if not (REMOTE_BASE and REMOTE_KEY):
+        return None
+    url = REMOTE_BASE.rstrip("/") + "/chat/completions"
+    try:
+        async with httpx.AsyncClient(timeout=30) as cli:
+            r = await cli.post(
+                url,
+                headers={"Authorization": f"Bearer {REMOTE_KEY}", "Content-Type": "application/json"},
+                json={"model": REMOTE_MODEL, "messages": history, "temperature":0.3},
+            )
+            r.raise_for_status()
+            return r.json()["choices"][0]["message"]["content"]
+    except Exception:
+        return None
+
+def _safe_eval(expr:str) -> Optional[str]:
+    expr = expr.strip().replace(",", ".")
+    if not re.fullmatch(r"[0-9\.\s\+\-\*\/\(\)]+", expr):
+        return None
+    try:
+        val = eval(expr, {"__builtins__":{}}, {})
+        if isinstance(val, (int, float)):
+            if isinstance(val, float) and abs(val - round(val)) < 1e-9:
+                val = int(round(val))
+            return str(val)
+    except Exception:
+        pass
+    return None
+
+def _make_poem(prompt:str) -> str:
+    # basit konu çıkarımı
+    m = re.search(r"şiir(?:.*?)(?:hakkında|üzerine|konu|tema)?\s*(.*)$", prompt.lower())
+    konu = m.group(1).strip() if m and m.group(1) else ""
+    tema = konu if konu else "aşk ve umut"
+    return (
+        f"{tema.title()}\n\n"
+        f"Bir rüzgâr esti içimde, adı {tema},\n"
+        f"Gölgem uzadı gönlümün kıyısına.\n"
+        f"Sözler düştü geceye, ince bir yağmur gibi,\n"
+        f"Uyandı yoldaki taş, ışığa karışa karışa.\n\n"
+        f"Bir adımım eksikse, kalanını kalbim tamamlar,\n"
+        f"Kırık bir saat bile doğruyu fısıldar.\n"
+        f"Yara diye bildiğim, meğer pencereymiş,\n"
+        f"Göğe açılır, sabaha umut sızar.\n\n"
+        f"Ve bil ki yol uzun, ama yolda dost vardır,\n"
+        f"Adını anınca gece, uykusu dağılır.\n"
+        f"{tema} büyür içimizde sessiz bir şarkı gibi,\n"
+        f"Söyleyince dünya bir anlığına çoğalır."
+    )
+
+def offline_reply(history: List[Dict[str, Any]]) -> str:
+    last = next((m.get("content","") for m in reversed(history) if m.get("role")=="user"), "").strip()
+    if not last:
+        return "Merhaba. Buradayım."
+
+    low = last.lower()
+
+    # 1) Sabit testler
+    if "sadece remote_ok yaz" in low: return "REMOTE_OK"
+    if "sadece hazır yaz" in low: return "HAZIR"
+    if "sadece online yaz" in low: return "ONLINE"
+
+    # 2) Şiir isteği
+    if "şiir" in low:
+        return _make_poem(last)
+
+    # 3) Basit çeviri taklidi: "çevir [en] merhaba"
+    m = re.match(r"çevir\s*\[(\w{2})\]\s*(.+)", low)
+    if m:
+        lang, text = m.group(1), m.group(2)
+        return f"({lang}) {text}"  # gerçek çeviri değil; offline taklit
+
+    # 4) Matematik: çıplak ifade (örn: 15*27, (2+3)*5/2)
+    math_ans = _safe_eval(low)
+    if math_ans is not None:
+        return math_ans
+
+    # 5) 'x ile y nin çarpımı' kalıbı
+    m = re.search(r"(\d+)\s*(?:ile|x|×|\*)\s*(\d+)\s*(?:nin|in|ın|un)?\s*çarp(ım|ın)?", low)
+    if m:
+        a, b = int(m.group(1)), int(m.group(2))
+        return str(a*b)
+
+    # 6) "özetle:" kalıbı (çok basit)
+    if low.startswith("özetle:"):
+        return "Kısa özet: " + last[7:].strip()
+
+    # 7) Varsayılan doğal cevap
+    return f"Anladım. '{last}' isteğin için buradayım. Ne yapmamı istersin?"
+
+
+
+

@@ -1,29 +1,39 @@
-import os, httpx
+from typing import List, Dict, Any, Optional
+import subprocess, shlex, os, tempfile
 
-OPENAI_KEY = os.getenv("OPENAI_API_KEY","")
-OPENAI_BASE = os.getenv("OPENAI_BASE","https://api.openai.com/v1")
-OPENAI_MODEL = os.getenv("OPENAI_MODEL","gpt-4o-mini")
+LLAMA_BIN = os.path.expanduser("~/llama.cpp/build/bin/llama-cli")
+MODEL = "/sdcard/models/local.gguf"
 
-async def call_openai(messages):
-    if not OPENAI_KEY:
-        return None
+def _hist_to_prompt(history: List[Dict[str, Any]]) -> str:
+    parts=[]
+    for m in history:
+        role=m.get("role","user")
+        if role not in ("user","assistant"):  # system vb. filtrele
+            continue
+        content=m.get("content","")
+        parts.append(f"{role}: {content}")
+    parts.append("assistant:")
+    return "\n".join(parts)
+
+def _run_llama(prompt: str) -> str:
+    if not os.path.exists(LLAMA_BIN):
+        return "Yerel LLM yok: ~/llama.cpp/build/bin/llama-cli bulunamadı."
+    if not os.path.exists(MODEL):
+        return "Yerel LLM yok: /sdcard/models/local.gguf ekle."
+    with tempfile.NamedTemporaryFile("w", delete=False) as f:
+        f.write(prompt); pfile=f.name
+    # Yalnızca yeni user satırında dur; assistant’ta DURMA
+    cmd = f'{shlex.quote(LLAMA_BIN)} -m {shlex.quote(MODEL)} -f {shlex.quote(pfile)} -n 128 -c 1024 --temp 0.8 --repeat-penalty 1.05 -r "\\nuser:"'
     try:
-        async with httpx.AsyncClient(timeout=60) as client:
-            r = await client.post(f"{OPENAI_BASE}/chat/completions",
-                headers={"Authorization": f"Bearer {OPENAI_KEY}"},
-                json={"model": OPENAI_MODEL, "messages": messages, "temperature": 0.3})
-            r.raise_for_status()
-            return r.json()["choices"][0]["message"]["content"]
-    except Exception:
-        return None
+        out = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=180)
+        txt = (out.stdout or out.stderr or "").strip()
+        return txt if txt else "Yanıt üretilemedi."
+    finally:
+        try: os.unlink(pfile)
+        except Exception: pass
 
-def offline_reply(messages):
-    # Ultra hafif yerel fallback: son kullanıcı mesajına kural tabanlı kısa yanıt
-    user = next((m["content"] for m in reversed(messages) if m["role"]=="user"), "")
-    if not user.strip():
-        return "Merhaba! Ne yapmak istersin?"
-    if any(w in user.lower() for w in ["hata","error","bug"]):
-        return "Hata ayıklamada yardımcı olabilirim. Adımları ve hata çıktısını paylaş."
-    if "apk" in user.lower():
-        return "Android APK için imza/keystore ve build adımlarını kurabiliriz."
-    return "Not ettim. İstersen ayrıntı ver, kısa plan çıkarayım."
+def offline_reply(history: List[Dict[str, Any]]) -> str:
+    return _run_llama(_hist_to_prompt(history))
+
+async def call_openai(history: List[Dict[str, Any]]) -> Optional[str]:
+    return None

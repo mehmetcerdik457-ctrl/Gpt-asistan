@@ -1,0 +1,86 @@
+from fastapi import FastAPI
+from pydantic import BaseModel
+from pathlib import Path
+from . import memory
+from .provider import call_openai, offline_reply, fetch_and_summarize, speak, ddg_search
+from .scaffold import create as scaffold_create
+from .github_tools import init_and_push
+import asyncio, os
+
+from .openai_compat import r as openai_router
+
+app = FastAPI(title="GPT Asistan (Hafif)")
+
+class Msg(BaseModel):
+    session: str = "default"
+    content: str
+
+@app.on_event("startup")
+app.include_router(openai_router)
+
+def _startup(): memory.init()
+
+@app.get("/health")
+def health(): return {"ok": True}
+
+@app.post("/chat")
+async def chat(m: Msg):
+    txt = m.content.strip(); low = txt.lower()
+
+    # not al
+    if low.startswith(("not al","not:","note ","nota ")):
+        payload = txt.split(":",1)[1].strip() if ":" in txt else (txt.split(" ",1)[1].strip() if " " in txt else "")
+        if not payload: return {"reply":"Not boş olamaz.", "session": m.session}
+        memory.add(m.session,"user",txt); memory.add_note(m.session,payload)
+        notes = memory.list_notes(m.session,9999)
+        reply = f"Not kaydedildi ✅\n- {payload}\nToplam not: {len(notes)}"
+        memory.add(m.session,"assistant",reply); return {"reply":reply,"session":m.session}
+
+    # web: URL oku
+    if low.startswith(("ara:","web:","oku:")):
+        url = txt.split(":",1)[1].strip() if ":" in txt else ""
+        memory.add(m.session,"user",txt)
+        resp = await fetch_and_summarize(url) if url else "URL eksik."
+        memory.add(m.session,"assistant",resp); return {"reply":resp,"session":m.session}
+
+    # web: arama (ddg)
+    if low.startswith(("ara?","search?")):
+        q = txt.split("?",1)[1].strip() if "?" in txt else ""
+        memory.add(m.session,"user",txt)
+        results = await ddg_search(q, max_results=5) if q else []
+        if not results: 
+            rep="Sonuç yok / ağ engeli."
+            memory.add(m.session,"assistant",rep); return {"reply":rep,"session":m.session}
+        # ilk 3 linki kısaca özetle
+        out=[]
+        for i, item in enumerate(results[:3], 1):
+            summ = await fetch_and_summarize(item["url"])
+            out.append(f"{i}) {item['title']}\n{item['url']}\nÖzet: {summ}")
+        rep = "🔎 Sonuçlar:\n\n" + "\n\n".join(out)
+        memory.add(m.session,"assistant",rep); return {"reply":rep,"session":m.session}
+
+    # ses: söyle
+    if low.startswith(("söyle:","ses:","konuş:")):
+        payload = txt.split(":",1)[1].strip() if ":" in txt else ""
+        ok = speak(payload) if payload else False
+        rep = f"🗣️ {'Okundu' if ok else 'Cihazda TTS yok (termux-api yükleyin).'}"
+        memory.add(m.session,"user",txt); memory.add(m.session,"assistant",rep); return {"reply":rep,"session":m.session}
+
+    # APK iskeleti + GH action
+    if low.startswith("apk:"):
+        # örn: "apk: ad=benimapp"
+        parts = dict(p.split("=",1) for p in txt.split() if "=" in p)
+        name = parts.get("ad","ga-android")
+        base = Path.home()/ "repos" / name
+        # iskelet (scaffold.py birazdan güncellenecek)
+        from .scaffold import create_android_min
+        p = create_android_min(name)
+        # GitHub’a push (kullanıcı/REPO lazım)
+        rep = f"APK iskeleti hazır: {p}\nGitHub’a göndermek için: 'github: ad=KULLANICI/{name} path=~/repos/{name} private=no'"
+        memory.add(m.session,"user",txt); memory.add(m.session,"assistant",rep); return {"reply":rep,"session":m.session}
+
+    # normal sohbet
+    memory.add(m.session,"user",txt)
+    hist = memory.history(m.session,30)
+    ai = await call_openai(hist) or offline_reply(hist)
+    memory.add(m.session,"assistant",ai); return {"reply":ai,"tokens":"low","session":m.session}

@@ -1,32 +1,61 @@
-import sqlite3, os, json, time
-DB_PATH = os.getenv("GA_DB_PATH", "memory.db")
+from fastapi import APIRouter
+from pydantic import BaseModel
+from typing import List
+import os, json, time
 
-def _conn():
-    return sqlite3.connect(DB_PATH)
+r = APIRouter()
+FILE = os.path.expanduser("~/.ga.memory.jsonl")
 
+class MemItem(BaseModel):
+    role: str = "system"
+    content: str
+
+def _load() -> List[dict]:
+    items = []
+    if os.path.exists(FILE):
+        with open(FILE, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line: continue
+                try:
+                    items.append(json.loads(line))
+                except Exception:
+                    pass
+    return items
+
+def _append(obj: dict):
+    os.makedirs(os.path.dirname(FILE), exist_ok=True)
+    with open(FILE, "a", encoding="utf-8") as f:
+        f.write(json.dumps(obj, ensure_ascii=False) + "\n")
+
+@r.post("/memory/add")
+def add(item: MemItem):
+    _append({"role": item.role, "content": item.content, "ts": int(time.time())})
+    return {"ok": True}
+
+@r.post("/memory/clear")
+def clear():
+    try:
+        os.remove(FILE)
+    except FileNotFoundError:
+        pass
+    return {"ok": True}
+
+@r.get("/memory/show")
+def show():
+    return {"ok": True, "items": _load()}
+
+def build_system_prompt() -> str:
+    notes = [it.get("content","") for it in _load() if it.get("role") == "system"]
+    if not notes:
+        return ""
+    base = "Aşağıdaki kurallara harfiyen uy:\n"
+    for n in notes:
+        if n.strip():
+            base += f"- {n.strip()}\n"
+    return base
+
+
+# --- minimal init for app startup ---
 def init():
-    with _conn() as c:
-        c.execute("""CREATE TABLE IF NOT EXISTS messages(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            session TEXT NOT NULL,
-            role TEXT NOT NULL,
-            content TEXT NOT NULL,
-            ts REAL NOT NULL
-        )""")
-
-def add(session:str, role:str, content:str):
-    with _conn() as c:
-        c.execute("INSERT INTO messages(session,role,content,ts) VALUES (?,?,?,?)",
-                  (session, role, content, time.time()))
-
-def history(session:str, limit:int=50):
-    with _conn() as c:
-        cur=c.execute("SELECT role,content FROM messages WHERE session=? ORDER BY id DESC LIMIT ?", (session, limit))
-        rows=cur.fetchall()
-    rows.reverse()
-    return [{"role":r,"content":c} for r,c in rows]
-
-def export_jsonl(path:str="memory.jsonl"):
-    with _conn() as c, open(path,"w",encoding="utf-8") as f:
-        for (sess, role, content, ts) in c.execute("SELECT session,role,content,ts FROM messages ORDER BY id"):
-            f.write(json.dumps({"session":sess,"role":role,"content":content,"ts":ts}, ensure_ascii=False)+"\n")
+    return True
