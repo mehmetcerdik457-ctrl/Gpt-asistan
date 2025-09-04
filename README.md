@@ -1,4 +1,3 @@
 Merhaba Dünya
-Yeni satırp
-
+Yeni satırp.  ne yapıyorsun şu an
 
