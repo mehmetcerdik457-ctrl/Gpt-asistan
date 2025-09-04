@@ -1,18 +1,23 @@
-from fastapi import FastAPI
-from pydantic import BaseModel
-from . import memory
-from .provider import call_openai, offline_reply
 import asyncio
 
+from fastapi import FastAPI
+from pydantic import BaseModel
+
+from . import memory
+from .provider import call_openai, offline_reply
+
 app = FastAPI(title="GPT Asistan (Hafif)")
+
 
 class Msg(BaseModel):
     session: str = "default"
     content: str
 
+
 @app.on_event("startup")
 def _startup():
     memory.init()
+
 
 @app.post("/chat")
 async def chat(m: Msg):
@@ -23,4 +28,4 @@ async def chat(m: Msg):
     if not ai:
         ai = offline_reply(hist)
     memory.add(m.session, "assistant", ai)
-    return {"reply": ai, "tokens":"low", "session": m.session}
+    return {"reply": ai, "tokens": "low", "session": m.session}
