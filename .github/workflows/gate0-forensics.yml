@@ -2,7 +2,7 @@ name: Gate 0 Android APK Forensics
 
 on:
   push:
-    branches: [copilot-agent-upgrade-20260917]
+    branches: [main, copilot-agent-upgrade-20260917]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -14,10 +14,10 @@ jobs:
   gate0:
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    env:
-      GITHUB_PERSONAL_ACCESS_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-java@v4
         with:
@@ -64,19 +64,11 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq apktool binutils openssl unzip zip jq curl git python3-pip cmake ninja-build pkg-config libcapstone-dev libicu-dev >/tmp/apt-tools.log 2>&1
           echo "APT_RC=$?" | tee gate0-evidence/tool-install.txt
-
-          # JADX: apt first, release ZIP fallback.
-          if ! command -v jadx >/dev/null 2>&1; then
-            sudo apt-get install -y -qq jadx >/tmp/jadx-apt.log 2>&1
-          fi
+          if ! command -v jadx >/dev/null 2>&1; then sudo apt-get install -y -qq jadx >/tmp/jadx-apt.log 2>&1; fi
           if ! command -v jadx >/dev/null 2>&1; then
             url=$(curl -fsSL https://api.github.com/repos/skylot/jadx/releases/latest | jq -r '.assets[] | select(.name|test("^jadx-[0-9].*\\.zip$")) | .browser_download_url' | head -1)
-            if [ -n "$url" ] && [ "$url" != null ]; then
-              curl -fsSL "$url" -o /tmp/jadx.zip && unzip -q /tmp/jadx.zip -d /tmp/jadx && ln -sf /tmp/jadx/bin/jadx "$HOME/bin/jadx"
-            fi
+            if [ -n "$url" ] && [ "$url" != null ]; then curl -fsSL "$url" -o /tmp/jadx.zip && unzip -q /tmp/jadx.zip -d /tmp/jadx && ln -sf /tmp/jadx/bin/jadx "$HOME/bin/jadx"; fi
           fi
-
-          # apktool jar fallback if distro package was unavailable.
           if ! command -v apktool >/dev/null 2>&1; then
             apktool_url=$(curl -fsSL https://api.github.com/repos/iBotPeaches/Apktool/releases/latest | jq -r '.assets[] | select(.name|test("^apktool_.*\\.jar$")) | .browser_download_url' | head -1)
             if [ -n "$apktool_url" ] && [ "$apktool_url" != null ]; then
@@ -85,46 +77,29 @@ jobs:
               chmod +x "$HOME/bin/apktool"
             fi
           fi
-
           python3 -m pip install --user --quiet androguard mcp >/tmp/pip-tools.log 2>&1
-
-          # bundletool official release jar.
           bundle_url=$(curl -fsSL https://api.github.com/repos/google/bundletool/releases/latest | jq -r '.assets[] | select(.name|test("^bundletool-all-.*\\.jar$")) | .browser_download_url' | head -1)
           if [ -n "$bundle_url" ] && [ "$bundle_url" != null ]; then
             curl -fsSL "$bundle_url" -o "$HOME/bin/bundletool.jar"
             printf '#!/bin/sh\nexec java -jar "$HOME/bin/bundletool.jar" "$@"\n' > "$HOME/bin/bundletool"
             chmod +x "$HOME/bin/bundletool"
           fi
-
-          # Android SDK tools already provisioned by ubuntu-latest; expose latest versions.
           AAPT2=$(find "$ANDROID_HOME/build-tools" -type f -name aapt2 2>/dev/null | sort -V | tail -1)
           APKSIGNER=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner 2>/dev/null | sort -V | tail -1)
           APKANALYZER=$(find "$ANDROID_HOME" -type f -name apkanalyzer 2>/dev/null | head -1)
           [ -n "$AAPT2" ] && ln -sf "$AAPT2" "$HOME/bin/aapt2"
           [ -n "$APKSIGNER" ] && ln -sf "$APKSIGNER" "$HOME/bin/apksigner"
           [ -n "$APKANALYZER" ] && ln -sf "$APKANALYZER" "$HOME/bin/apkanalyzer"
-
-          # Flutter AOT research tool: upstream Blutter. Installation is attempted even if target is non-Flutter.
           rm -rf /tmp/blutter
           git clone --depth 1 https://github.com/w-him/Blutter.git /tmp/blutter >/tmp/blutter-clone.log 2>&1
           python3 -m pip install --user --quiet requests pyelftools >/tmp/blutter-pip.log 2>&1
-
           export PATH="$HOME/.local/bin:$HOME/bin:$PATH"
           {
             echo "PATH=$PATH"
-            command -v jadx || true
-            command -v apktool || true
-            command -v apksigner || true
-            command -v bundletool || true
-            command -v aapt2 || true
-            command -v apkanalyzer || true
-            command -v androguard || true
-            command -v readelf || true
-            command -v objdump || true
-            command -v nm || true
-            command -v strings || true
-            command -v openssl || true
-            command -v keytool || true
+            command -v jadx || true; command -v apktool || true; command -v apksigner || true
+            command -v bundletool || true; command -v aapt2 || true; command -v apkanalyzer || true
+            command -v androguard || true; command -v readelf || true; command -v objdump || true
+            command -v nm || true; command -v strings || true; command -v openssl || true; command -v keytool || true
             test -f /tmp/blutter/blutter.py && echo BLUTTER=/tmp/blutter/blutter.py
           } | tee -a gate0-evidence/tool-install.txt
 
@@ -136,29 +111,22 @@ jobs:
           REPORT=gate0-evidence/gate0-report.txt
           : > "$REPORT"
           echo "SOURCE_APK=$APK" | tee -a "$REPORT"
-          if [ -z "$APK" ] || [ ! -f "$APK" ]; then
-            echo "REAL_APK_TEST=BLOCKED_NO_BUILT_APK" | tee -a "$REPORT"
-            exit 0
-          fi
-
+          if [ -z "$APK" ] || [ ! -f "$APK" ]; then echo "REAL_APK_TEST=BLOCKED_NO_BUILT_APK" | tee -a "$REPORT"; exit 0; fi
           record_tool() {
             tool="$1"; version_cmd="$2"; real_cmd="$3"
             if command -v "$tool" >/dev/null 2>&1; then
               ver=$(bash -lc "$version_cmd" 2>&1 | head -3 | tr '\n' ' ')
-              bash -lc "$real_cmd" >"gate0-evidence/${tool}.real.log" 2>&1
-              rc=$?
+              bash -lc "$real_cmd" >"gate0-evidence/${tool}.real.log" 2>&1; rc=$?
               echo "TOOL=$tool | INSTALLED=YES | VERSION=$ver | REAL_COMMAND=$real_cmd | RESULT=RC_$rc" | tee -a "$REPORT"
             else
               echo "TOOL=$tool | INSTALLED=NO | VERSION=NA | REAL_COMMAND=$real_cmd | RESULT=NOT_FOUND" | tee -a "$REPORT"
             fi
           }
-
           echo "FILE_SIZE=$(stat -c%s "$APK")" | tee -a "$REPORT"
           echo "SHA256=$(sha256sum "$APK" | awk '{print $1}')" | tee -a "$REPORT"
           echo "SHA512=$(sha512sum "$APK" | awk '{print $1}')" | tee -a "$REPORT"
           echo "APK_TYPE=$(file -b "$APK")" | tee -a "$REPORT"
           echo "SPLIT_COUNT=$(find app/build/outputs/apk/debug -type f -name '*.apk' | wc -l)" | tee -a "$REPORT"
-
           record_tool apktool 'apktool --version' 'rm -rf /tmp/apktool-out && apktool d -f -o /tmp/apktool-out '"$APK"''
           record_tool jadx 'jadx --version' 'rm -rf /tmp/jadx-out && jadx -d /tmp/jadx-out '"$APK"''
           record_tool apksigner 'apksigner version' 'apksigner verify --verbose --print-certs '"$APK"''
@@ -171,22 +139,14 @@ jobs:
           record_tool strings 'strings --version' 'strings '"$APK"' | head -40'
           record_tool openssl 'openssl version' 'openssl dgst -sha256 '"$APK"''
           record_tool keytool 'keytool -J-version' 'keytool -printcert -jarfile '"$APK"''
-
-          # Androguard against the actual APK.
           python3 - "$APK" > gate0-evidence/androguard.real.log 2>&1 <<'PY'
           import sys
           from androguard.misc import AnalyzeAPK
           a, ds, dx = AnalyzeAPK(sys.argv[1])
-          print('PACKAGE=' + a.get_package())
-          print('VERSION_CODE=' + str(a.get_androidversion_code()))
-          print('VERSION_NAME=' + str(a.get_androidversion_name()))
-          print('DEX_COUNT=' + str(len(ds)))
+          print('PACKAGE=' + a.get_package()); print('VERSION_CODE=' + str(a.get_androidversion_code())); print('VERSION_NAME=' + str(a.get_androidversion_name())); print('DEX_COUNT=' + str(len(ds)))
           PY
-          arc=$?
-          aver=$(python3 -c 'import importlib.metadata as m; print(m.version("androguard"))' 2>/dev/null)
+          arc=$?; aver=$(python3 -c 'import importlib.metadata as m; print(m.version("androguard"))' 2>/dev/null)
           echo "TOOL=Androguard | INSTALLED=YES | VERSION=$aver | REAL_COMMAND=AnalyzeAPK(actual APK) | RESULT=RC_$arc" | tee -a "$REPORT"
-
-          # Package/version/manifest evidence.
           if command -v apkanalyzer >/dev/null 2>&1; then
             echo "PACKAGE=$(apkanalyzer manifest application-id "$APK" 2>/dev/null)" | tee -a "$REPORT"
             echo "VERSION_NAME=$(apkanalyzer manifest version-name "$APK" 2>/dev/null)" | tee -a "$REPORT"
@@ -196,26 +156,16 @@ jobs:
           apksigner verify --verbose --print-certs "$APK" > gate0-evidence/signing.txt 2>&1 || true
           zipinfo -1 "$APK" | grep -E '^classes([0-9]+)?\.dex$' | tee gate0-evidence/dex-inventory.txt
           zipinfo -1 "$APK" | grep -E '^lib/.+\.so$' | tee gate0-evidence/native-libs.txt
-          dex_count=$(wc -l < gate0-evidence/dex-inventory.txt)
-          native_count=$(wc -l < gate0-evidence/native-libs.txt)
-          echo "DEX_COUNT=$dex_count" | tee -a "$REPORT"
-          echo "NATIVE_LIB_COUNT=$native_count" | tee -a "$REPORT"
-
+          dex_count=$(wc -l < gate0-evidence/dex-inventory.txt); native_count=$(wc -l < gate0-evidence/native-libs.txt)
+          echo "DEX_COUNT=$dex_count" | tee -a "$REPORT"; echo "NATIVE_LIB_COUNT=$native_count" | tee -a "$REPORT"
           if zipinfo -1 "$APK" | grep -Eq '(^|/)libflutter\.so$|(^|/)libapp\.so$|flutter_assets'; then
-            echo "FLUTTER_AOT=PRESENT" | tee -a "$REPORT"
-            rm -rf /tmp/flutter-lib /tmp/blutter-out
-            mkdir -p /tmp/flutter-lib
+            echo "FLUTTER_AOT=PRESENT" | tee -a "$REPORT"; rm -rf /tmp/flutter-lib /tmp/blutter-out; mkdir -p /tmp/flutter-lib
             unzip -q "$APK" 'lib/*' -d /tmp/flutter-lib
-            timeout 180 python3 /tmp/blutter/blutter.py /tmp/flutter-lib/lib/arm64-v8a /tmp/blutter-out > gate0-evidence/blutter.real.log 2>&1
-            brc=$?
+            timeout 180 python3 /tmp/blutter/blutter.py /tmp/flutter-lib/lib/arm64-v8a /tmp/blutter-out > gate0-evidence/blutter.real.log 2>&1; brc=$?
           else
-            echo "FLUTTER_AOT=ABSENT" | tee -a "$REPORT"
-            timeout 30 python3 /tmp/blutter/blutter.py --help > gate0-evidence/blutter.real.log 2>&1
-            brc=$?
+            echo "FLUTTER_AOT=ABSENT" | tee -a "$REPORT"; timeout 30 python3 /tmp/blutter/blutter.py --help > gate0-evidence/blutter.real.log 2>&1; brc=$?
           fi
           echo "TOOL=Blutter | INSTALLED=$(test -f /tmp/blutter/blutter.py && echo YES || echo NO) | VERSION=git_HEAD_$(git -C /tmp/blutter rev-parse --short HEAD 2>/dev/null) | REAL_COMMAND=blutter.py against Flutter libs when present; --help otherwise | RESULT=RC_$brc" | tee -a "$REPORT"
-
-          # Run binutils on a native library extracted to a temporary copy when one exists.
           firstso=$(head -1 gate0-evidence/native-libs.txt)
           if [ -n "$firstso" ]; then
             unzip -p "$APK" "$firstso" > /tmp/target.so
@@ -227,6 +177,7 @@ jobs:
 
       - name: Verify GitHub MCP over real stdio and execute read operation
         env:
+          GITHUB_PERSONAL_ACCESS_TOKEN: ${{ github.token }}
           OWNER: ${{ github.repository_owner }}
           REPO: ${{ github.event.repository.name }}
           REF: ${{ github.head_ref || github.ref_name }}
@@ -234,40 +185,23 @@ jobs:
           set +e
           export PATH="$HOME/.local/bin:$HOME/bin:$PATH"
           cat > /tmp/mcp_smoke.py <<'PY'
-          import asyncio, os, json
+          import asyncio, os
           from mcp import ClientSession, StdioServerParameters
           from mcp.client.stdio import stdio_client
-
           async def main():
-              params = StdioServerParameters(
-                  command='docker',
-                  args=['run','-i','--rm','-e','GITHUB_PERSONAL_ACCESS_TOKEN','-e','GITHUB_TOOLS=get_file_contents,get_me','ghcr.io/github/github-mcp-server','stdio','--read-only'],
-                  env=os.environ.copy(),
-              )
+              params = StdioServerParameters(command='docker', args=['run','-i','--rm','-e','GITHUB_PERSONAL_ACCESS_TOKEN','-e','GITHUB_TOOLS=get_file_contents','ghcr.io/github/github-mcp-server','stdio','--read-only'], env=os.environ.copy())
               async with stdio_client(params) as (read, write):
                   async with ClientSession(read, write) as session:
-                      await session.initialize()
-                      tools = await session.list_tools()
-                      names = [t.name for t in tools.tools]
+                      await session.initialize(); tools = await session.list_tools(); names = [t.name for t in tools.tools]
                       print('MCP_TOOLS=' + ','.join(names))
-                      target = 'get_file_contents' if 'get_file_contents' in names else None
-                      if not target:
-                          raise RuntimeError('get_file_contents tool absent')
-                      result = await session.call_tool(target, {
-                          'owner': os.environ['OWNER'],
-                          'repo': os.environ['REPO'],
-                          'path': 'README.md',
-                          'ref': os.environ['REF'],
-                      })
-                      print('MCP_CALL=' + target)
-                      print('MCP_RESULT=' + str(result)[:3000])
+                      if 'get_file_contents' not in names: raise RuntimeError('get_file_contents tool absent')
+                      result = await session.call_tool('get_file_contents', {'owner': os.environ['OWNER'], 'repo': os.environ['REPO'], 'path': 'README.md', 'ref': os.environ['REF']})
+                      print('MCP_CALL=get_file_contents'); print('MCP_RESULT=' + str(result)[:3000])
           asyncio.run(main())
           PY
           python3 /tmp/mcp_smoke.py > gate0-evidence/mcp-smoke.log 2>&1
-          rc=$?
-          echo "MCP_RC=$rc" | tee -a gate0-evidence/gate0-report.txt
-          tail -100 gate0-evidence/mcp-smoke.log || true
-          exit 0
+          rc=$?; echo "MCP_RC=$rc" | tee -a gate0-evidence/gate0-report.txt; tail -100 gate0-evidence/mcp-smoke.log || true
+          exit $rc
 
       - name: Upload Gate 0 evidence and APK
         if: always()

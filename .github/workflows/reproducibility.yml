@@ -1,0 +1,101 @@
+name: Reproducible Build Evidence
+
+on:
+  push:
+    branches: [main, copilot-agent-upgrade-20260917]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  reproducibility:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Prepare Gradle
+        run: |
+          set -euo pipefail
+          if [ ! -f gradlew ]; then
+            curl -fsSL https://services.gradle.org/distributions/gradle-8.7-bin.zip -o /tmp/gradle.zip
+            unzip -q /tmp/gradle.zip -d /tmp
+            printf '#!/bin/sh\nexec /tmp/gradle-8.7/bin/gradle "$@"\n' > gradlew
+            chmod +x gradlew
+          fi
+      - name: Compare two clean unsigned release builds
+        run: |
+          set -euo pipefail
+          mkdir -p reproducibility
+          ./gradlew clean :app:assembleRelease --no-build-cache --rerun-tasks
+          A=$(find app/build/outputs/apk/release -type f -name '*unsigned*.apk' | head -1)
+          test -f "$A"
+          cp "$A" reproducibility/release-A-unsigned.apk
+          ./gradlew clean :app:assembleRelease --no-build-cache --rerun-tasks
+          B=$(find app/build/outputs/apk/release -type f -name '*unsigned*.apk' | head -1)
+          test -f "$B"
+          cp "$B" reproducibility/release-B-unsigned.apk
+          sha256sum reproducibility/release-*-unsigned.apk | tee reproducibility/release-sha256.txt
+          sha512sum reproducibility/release-*-unsigned.apk | tee reproducibility/release-sha512.txt
+          if cmp -s reproducibility/release-A-unsigned.apk reproducibility/release-B-unsigned.apk; then
+            echo 'UNSIGNED_RELEASE_REPRODUCIBLE=YES' | tee reproducibility/unsigned-result.txt
+          else
+            echo 'UNSIGNED_RELEASE_REPRODUCIBLE=NO' | tee reproducibility/unsigned-result.txt
+          fi
+      - name: Compare debug builds with independently generated debug signing identities
+        run: |
+          set -euo pipefail
+          BT=$(find "$ANDROID_HOME/build-tools" -maxdepth 1 -mindepth 1 -type d | sort -V | tail -1)
+          APKSIGNER="$BT/apksigner"
+          test -x "$APKSIGNER"
+          rm -rf /tmp/debug-home-A /tmp/debug-home-B
+          mkdir -p /tmp/debug-home-A /tmp/debug-home-B
+          ANDROID_USER_HOME=/tmp/debug-home-A ./gradlew clean :app:assembleDebug --no-build-cache --rerun-tasks
+          cp app/build/outputs/apk/debug/app-debug.apk reproducibility/debug-A.apk
+          "$APKSIGNER" verify --print-certs reproducibility/debug-A.apk > reproducibility/debug-A-cert.txt
+          ANDROID_USER_HOME=/tmp/debug-home-B ./gradlew clean :app:assembleDebug --no-build-cache --rerun-tasks
+          cp app/build/outputs/apk/debug/app-debug.apk reproducibility/debug-B.apk
+          "$APKSIGNER" verify --print-certs reproducibility/debug-B.apk > reproducibility/debug-B-cert.txt
+          sha256sum reproducibility/debug-A.apk reproducibility/debug-B.apk | tee reproducibility/debug-sha256.txt
+          sha512sum reproducibility/debug-A.apk reproducibility/debug-B.apk | tee reproducibility/debug-sha512.txt
+          grep -E 'Signer #1 certificate SHA-256 digest' reproducibility/debug-A-cert.txt | tee reproducibility/debug-cert-digests.txt
+          grep -E 'Signer #1 certificate SHA-256 digest' reproducibility/debug-B-cert.txt | tee -a reproducibility/debug-cert-digests.txt
+          if cmp -s reproducibility/debug-A.apk reproducibility/debug-B.apk; then
+            echo 'DEBUG_SIGNED_REPRODUCIBLE=YES' | tee reproducibility/debug-result.txt
+          else
+            echo 'DEBUG_SIGNED_REPRODUCIBLE=NO' | tee reproducibility/debug-result.txt
+          fi
+      - name: Classify reproducibility root cause
+        run: |
+          set -euo pipefail
+          unsigned=$(cut -d= -f2 reproducibility/unsigned-result.txt)
+          debug=$(cut -d= -f2 reproducibility/debug-result.txt)
+          cert_unique=$(sed 's/.*: //' reproducibility/debug-cert-digests.txt | sort -u | wc -l)
+          if [ "$unsigned" = YES ] && [ "$debug" = NO ] && [ "$cert_unique" -ge 2 ]; then
+            echo 'ROOT_CAUSE=SIGNATURE' | tee reproducibility/classification.txt
+          elif [ "$unsigned" = NO ]; then
+            echo 'ROOT_CAUSE=UNSIGNED_BUILD_NONDETERMINISM_REQUIRES_ZIP_METADATA_ANALYSIS' | tee reproducibility/classification.txt
+          else
+            echo 'ROOT_CAUSE=OTHER_OR_NOT_REPRODUCED' | tee reproducibility/classification.txt
+          fi
+          {
+            echo "HEAD_SHA=${GITHUB_SHA}"
+            echo "RUN_ID=${GITHUB_RUN_ID}"
+            cat reproducibility/unsigned-result.txt
+            cat reproducibility/debug-result.txt
+            cat reproducibility/classification.txt
+          } | tee reproducibility/summary.txt
+          test "$unsigned" = YES
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: reproducibility-${{ github.sha }}
+          path: reproducibility/**
+          if-no-files-found: error
+          retention-days: 30

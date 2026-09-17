@@ -2,11 +2,12 @@ name: Devcontainer Toolchain
 
 on:
   push:
-    branches: [copilot-agent-upgrade-20260917]
+    branches: [main, copilot-agent-upgrade-20260917]
     paths:
       - '.devcontainer/**'
       - '.github/workflows/devcontainer-ci.yml'
   pull_request:
+    branches: [main]
     paths:
       - '.devcontainer/**'
       - '.github/workflows/devcontainer-ci.yml'
@@ -18,12 +19,14 @@ permissions:
 jobs:
   verify-devcontainer:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 75
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
       - name: Build engineering lab image
         run: docker build --pull -f .devcontainer/Dockerfile -t gpt-asistan-engineering-lab .
-      - name: Verify installed toolchain
+      - name: Verify installed toolchain and real sample execution
         run: |
           docker run --rm \
             -v "$PWD:/workspace:ro" \

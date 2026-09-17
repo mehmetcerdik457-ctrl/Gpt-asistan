@@ -2,9 +2,12 @@ name: Verified Release Pipeline
 
 on:
   push:
-    branches: [copilot-agent-upgrade-20260917]
+    branches: [main, copilot-agent-upgrade-20260917]
     paths:
       - '.github/workflows/verified-release.yml'
+      - 'app/**'
+      - 'build.gradle.kts'
+      - 'settings.gradle.kts'
   workflow_dispatch:
     inputs:
       tag:
@@ -30,6 +33,8 @@ jobs:
       sha256: ${{ steps.identity.outputs.sha256 }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/setup-java@v5
         with:
           distribution: temurin

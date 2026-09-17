@@ -2,7 +2,7 @@ name: Advanced APK Forensic Toolchain
 
 on:
   push:
-    branches: [copilot-agent-upgrade-20260917]
+    branches: [main, copilot-agent-upgrade-20260917]
   workflow_dispatch:
 
 permissions:
@@ -13,7 +13,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -33,7 +35,7 @@ jobs:
           assert len(ins) == 2
           for i in ins: print(hex(i.address), i.mnemonic, i.op_str)
           PY
-          echo "TOOL=Capstone RESULT=RC_0" | tee advanced-evidence/capstone.status
+          echo 'TOOL=Capstone TARGET=SYNTHETIC_ARM64_BYTES COMMAND=python_capstone_disasm RESULT=RC_0' | tee advanced-evidence/capstone.status
 
       - name: Ghidra headless install and real ELF analysis
         run: |
@@ -45,71 +47,43 @@ jobs:
           mkdir -p /tmp/ghidra-unpack /tmp/ghidra-project
           unzip -q /tmp/ghidra.zip -d /tmp/ghidra-unpack
           GH=$(find /tmp/ghidra-unpack -maxdepth 4 -type f -path '*/support/analyzeHeadless' -print -quit)
-          test -n "$GH"
-          test -x "$GH"
+          test -n "$GH" && test -x "$GH"
           echo "GHIDRA_HEADLESS=$GH" > advanced-evidence/ghidra.log
           "$GH" /tmp/ghidra-project Gate0ELF -import /bin/ls -deleteProject >> advanced-evidence/ghidra.log 2>&1
-          echo "TOOL=Ghidra RESULT=RC_0" | tee advanced-evidence/ghidra.status
+          echo 'TOOL=Ghidra TARGET=/bin/ls COMMAND=analyzeHeadless_import RESULT=RC_0' | tee advanced-evidence/ghidra.status
 
       - name: Build radare2 and r2flutter then run bundled Dart AOT sample
         run: |
-          set +e
+          set -euo pipefail
           sudo apt-get update -qq
           sudo apt-get install -y -qq build-essential git make pkg-config meson ninja-build python3-pip >/tmp/r2-apt.log 2>&1
           rm -rf /tmp/radare2 /tmp/r2flutter
           git clone --depth 1 https://github.com/radareorg/radare2.git /tmp/radare2 > advanced-evidence/radare2-clone.log 2>&1
-          crc=$?
-          if [ $crc -eq 0 ]; then
-            (cd /tmp/radare2 && sys/install.sh) > advanced-evidence/radare2-build.log 2>&1
-          fi
-          r2 -v > advanced-evidence/radare2-version.log 2>&1
-          rrc=$?
-          echo "TOOL=radare2 RESULT=RC_${rrc}" | tee advanced-evidence/radare2.status
+          (cd /tmp/radare2 && sys/install.sh) > advanced-evidence/radare2-build.log 2>&1
+          r2 -v | tee advanced-evidence/radare2-version.log
+          echo 'TOOL=radare2 TARGET=VERSION_PROBE COMMAND=r2_-v RESULT=RC_0' | tee advanced-evidence/radare2.status
 
           git clone --depth 1 https://github.com/radareorg/r2flutter.git /tmp/r2flutter > advanced-evidence/r2flutter-clone.log 2>&1
-          crc=$?
-          if [ $crc -eq 0 ]; then
-            (cd /tmp/r2flutter && make) > advanced-evidence/r2flutter-build.log 2>&1
-            brc=$?
-          else
-            brc=$crc
-          fi
-          echo "R2FLUTTER_BUILD_RC=$brc" | tee advanced-evidence/r2flutter.status
-          if [ $brc -eq 0 ]; then
-            /tmp/r2flutter/bin/r2flutter -V > advanced-evidence/r2flutter-version.log 2>&1
-            vrc=$?
-            echo "R2FLUTTER_VERSION_RC=$vrc" | tee -a advanced-evidence/r2flutter.status
-            sample=$(find /tmp/r2flutter/test/bins -type f -name 'libapp.so' -print -quit 2>/dev/null)
-            if [ -n "$sample" ]; then
-              /tmp/r2flutter/bin/r2flutter -HH -l 16 "$sample" > advanced-evidence/r2flutter-sample.log 2>&1
-              src=$?
-              echo "R2FLUTTER_REAL_SAMPLE=$sample RC=$src" | tee -a advanced-evidence/r2flutter.status
-              /tmp/r2flutter/bin/r2flutter -D 3.10.7 -H "$sample" > advanced-evidence/r2flutter-dart3107-profile.log 2>&1
-              drc=$?
-              echo "R2FLUTTER_DART_3_10_7_PROFILE_RC=$drc" | tee -a advanced-evidence/r2flutter.status
-            else
-              echo "R2FLUTTER_REAL_SAMPLE=NOT_FOUND" | tee -a advanced-evidence/r2flutter.status
-            fi
-          fi
-          exit 0
+          (cd /tmp/r2flutter && make) > advanced-evidence/r2flutter-build.log 2>&1
+          /tmp/r2flutter/bin/r2flutter -V | tee advanced-evidence/r2flutter-version.log
+          sample=$(find /tmp/r2flutter/test/bins -type f -name 'libapp.so' -print -quit 2>/dev/null)
+          test -n "$sample"
+          /tmp/r2flutter/bin/r2flutter -HH -l 16 "$sample" > advanced-evidence/r2flutter-sample.log 2>&1
+          echo "TOOL=r2flutter SAMPLE_TARGET=$sample COMMAND='r2flutter -HH -l 16' RESULT=RC_0" | tee advanced-evidence/r2flutter.status
+          /tmp/r2flutter/bin/r2flutter -D 3.10.7 -H "$sample" > advanced-evidence/r2flutter-dart3107-profile.log 2>&1
+          echo "DART_3_10_7_PROFILE_CAPABILITY=VERIFIED SAMPLE_TARGET=$sample RESULT=RC_0" | tee -a advanced-evidence/r2flutter.status
+          echo 'TARGET_CHATBOT_OBJECTPOOL_XREF=NOT_TESTED' | tee -a advanced-evidence/r2flutter.status
 
       - name: Blutter capability probe
         run: |
-          set +e
+          set -euo pipefail
           sudo apt-get install -y -qq cmake ninja-build pkg-config libicu-dev libcapstone-dev >/dev/null 2>&1
           python3 -m pip install --user --quiet requests pyelftools
           rm -rf /tmp/blutter
           git clone --depth 1 https://github.com/worawit/blutter.git /tmp/blutter > advanced-evidence/blutter-clone.log 2>&1
-          rc=$?
-          if [ $rc -eq 0 ]; then
-            python3 /tmp/blutter/blutter.py --help > advanced-evidence/blutter-help.log 2>&1
-            hrc=$?
-            echo "BLUTTER_HEAD=$(git -C /tmp/blutter rev-parse HEAD)" > advanced-evidence/blutter.status
-            echo "BLUTTER_HELP_RC=$hrc" >> advanced-evidence/blutter.status
-          else
-            echo "BLUTTER_CLONE_RC=$rc" > advanced-evidence/blutter.status
-          fi
-          exit 0
+          python3 /tmp/blutter/blutter.py --help > advanced-evidence/blutter-help.log 2>&1
+          echo "BLUTTER_HEAD=$(git -C /tmp/blutter rev-parse HEAD)" | tee advanced-evidence/blutter.status
+          echo 'TOOL=Blutter TARGET=HELP_CAPABILITY COMMAND=blutter.py_--help RESULT=RC_0' | tee -a advanced-evidence/blutter.status
 
       - name: Upload advanced forensic evidence
         if: always()

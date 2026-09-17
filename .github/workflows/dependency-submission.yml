@@ -1,0 +1,40 @@
+name: Dependency Submission
+
+on:
+  push:
+    branches: [main, copilot-agent-upgrade-20260917]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  dependency-submission:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Ensure Gradle executable
+        run: |
+          set -euo pipefail
+          if [ ! -f gradlew ]; then
+            curl -fsSL https://services.gradle.org/distributions/gradle-8.7-bin.zip -o /tmp/gradle.zip
+            unzip -q /tmp/gradle.zip -d /tmp
+            printf '#!/bin/sh\nexec /tmp/gradle-8.7/bin/gradle "$@"\n' > gradlew
+            chmod +x gradlew
+          fi
+      - name: Generate and submit Gradle dependency graph
+        uses: gradle/actions/dependency-submission@v6
+        with:
+          cache-provider: basic
+          dependency-graph: generate-and-submit
