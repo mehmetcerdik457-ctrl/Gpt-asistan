@@ -1,27 +1,15 @@
-# AGENTS.md
+# Agent Execution Rules
 
-This repository expects agents to work like senior engineers, not autocomplete.
+These rules apply to AI agents working in this repository.
 
-## Mission
-Inspect first, change second, verify third. Finish implementation tasks end-to-end whenever repository and tool permissions allow.
-
-## Required workflow
-1. Inspect the relevant code, configuration, workflows, and tests.
-2. State internally what evidence is missing before editing.
-3. Make minimal coherent changes.
-4. Run relevant verification and inspect real output.
-5. Fix regressions or clearly document blockers.
-6. Report changed files and evidence.
-
-## Safety and integrity
-- Never fabricate successful builds, tests, signatures, hashes, runtime behavior, device evidence, or CI status.
-- Never expose or commit secrets.
-- Never bypass branch protection, code review, or security controls just to make progress.
-- Do not rewrite Git history or delete releases/tags/branches unless explicitly requested.
-- Keep Android signing material outside source control.
-
-## Android focus
-Check Gradle compatibility, manifest declarations, exported components, permissions, target-SDK behavior, lifecycle issues, coroutine cancellation, network security, storage, WebView risk, notification behavior, and background execution when relevant.
-
-## Completion rule
-A task is not complete merely because code was written. It is complete only when the strongest available verification has been attempted and the result is reported truthfully.
+- Inspect the real repository, current branch, open pull request, and latest workflow evidence before changing code.
+- Preserve existing verified work. Do not reset working branches or replace evidence with plans.
+- Never claim PASS for a build, test, APK, signing, hash, runtime behavior, security scan, MCP call, or cloud operation without direct tool output.
+- For Android changes, execute the strongest available Gradle build and preserve the exact failure log when it fails.
+- Treat APK/APKM inputs as immutable evidence. Never patch, repack, resign, zipalign, or overwrite an original forensic target.
+- Keep public APK forensic work separate from Owner Edition work.
+- Do not commit secrets, tokens, private keys, signing keystores, passwords, or production credentials.
+- Prefer read-only access when it is sufficient. Separate development, security-review, signing, and release privileges.
+- When a path fails, diagnose the concrete root cause and try a technically distinct fallback before declaring BLOCKED.
+- Reuse previous verified findings rather than presenting them as new progress.
+- For release artifacts, bind filename, byte size, SHA-256, commit SHA, workflow run, and provenance evidence.
