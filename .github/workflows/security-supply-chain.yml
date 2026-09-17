@@ -123,6 +123,22 @@ jobs:
         uses: actions/attest-build-provenance@v2
         with:
           subject-path: release-evidence/app-debug.apk
+      - name: Verify APK provenance attestation
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ok=0
+          for attempt in 1 2 3 4 5; do
+            if gh attestation verify release-evidence/app-debug.apk --repo "$GITHUB_REPOSITORY" | tee release-evidence/attestation-verify.txt; then
+              ok=1
+              break
+            fi
+            sleep 5
+          done
+          test "$ok" -eq 1
+          echo 'ATTESTATION_VERIFY=PASS' | tee -a release-evidence/attestation-verify.txt
       - name: Upload release evidence
         uses: actions/upload-artifact@v4
         with:
@@ -131,5 +147,6 @@ jobs:
             release-evidence/app-debug.apk
             release-evidence/app-debug.spdx.json
             release-evidence/evidence.txt
+            release-evidence/attestation-verify.txt
           if-no-files-found: error
           retention-days: 30
