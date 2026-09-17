@@ -1,0 +1,108 @@
+name: Security and Supply Chain
+
+on:
+  push:
+    branches: [copilot-agent-upgrade-20260917]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+  id-token: write
+  attestations: write
+
+jobs:
+  codeql:
+    name: CodeQL Java-Kotlin
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Prepare Gradle
+        run: |
+          if [ ! -f gradlew ]; then
+            curl -fsSL https://services.gradle.org/distributions/gradle-8.7-bin.zip -o /tmp/gradle.zip
+            unzip -q /tmp/gradle.zip -d /tmp
+            printf '#!/bin/sh\nexec /tmp/gradle-8.7/bin/gradle "$@"\n' > gradlew
+            chmod +x gradlew
+          fi
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: java-kotlin
+      - name: Build for CodeQL
+        run: ./gradlew :app:assembleDebug --stacktrace
+      - uses: github/codeql-action/analyze@v3
+        with:
+          category: /language:java-kotlin
+
+  dependency-review:
+    name: Dependency Review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/dependency-review-action@v4
+
+  supply-chain:
+    name: APK SBOM Provenance
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Prepare Gradle
+        run: |
+          if [ ! -f gradlew ]; then
+            curl -fsSL https://services.gradle.org/distributions/gradle-8.7-bin.zip -o /tmp/gradle.zip
+            unzip -q /tmp/gradle.zip -d /tmp
+            printf '#!/bin/sh\nexec /tmp/gradle-8.7/bin/gradle "$@"\n' > gradlew
+            chmod +x gradlew
+          fi
+      - name: Build APK
+        run: ./gradlew :app:assembleDebug --stacktrace
+      - name: Capture immutable evidence
+        run: |
+          set -euo pipefail
+          APK=$(find app/build/outputs/apk/debug -type f -name '*.apk' | head -1)
+          test -f "$APK"
+          mkdir -p release-evidence
+          cp "$APK" release-evidence/app-debug.apk
+          {
+            echo "commit=${GITHUB_SHA}"
+            echo "run_id=${GITHUB_RUN_ID}"
+            echo "filename=$(basename "$APK")"
+            echo "size=$(stat -c%s "$APK")"
+            echo "sha256=$(sha256sum "$APK" | awk '{print $1}')"
+            echo "sha512=$(sha512sum "$APK" | awk '{print $1}')"
+          } | tee release-evidence/evidence.txt
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          path: release-evidence/app-debug.apk
+          format: spdx-json
+          output-file: release-evidence/app-debug.spdx.json
+          upload-artifact: false
+      - name: Attest APK provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: release-evidence/app-debug.apk
+      - name: Upload release evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-supply-chain-${{ github.sha }}
+          path: release-evidence/**
+          if-no-files-found: error
+          retention-days: 30
