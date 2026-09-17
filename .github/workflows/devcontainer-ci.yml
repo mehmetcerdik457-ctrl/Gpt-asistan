@@ -1,0 +1,41 @@
+name: Devcontainer Toolchain
+
+on:
+  push:
+    branches: [copilot-agent-upgrade-20260917]
+    paths:
+      - '.devcontainer/**'
+      - '.github/workflows/devcontainer-ci.yml'
+  pull_request:
+    paths:
+      - '.devcontainer/**'
+      - '.github/workflows/devcontainer-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-devcontainer:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build engineering lab image
+        run: docker build --pull -f .devcontainer/Dockerfile -t gpt-asistan-engineering-lab .
+      - name: Verify installed toolchain
+        run: |
+          docker run --rm \
+            -v "$PWD:/workspace:ro" \
+            -w /workspace \
+            gpt-asistan-engineering-lab \
+            bash .devcontainer/verify-toolchain.sh | tee devcontainer-toolchain.log
+          grep -Fx 'TOOLCHAIN_VERIFY=PASS' devcontainer-toolchain.log
+      - name: Upload toolchain evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: devcontainer-toolchain-${{ github.sha }}
+          path: devcontainer-toolchain.log
+          if-no-files-found: error
+          retention-days: 30
