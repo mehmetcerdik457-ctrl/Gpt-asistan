@@ -23,7 +23,7 @@ jobs:
 
       - name: Capstone real execution
         run: |
-          set +e
+          set -euo pipefail
           python3 -m pip install --user --quiet capstone
           python3 - <<'PY' > advanced-evidence/capstone.log 2>&1
           import capstone
@@ -33,9 +33,7 @@ jobs:
           assert len(ins) == 2
           for i in ins: print(hex(i.address), i.mnemonic, i.op_str)
           PY
-          rc=$?
-          echo "TOOL=Capstone RESULT=RC_${rc}" | tee advanced-evidence/capstone.status
-          exit $rc
+          echo "TOOL=Capstone RESULT=RC_0" | tee advanced-evidence/capstone.status
 
       - name: Ghidra headless install and real ELF analysis
         run: |
@@ -43,8 +41,11 @@ jobs:
           url=$(curl -fsSL https://api.github.com/repos/NationalSecurityAgency/ghidra/releases/latest | jq -r '.assets[] | select(.name|test("PUBLIC.*\\.zip$")) | .browser_download_url' | head -1)
           test -n "$url"
           curl -fsSL "$url" -o /tmp/ghidra.zip
-          unzip -q /tmp/ghidra.zip -d /tmp
-          GH=$(find /tmp -maxdepth 3 -type f -path '*/support/analyzeHeadless' | head -1)
+          rm -rf /tmp/ghidra-unpack /tmp/ghidra-project
+          mkdir -p /tmp/ghidra-unpack
+          unzip -q /tmp/ghidra.zip -d /tmp/ghidra-unpack
+          GH=$(find /tmp/ghidra-unpack -maxdepth 4 -type f -path '*/support/analyzeHeadless' -print -quit)
+          test -n "$GH"
           test -x "$GH"
           echo "GHIDRA_HEADLESS=$GH" > advanced-evidence/ghidra.log
           "$GH" /tmp/ghidra-project Gate0ELF -import /bin/ls -deleteProject >> advanced-evidence/ghidra.log 2>&1
@@ -55,8 +56,10 @@ jobs:
           set +e
           sudo apt-get update -qq
           sudo apt-get install -y -qq build-essential git make pkg-config meson ninja-build python3-pip >/tmp/r2-apt.log 2>&1
+          rm -rf /tmp/radare2 /tmp/r2flutter
           git clone --depth 1 https://github.com/radareorg/radare2.git /tmp/radare2 > advanced-evidence/radare2-clone.log 2>&1
-          if [ $? -eq 0 ]; then
+          crc=$?
+          if [ $crc -eq 0 ]; then
             (cd /tmp/radare2 && sys/install.sh) > advanced-evidence/radare2-build.log 2>&1
           fi
           r2 -v > advanced-evidence/radare2-version.log 2>&1
@@ -74,13 +77,16 @@ jobs:
           echo "R2FLUTTER_BUILD_RC=$brc" | tee advanced-evidence/r2flutter.status
           if [ $brc -eq 0 ]; then
             /tmp/r2flutter/bin/r2flutter -V > advanced-evidence/r2flutter-version.log 2>&1
-            sample=$(find /tmp/r2flutter/test/bins -type f -name 'libapp.so' | head -1)
+            vrc=$?
+            echo "R2FLUTTER_VERSION_RC=$vrc" | tee -a advanced-evidence/r2flutter.status
+            sample=$(find /tmp/r2flutter/test/bins -type f -name 'libapp.so' -print -quit 2>/dev/null)
             if [ -n "$sample" ]; then
               /tmp/r2flutter/bin/r2flutter -HH -l 16 "$sample" > advanced-evidence/r2flutter-sample.log 2>&1
               src=$?
               echo "R2FLUTTER_REAL_SAMPLE=$sample RC=$src" | tee -a advanced-evidence/r2flutter.status
               /tmp/r2flutter/bin/r2flutter -D 3.10.7 -H "$sample" > advanced-evidence/r2flutter-dart3107-profile.log 2>&1
-              echo "R2FLUTTER_DART_3_10_7_PROFILE_RC=$?" | tee -a advanced-evidence/r2flutter.status
+              drc=$?
+              echo "R2FLUTTER_DART_3_10_7_PROFILE_RC=$drc" | tee -a advanced-evidence/r2flutter.status
             else
               echo "R2FLUTTER_REAL_SAMPLE=NOT_FOUND" | tee -a advanced-evidence/r2flutter.status
             fi
@@ -92,6 +98,7 @@ jobs:
           set +e
           sudo apt-get install -y -qq cmake ninja-build pkg-config libicu-dev libcapstone-dev >/dev/null 2>&1
           python3 -m pip install --user --quiet requests pyelftools
+          rm -rf /tmp/blutter
           git clone --depth 1 https://github.com/worawit/blutter.git /tmp/blutter > advanced-evidence/blutter-clone.log 2>&1
           rc=$?
           if [ $rc -eq 0 ]; then
