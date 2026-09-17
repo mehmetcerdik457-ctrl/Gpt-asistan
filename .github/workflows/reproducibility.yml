@@ -11,15 +11,28 @@ permissions:
 jobs:
   reproducibility:
     runs-on: ubuntu-24.04
-    timeout-minutes: 35
+    timeout-minutes: 45
+    env:
+      EXPECTED_SHA: ${{ github.event.after || github.sha }}
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: ${{ github.event.after || github.sha }}
           persist-credentials: false
+
+      - name: Exact direct-head SHA guard
+        run: |
+          set -euo pipefail
+          actual="$(git rev-parse HEAD)"
+          echo "EXPECTED_SHA=${EXPECTED_SHA}"
+          echo "ACTUAL_GIT_SHA=${actual}"
+          test "${EXPECTED_SHA}" = "${actual}"
+
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
+
       - name: Prepare Gradle
         run: |
           set -euo pipefail
@@ -29,6 +42,7 @@ jobs:
             printf '#!/bin/sh\nexec /tmp/gradle-8.7/bin/gradle "$@"\n' > gradlew
             chmod +x gradlew
           fi
+
       - name: Compare two clean unsigned release builds
         run: |
           set -euo pipefail
@@ -48,6 +62,7 @@ jobs:
           else
             echo 'UNSIGNED_RELEASE_REPRODUCIBLE=NO' | tee reproducibility/unsigned-result.txt
           fi
+
       - name: Compare debug builds with independently generated debug signing identities
         run: |
           set -euo pipefail
@@ -71,27 +86,93 @@ jobs:
           else
             echo 'DEBUG_SIGNED_REPRODUCIBLE=NO' | tee reproducibility/debug-result.txt
           fi
-      - name: Classify reproducibility root cause
+
+      - name: Sign identical release builds with one ephemeral non-production identity
+        run: |
+          set -euo pipefail
+          BT=$(find "$ANDROID_HOME/build-tools" -maxdepth 1 -mindepth 1 -type d | sort -V | tail -1)
+          APKSIGNER="$BT/apksigner"
+          test -x "$APKSIGNER"
+          test -f reproducibility/release-A-unsigned.apk
+          test -f reproducibility/release-B-unsigned.apk
+
+          KS="$(mktemp /tmp/repro-signing.XXXXXX.jks)"
+          rm -f "$KS"
+          PW="$(openssl rand -hex 24)"
+          cleanup() { rm -f "$KS"; unset PW; }
+          trap cleanup EXIT
+
+          keytool -genkeypair -noprompt \
+            -keystore "$KS" \
+            -storepass "$PW" \
+            -keypass "$PW" \
+            -alias repro \
+            -keyalg RSA \
+            -keysize 3072 \
+            -validity 3650 \
+            -dname 'CN=NonProduction Reproducibility,O=Gpt-asistan,C=TR' \
+            >/dev/null 2>&1
+
+          "$APKSIGNER" sign \
+            --ks "$KS" --ks-pass "pass:$PW" --key-pass "pass:$PW" \
+            --out reproducibility/release-A-signed.apk \
+            reproducibility/release-A-unsigned.apk
+          "$APKSIGNER" sign \
+            --ks "$KS" --ks-pass "pass:$PW" --key-pass "pass:$PW" \
+            --out reproducibility/release-B-signed.apk \
+            reproducibility/release-B-unsigned.apk
+
+          "$APKSIGNER" verify --print-certs reproducibility/release-A-signed.apk > reproducibility/release-A-signed-cert.txt
+          "$APKSIGNER" verify --print-certs reproducibility/release-B-signed.apk > reproducibility/release-B-signed-cert.txt
+
+          sha256sum reproducibility/release-A-unsigned.apk reproducibility/release-B-unsigned.apk \
+            | tee reproducibility/unsigned-release-sha256.txt
+          sha256sum reproducibility/release-A-signed.apk reproducibility/release-B-signed.apk \
+            | tee reproducibility/signed-release-sha256.txt
+
+          cert_a="$(grep -m1 -E 'certificate SHA-256 digest:' reproducibility/release-A-signed-cert.txt | sed 's/.*: //')"
+          cert_b="$(grep -m1 -E 'certificate SHA-256 digest:' reproducibility/release-B-signed-cert.txt | sed 's/.*: //')"
+          echo "CERT_SHA_A=${cert_a}" | tee reproducibility/signed-cert-digests.txt
+          echo "CERT_SHA_B=${cert_b}" | tee -a reproducibility/signed-cert-digests.txt
+          test -n "$cert_a"
+          test "$cert_a" = "$cert_b"
+
+          if cmp -s reproducibility/release-A-signed.apk reproducibility/release-B-signed.apk; then
+            echo 'SIGNED_RELEASE_REPRODUCIBLE=YES' | tee reproducibility/signed-result.txt
+          else
+            echo 'SIGNED_RELEASE_REPRODUCIBLE=NO' | tee reproducibility/signed-result.txt
+          fi
+
+      - name: Classify reproducibility
         run: |
           set -euo pipefail
           unsigned=$(cut -d= -f2 reproducibility/unsigned-result.txt)
           debug=$(cut -d= -f2 reproducibility/debug-result.txt)
+          signed=$(cut -d= -f2 reproducibility/signed-result.txt)
           cert_unique=$(sed 's/.*: //' reproducibility/debug-cert-digests.txt | sort -u | wc -l)
           if [ "$unsigned" = YES ] && [ "$debug" = NO ] && [ "$cert_unique" -ge 2 ]; then
-            echo 'ROOT_CAUSE=SIGNATURE' | tee reproducibility/classification.txt
+            echo 'DEBUG_ROOT_CAUSE=SIGNING_IDENTITY_VARIANCE' | tee reproducibility/classification.txt
           elif [ "$unsigned" = NO ]; then
-            echo 'ROOT_CAUSE=UNSIGNED_BUILD_NONDETERMINISM_REQUIRES_ZIP_METADATA_ANALYSIS' | tee reproducibility/classification.txt
+            echo 'DEBUG_ROOT_CAUSE=UNSIGNED_BUILD_NONDETERMINISM_REQUIRES_ZIP_METADATA_ANALYSIS' | tee reproducibility/classification.txt
           else
-            echo 'ROOT_CAUSE=OTHER_OR_NOT_REPRODUCED' | tee reproducibility/classification.txt
+            echo 'DEBUG_ROOT_CAUSE=OTHER_OR_NOT_REPRODUCED' | tee reproducibility/classification.txt
+          fi
+          if [ "$unsigned" = YES ] && [ "$signed" = YES ]; then
+            echo 'SIGNED_REPRODUCIBILITY=VERIFIED' | tee -a reproducibility/classification.txt
+          else
+            echo 'SIGNED_REPRODUCIBILITY=PARTIAL' | tee -a reproducibility/classification.txt
           fi
           {
             echo "HEAD_SHA=${GITHUB_SHA}"
             echo "RUN_ID=${GITHUB_RUN_ID}"
             cat reproducibility/unsigned-result.txt
             cat reproducibility/debug-result.txt
+            cat reproducibility/signed-result.txt
             cat reproducibility/classification.txt
           } | tee reproducibility/summary.txt
           test "$unsigned" = YES
+          test "$signed" = YES
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:

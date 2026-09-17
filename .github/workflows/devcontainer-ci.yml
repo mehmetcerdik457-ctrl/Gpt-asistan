@@ -6,11 +6,13 @@ on:
     paths:
       - '.devcontainer/**'
       - '.github/workflows/devcontainer-ci.yml'
+      - '.github/workflows/direct-head-matrix.yml'
   pull_request:
     branches: [main]
     paths:
       - '.devcontainer/**'
       - '.github/workflows/devcontainer-ci.yml'
+      - '.github/workflows/direct-head-matrix.yml'
   workflow_dispatch:
 
 permissions:
@@ -20,10 +22,20 @@ jobs:
   verify-devcontainer:
     runs-on: ubuntu-24.04
     timeout-minutes: 75
+    env:
+      EXPECTED_SHA: ${{ github.event.after || github.sha }}
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: ${{ github.event.after || github.sha }}
           persist-credentials: false
+      - name: Exact direct-head SHA guard
+        run: |
+          set -euo pipefail
+          actual="$(git rev-parse HEAD)"
+          echo "EXPECTED_SHA=${EXPECTED_SHA}"
+          echo "ACTUAL_GIT_SHA=${actual}"
+          test "${EXPECTED_SHA}" = "${actual}"
       - name: Build engineering lab image
         run: docker build --pull -f .devcontainer/Dockerfile -t gpt-asistan-engineering-lab .
       - name: Verify installed toolchain and real sample execution
