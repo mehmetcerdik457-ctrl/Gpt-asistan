@@ -1,0 +1,114 @@
+name: Advanced APK Forensic Toolchain
+
+on:
+  push:
+    branches: [copilot-agent-upgrade-20260917]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  advanced-forensics:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Prepare evidence directory
+        run: mkdir -p advanced-evidence
+
+      - name: Capstone real execution
+        run: |
+          set +e
+          python3 -m pip install --user --quiet capstone
+          python3 - <<'PY' > advanced-evidence/capstone.log 2>&1
+          import capstone
+          print('CAPSTONE_VERSION=' + capstone.__version__)
+          md = capstone.Cs(capstone.CS_ARCH_ARM64, capstone.CS_MODE_ARM)
+          ins = list(md.disasm(bytes.fromhex('200080d2c0035fd6'), 0x1000))
+          assert len(ins) == 2
+          for i in ins: print(hex(i.address), i.mnemonic, i.op_str)
+          PY
+          rc=$?
+          echo "TOOL=Capstone RESULT=RC_${rc}" | tee advanced-evidence/capstone.status
+          exit $rc
+
+      - name: Ghidra headless install and real ELF analysis
+        run: |
+          set -euo pipefail
+          url=$(curl -fsSL https://api.github.com/repos/NationalSecurityAgency/ghidra/releases/latest | jq -r '.assets[] | select(.name|test("PUBLIC.*\\.zip$")) | .browser_download_url' | head -1)
+          test -n "$url"
+          curl -fsSL "$url" -o /tmp/ghidra.zip
+          unzip -q /tmp/ghidra.zip -d /tmp
+          GH=$(find /tmp -maxdepth 3 -type f -path '*/support/analyzeHeadless' | head -1)
+          test -x "$GH"
+          echo "GHIDRA_HEADLESS=$GH" > advanced-evidence/ghidra.log
+          "$GH" /tmp/ghidra-project Gate0ELF -import /bin/ls -deleteProject >> advanced-evidence/ghidra.log 2>&1
+          echo "TOOL=Ghidra RESULT=RC_0" | tee advanced-evidence/ghidra.status
+
+      - name: Build radare2 and r2flutter then run bundled Dart AOT sample
+        run: |
+          set +e
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq build-essential git make pkg-config meson ninja-build python3-pip >/tmp/r2-apt.log 2>&1
+          git clone --depth 1 https://github.com/radareorg/radare2.git /tmp/radare2 > advanced-evidence/radare2-clone.log 2>&1
+          if [ $? -eq 0 ]; then
+            (cd /tmp/radare2 && sys/install.sh) > advanced-evidence/radare2-build.log 2>&1
+          fi
+          r2 -v > advanced-evidence/radare2-version.log 2>&1
+          rrc=$?
+          echo "TOOL=radare2 RESULT=RC_${rrc}" | tee advanced-evidence/radare2.status
+
+          git clone --depth 1 https://github.com/radareorg/r2flutter.git /tmp/r2flutter > advanced-evidence/r2flutter-clone.log 2>&1
+          crc=$?
+          if [ $crc -eq 0 ]; then
+            (cd /tmp/r2flutter && make) > advanced-evidence/r2flutter-build.log 2>&1
+            brc=$?
+          else
+            brc=$crc
+          fi
+          echo "R2FLUTTER_BUILD_RC=$brc" | tee advanced-evidence/r2flutter.status
+          if [ $brc -eq 0 ]; then
+            /tmp/r2flutter/bin/r2flutter -V > advanced-evidence/r2flutter-version.log 2>&1
+            sample=$(find /tmp/r2flutter/test/bins -type f -name 'libapp.so' | head -1)
+            if [ -n "$sample" ]; then
+              /tmp/r2flutter/bin/r2flutter -HH -l 16 "$sample" > advanced-evidence/r2flutter-sample.log 2>&1
+              src=$?
+              echo "R2FLUTTER_REAL_SAMPLE=$sample RC=$src" | tee -a advanced-evidence/r2flutter.status
+              /tmp/r2flutter/bin/r2flutter -D 3.10.7 -H "$sample" > advanced-evidence/r2flutter-dart3107-profile.log 2>&1
+              echo "R2FLUTTER_DART_3_10_7_PROFILE_RC=$?" | tee -a advanced-evidence/r2flutter.status
+            else
+              echo "R2FLUTTER_REAL_SAMPLE=NOT_FOUND" | tee -a advanced-evidence/r2flutter.status
+            fi
+          fi
+          exit 0
+
+      - name: Blutter capability probe
+        run: |
+          set +e
+          sudo apt-get install -y -qq cmake ninja-build pkg-config libicu-dev libcapstone-dev >/dev/null 2>&1
+          python3 -m pip install --user --quiet requests pyelftools
+          git clone --depth 1 https://github.com/worawit/blutter.git /tmp/blutter > advanced-evidence/blutter-clone.log 2>&1
+          rc=$?
+          if [ $rc -eq 0 ]; then
+            python3 /tmp/blutter/blutter.py --help > advanced-evidence/blutter-help.log 2>&1
+            hrc=$?
+            echo "BLUTTER_HEAD=$(git -C /tmp/blutter rev-parse HEAD)" > advanced-evidence/blutter.status
+            echo "BLUTTER_HELP_RC=$hrc" >> advanced-evidence/blutter.status
+          else
+            echo "BLUTTER_CLONE_RC=$rc" > advanced-evidence/blutter.status
+          fi
+          exit 0
+
+      - name: Upload advanced forensic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: advanced-forensics-${{ github.sha }}
+          path: advanced-evidence/**
+          if-no-files-found: error
+          retention-days: 30
