@@ -42,7 +42,7 @@ jobs:
           test -n "$url"
           curl -fsSL "$url" -o /tmp/ghidra.zip
           rm -rf /tmp/ghidra-unpack /tmp/ghidra-project
-          mkdir -p /tmp/ghidra-unpack
+          mkdir -p /tmp/ghidra-unpack /tmp/ghidra-project
           unzip -q /tmp/ghidra.zip -d /tmp/ghidra-unpack
           GH=$(find /tmp/ghidra-unpack -maxdepth 4 -type f -path '*/support/analyzeHeadless' -print -quit)
           test -n "$GH"
