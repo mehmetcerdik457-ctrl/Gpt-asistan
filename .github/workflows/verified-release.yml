@@ -1,0 +1,124 @@
+name: Verified Release Pipeline
+
+on:
+  push:
+    branches: [copilot-agent-upgrade-20260917]
+    paths:
+      - '.github/workflows/verified-release.yml'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag. Required only when publish=true.
+        required: false
+        default: ''
+      publish:
+        description: Publish a GitHub release after every verification gate passes
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
+jobs:
+  verify-candidate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      sha256: ${{ steps.identity.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Build candidate
+        run: |
+          set -euo pipefail
+          if [ ! -f gradlew ]; then
+            curl -fsSL https://services.gradle.org/distributions/gradle-8.7-bin.zip -o /tmp/gradle.zip
+            unzip -q /tmp/gradle.zip -d /tmp
+            printf '#!/bin/sh\nexec /tmp/gradle-8.7/bin/gradle "$@"\n' > gradlew
+            chmod +x gradlew
+          fi
+          ./gradlew :app:assembleDebug --stacktrace
+          mkdir -p candidate
+          cp app/build/outputs/apk/debug/app-debug.apk candidate/app-debug.apk
+          chmod 0444 candidate/app-debug.apk
+      - name: Record candidate identity
+        id: identity
+        run: |
+          set -euo pipefail
+          sha256=$(sha256sum candidate/app-debug.apk | awk '{print $1}')
+          sha512=$(sha512sum candidate/app-debug.apk | awk '{print $1}')
+          size=$(stat -c%s candidate/app-debug.apk)
+          {
+            echo "head_sha=${GITHUB_SHA}"
+            echo "run_id=${GITHUB_RUN_ID}"
+            echo "size=${size}"
+            echo "sha256=${sha256}"
+            echo "sha512=${sha512}"
+          } | tee candidate/identity.txt
+          echo "sha256=${sha256}" >> "$GITHUB_OUTPUT"
+      - name: Attest candidate provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: candidate/app-debug.apk
+      - name: Verify attestation from GitHub
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ok=0
+          for attempt in 1 2 3 4 5; do
+            if gh attestation verify candidate/app-debug.apk --repo "$GITHUB_REPOSITORY" | tee candidate/attestation-verify.txt; then
+              ok=1
+              break
+            fi
+            sleep 5
+          done
+          test "$ok" -eq 1
+          echo 'ATTESTATION_VERIFY=PASS' | tee -a candidate/attestation-verify.txt
+      - name: Re-hash candidate after verification
+        run: |
+          set -euo pipefail
+          before=$(awk -F= '/^sha256=/{print $2}' candidate/identity.txt)
+          after=$(sha256sum candidate/app-debug.apk | awk '{print $1}')
+          test "$before" = "$after"
+          echo 'CANDIDATE_PRESERVATION=PASS' | tee candidate/preservation.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: verified-release-candidate-${{ github.sha }}
+          path: candidate
+          if-no-files-found: error
+          retention-days: 30
+
+  publish-release:
+    if: github.event_name == 'workflow_dispatch' && inputs.publish == true
+    needs: verify-candidate
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Require explicit release tag
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: test -n "$RELEASE_TAG"
+      - name: Download verified candidate from this run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download "$GITHUB_RUN_ID" -n "verified-release-candidate-${GITHUB_SHA}" -D candidate
+          sha256sum candidate/app-debug.apk
+      - name: Publish verified GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          gh release create "$RELEASE_TAG" candidate/app-debug.apk candidate/identity.txt candidate/attestation-verify.txt \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$RELEASE_TAG" \
+            --generate-notes
