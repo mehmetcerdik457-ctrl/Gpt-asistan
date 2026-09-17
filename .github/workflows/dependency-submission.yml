@@ -24,17 +24,9 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Ensure Gradle executable
-        run: |
-          set -euo pipefail
-          if [ ! -f gradlew ]; then
-            curl -fsSL https://services.gradle.org/distributions/gradle-8.7-bin.zip -o /tmp/gradle.zip
-            unzip -q /tmp/gradle.zip -d /tmp
-            printf '#!/bin/sh\nexec /tmp/gradle-8.7/bin/gradle "$@"\n' > gradlew
-            chmod +x gradlew
-          fi
       - name: Generate and submit Gradle dependency graph
         uses: gradle/actions/dependency-submission@v6
         with:
+          gradle-version: '8.7'
           cache-provider: basic
           dependency-graph: generate-and-submit
