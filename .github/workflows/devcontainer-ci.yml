@@ -3,10 +3,6 @@ name: Devcontainer Toolchain
 on:
   push:
     branches: [main, copilot-agent-upgrade-20260917]
-    paths:
-      - '.devcontainer/**'
-      - '.github/workflows/devcontainer-ci.yml'
-      - '.github/workflows/direct-head-matrix.yml'
   pull_request:
     branches: [main]
     paths:

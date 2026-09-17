@@ -3,6 +3,8 @@ name: Reproducible Build Evidence
 on:
   push:
     branches: [main, copilot-agent-upgrade-20260917]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
