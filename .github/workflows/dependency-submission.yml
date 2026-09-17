@@ -1,0 +1,72 @@
+name: Dependency Submission
+
+on:
+  push:
+    branches: [main, copilot-agent-upgrade-20260917]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  dependency-submission:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Probe dependency graph feature state
+        id: graph
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p dependency-evidence
+          code=$(curl -sS -o /tmp/dependency-sbom.json -w '%{http_code}' \
+            -H 'Accept: application/vnd.github+json' \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'X-GitHub-Api-Version: 2026-03-10' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/dependency-graph/sbom")
+          echo "DEPENDENCY_GRAPH_HTTP=${code}" | tee dependency-evidence/state.txt
+          case "$code" in
+            200)
+              echo 'DEPENDENCY_GRAPH=ENABLED' | tee -a dependency-evidence/state.txt
+              echo 'enabled=true' >> "$GITHUB_OUTPUT"
+              ;;
+            404)
+              echo 'DEPENDENCY_GRAPH=USER_ACTION_REQUIRED REASON=FEATURE_DISABLED' | tee -a dependency-evidence/state.txt
+              echo 'enabled=false' >> "$GITHUB_OUTPUT"
+              ;;
+            403)
+              echo 'DEPENDENCY_GRAPH=USER_ACTION_REQUIRED REASON=API_PERMISSION' | tee -a dependency-evidence/state.txt
+              echo 'enabled=false' >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "DEPENDENCY_GRAPH=BLOCKED REASON=UNEXPECTED_HTTP_${code}" | tee -a dependency-evidence/state.txt
+              exit 1
+              ;;
+          esac
+      - name: Generate and submit Gradle dependency graph
+        if: steps.graph.outputs.enabled == 'true'
+        uses: gradle/actions/dependency-submission@v6
+        with:
+          gradle-version: '8.7'
+          cache-provider: basic
+          dependency-graph: generate-and-submit
+      - name: Preserve dependency graph state evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-graph-state-${{ github.sha }}
+          path: dependency-evidence/state.txt
+          if-no-files-found: error
+          retention-days: 30

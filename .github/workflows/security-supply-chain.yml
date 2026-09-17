@@ -1,0 +1,171 @@
+name: Security and Supply Chain
+
+on:
+  push:
+    branches: [main, copilot-agent-upgrade-20260917]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+  id-token: write
+  attestations: write
+
+jobs:
+  codeql:
+    name: CodeQL Java-Kotlin
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Prepare Gradle
+        run: |
+          if [ ! -f gradlew ]; then
+            curl -fsSL https://services.gradle.org/distributions/gradle-8.7-bin.zip -o /tmp/gradle.zip
+            unzip -q /tmp/gradle.zip -d /tmp
+            printf '#!/bin/sh\nexec /tmp/gradle-8.7/bin/gradle "$@"\n' > gradlew
+            chmod +x gradlew
+          fi
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: java-kotlin
+      - name: Build for CodeQL
+        run: ./gradlew :app:assembleDebug --stacktrace
+      - uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:java-kotlin
+
+  dependency-review:
+    name: Dependency Review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Probe dependency graph API state
+        id: graph
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          code=$(curl -sS -o /tmp/dependency-sbom.json -w '%{http_code}' \
+            -H 'Accept: application/vnd.github+json' \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'X-GitHub-Api-Version: 2026-03-10' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/dependency-graph/sbom")
+          echo "DEPENDENCY_GRAPH_SBOM_HTTP=$code"
+          case "$code" in
+            200)
+              echo 'enabled=true' >> "$GITHUB_OUTPUT"
+              echo 'DEPENDENCY_REVIEW_FEATURE_STATE=ENABLED'
+              ;;
+            404)
+              echo 'enabled=false' >> "$GITHUB_OUTPUT"
+              echo 'DEPENDENCY_REVIEW=USER_ACTION_REQUIRED REASON=DEPENDENCY_GRAPH_FEATURE_DISABLED'
+              ;;
+            403)
+              echo 'enabled=false' >> "$GITHUB_OUTPUT"
+              echo 'DEPENDENCY_REVIEW=USER_ACTION_REQUIRED REASON=DEPENDENCY_GRAPH_API_PERMISSION'
+              ;;
+            *)
+              echo "DEPENDENCY_REVIEW=BLOCKED REASON=UNEXPECTED_HTTP_${code}"
+              exit 1
+              ;;
+          esac
+      - uses: actions/dependency-review-action@v4
+        if: steps.graph.outputs.enabled == 'true'
+        with:
+          retry-on-snapshot-warnings: true
+          retry-on-snapshot-warnings-timeout: 600
+
+  supply-chain:
+    name: APK SBOM Provenance
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Prepare Gradle
+        run: |
+          if [ ! -f gradlew ]; then
+            curl -fsSL https://services.gradle.org/distributions/gradle-8.7-bin.zip -o /tmp/gradle.zip
+            unzip -q /tmp/gradle.zip -d /tmp
+            printf '#!/bin/sh\nexec /tmp/gradle-8.7/bin/gradle "$@"\n' > gradlew
+            chmod +x gradlew
+          fi
+      - name: Build APK
+        run: ./gradlew :app:assembleDebug --stacktrace
+      - name: Capture immutable evidence
+        run: |
+          set -euo pipefail
+          APK=$(find app/build/outputs/apk/debug -type f -name '*.apk' | head -1)
+          test -f "$APK"
+          mkdir -p release-evidence/apk-unpacked
+          cp "$APK" release-evidence/app-debug.apk
+          unzip -q release-evidence/app-debug.apk -d release-evidence/apk-unpacked
+          {
+            echo "event=${GITHUB_EVENT_NAME}"
+            echo "commit=${GITHUB_SHA}"
+            echo "run_id=${GITHUB_RUN_ID}"
+            echo "filename=$(basename "$APK")"
+            echo "size=$(stat -c%s "$APK")"
+            echo "sha256=$(sha256sum "$APK" | awk '{print $1}')"
+            echo "sha512=$(sha512sum "$APK" | awk '{print $1}')"
+          } | tee release-evidence/evidence.txt
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          path: release-evidence/apk-unpacked
+          format: spdx-json
+          output-file: release-evidence/app-debug.spdx.json
+          upload-artifact: false
+      - name: Attest APK provenance
+        if: github.event_name != 'pull_request'
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: release-evidence/app-debug.apk
+      - name: Verify APK provenance attestation
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ok=0
+          for attempt in 1 2 3 4 5; do
+            if gh attestation verify release-evidence/app-debug.apk --repo "$GITHUB_REPOSITORY" | tee release-evidence/attestation-verify.txt; then
+              ok=1
+              break
+            fi
+            sleep 5
+          done
+          test "$ok" -eq 1
+          echo 'ATTESTATION_VERIFY=PASS' | tee -a release-evidence/attestation-verify.txt
+      - name: Upload release evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-supply-chain-${{ github.sha }}
+          path: |
+            release-evidence/app-debug.apk
+            release-evidence/app-debug.spdx.json
+            release-evidence/evidence.txt
+            release-evidence/attestation-verify.txt
+          if-no-files-found: error
+          retention-days: 30
