@@ -64,8 +64,8 @@ jobs:
           "$APKSIGNER" verify --print-certs reproducibility/debug-B.apk > reproducibility/debug-B-cert.txt
           sha256sum reproducibility/debug-A.apk reproducibility/debug-B.apk | tee reproducibility/debug-sha256.txt
           sha512sum reproducibility/debug-A.apk reproducibility/debug-B.apk | tee reproducibility/debug-sha512.txt
-          grep -E 'Signer #1 certificate SHA-256 digest' reproducibility/debug-A-cert.txt | tee reproducibility/debug-cert-digests.txt
-          grep -E 'Signer #1 certificate SHA-256 digest' reproducibility/debug-B-cert.txt | tee -a reproducibility/debug-cert-digests.txt
+          grep -E 'certificate SHA-256 digest:' reproducibility/debug-A-cert.txt | tee reproducibility/debug-cert-digests.txt
+          grep -E 'certificate SHA-256 digest:' reproducibility/debug-B-cert.txt | tee -a reproducibility/debug-cert-digests.txt
           if cmp -s reproducibility/debug-A.apk reproducibility/debug-B.apk; then
             echo 'DEBUG_SIGNED_REPRODUCIBLE=YES' | tee reproducibility/debug-result.txt
           else
