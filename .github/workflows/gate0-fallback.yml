@@ -1,94 +1,90 @@
-name: Gate 0 Fallback Verification
+name: Gate 0 Fallback Diagnostic
 
 on:
-  push:
-    branches: [copilot-agent-upgrade-20260917]
   workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: Successful Build APK workflow run ID for the exact commit being diagnosed
+        required: true
+        type: string
+      source_artifact_name:
+        description: Artifact name produced by the Build APK workflow
+        required: false
+        default: app-debug
+        type: string
 
 permissions:
   contents: read
-  issues: write
+  actions: read
 
 jobs:
   fallback:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
-          distribution: temurin
-          java-version: '17'
-      - name: Build real APK again
-        run: |
-          if [ ! -f gradlew ]; then
-            curl -fsSL https://services.gradle.org/distributions/gradle-8.7-bin.zip -o /tmp/gradle.zip
-            unzip -q /tmp/gradle.zip -d /tmp
-            printf '#!/bin/sh\nexec /tmp/gradle-8.7/bin/gradle "$@"\n' > gradlew
-            chmod +x gradlew
-          fi
-          ./gradlew :app:assembleDebug
-      - name: Verify JADX fallback and Blutter installation
-        run: |
-          set +e
-          mkdir -p fallback-evidence /tmp/jadx
-          url=$(curl -fsSL https://api.github.com/repos/skylot/jadx/releases/latest | jq -r '.assets[] | select(.name|test("^jadx-[0-9].*\\.zip$")) | .browser_download_url' | head -1)
-          curl -fsSL "$url" -o /tmp/jadx.zip && unzip -q /tmp/jadx.zip -d /tmp/jadx
-          J=/tmp/jadx/bin/jadx
-          APK=app/build/outputs/apk/debug/app-debug.apk
-          "$J" --version | tee fallback-evidence/jadx-version.txt
-          "$J" --single-class com.example.gptasistan.MainActivity --single-class-output fallback-evidence/MainActivity.java "$APK" > fallback-evidence/jadx-single.log 2>&1
-          jrc=$?
-          echo "JADX_SINGLE_CLASS_RC=$jrc" | tee fallback-evidence/fallback-report.txt
-          test -s fallback-evidence/MainActivity.java && echo "JADX_OUTPUT_BYTES=$(stat -c%s fallback-evidence/MainActivity.java)" | tee -a fallback-evidence/fallback-report.txt
+          persist-credentials: false
 
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq git python3-pip cmake ninja-build build-essential pkg-config libicu-dev libcapstone-dev >/dev/null 2>&1
-          python3 -m pip install --user --quiet requests pyelftools
-          git clone --depth 1 https://github.com/worawit/blutter.git /tmp/blutter > fallback-evidence/blutter-clone.log 2>&1
-          brc=$?
-          echo "BLUTTER_CLONE_RC=$brc" | tee -a fallback-evidence/fallback-report.txt
-          if [ -f /tmp/blutter/blutter.py ]; then
-            echo "BLUTTER_HEAD=$(git -C /tmp/blutter rev-parse HEAD)" | tee -a fallback-evidence/fallback-report.txt
-            python3 /tmp/blutter/blutter.py --help > fallback-evidence/blutter-help.log 2>&1
-            hrc=$?
-            echo "BLUTTER_HELP_RC=$hrc" | tee -a fallback-evidence/fallback-report.txt
-          fi
-          if unzip -l "$APK" | grep -Eq 'libapp\.so|libflutter\.so|flutter_assets'; then
-            echo "FLUTTER_AOT=PRESENT" | tee -a fallback-evidence/fallback-report.txt
-          else
-            echo "FLUTTER_AOT=ABSENT_TARGET_NOT_APPLICABLE" | tee -a fallback-evidence/fallback-report.txt
-          fi
-      - name: Attempt Copilot custom-agent assignment through official REST shape
+      - name: Acquire existing verified build artifact
+        env:
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          SOURCE_ARTIFACT_NAME: ${{ inputs.source_artifact_name }}
         run: |
-          set +e
-          cat > /tmp/assign.json <<'JSON'
+          set -euo pipefail
+          test -n "${SOURCE_RUN_ID}"
+          mkdir -p incoming fallback-evidence
+          gh run download "${SOURCE_RUN_ID}" -n "${SOURCE_ARTIFACT_NAME}" -D incoming
+          APK="$(find incoming -type f -name '*.apk' | sort | head -1)"
+          test -f "${APK}"
+          cp "${APK}" fallback-evidence/source.apk
+          chmod 0444 fallback-evidence/source.apk
           {
-            "assignees": ["copilot-swe-agent[bot]"],
-            "agent_assignment": {
-              "target_repo": "mehmetcerdik457-ctrl/Gpt-asistan",
-              "base_branch": "copilot-agent-upgrade-20260917",
-              "custom_instructions": "Run the APK Forensic Analyst custom agent. Use the existing Gate 0 workflow evidence and preserve APK bytes.",
-              "custom_agent": "apk-forensic",
-              "model": ""
-            }
-          }
-          JSON
-          gh api --method POST \
-            -H 'Accept: application/vnd.github+json' \
-            -H 'X-GitHub-Api-Version: 2022-11-28' \
-            /repos/mehmetcerdik457-ctrl/Gpt-asistan/issues/4/assignees \
-            --input /tmp/assign.json > fallback-evidence/copilot-assignment.json 2> fallback-evidence/copilot-assignment.err
-          rc=$?
-          echo "COPILOT_AGENT_ASSIGNMENT_RC=$rc" | tee -a fallback-evidence/fallback-report.txt
-          cat fallback-evidence/copilot-assignment.json || true
-          cat fallback-evidence/copilot-assignment.err || true
-          exit 0
+            echo "SOURCE_RUN_ID=${SOURCE_RUN_ID}"
+            echo "SOURCE_ARTIFACT_NAME=${SOURCE_ARTIFACT_NAME}"
+            echo "SOURCE_APK_BYTES=$(stat -c%s fallback-evidence/source.apk)"
+            echo "SOURCE_APK_SHA256=$(sha256sum fallback-evidence/source.apk | awk '{print $1}')"
+            echo "SOURCE_APK_SHA512=$(sha512sum fallback-evidence/source.apk | awk '{print $1}')"
+          } | tee fallback-evidence/source-evidence.txt
+
+      - name: Verify JADX fallback and Blutter availability
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/jadx
+          url="$(curl -fsSL https://api.github.com/repos/skylot/jadx/releases/latest | jq -r '.assets[] | select(.name|test("^jadx-[0-9].*\\.zip$")) | .browser_download_url' | head -1)"
+          test -n "${url}"
+          curl -fsSL "${url}" -o /tmp/jadx.zip
+          unzip -q /tmp/jadx.zip -d /tmp/jadx
+          /tmp/jadx/bin/jadx --version | tee fallback-evidence/jadx-version.txt
+
+          git clone --depth 1 https://github.com/worawit/blutter.git /tmp/blutter > fallback-evidence/blutter-clone.log 2>&1
+          test -f /tmp/blutter/blutter.py
+          git -C /tmp/blutter rev-parse HEAD | tee fallback-evidence/blutter-head.txt
+
+          if unzip -l fallback-evidence/source.apk | grep -Eq 'libapp\.so|libflutter\.so|flutter_assets'; then
+            echo "FLUTTER_AOT=PRESENT" | tee fallback-evidence/fallback-report.txt
+          else
+            echo "FLUTTER_AOT=ABSENT_TARGET_NOT_APPLICABLE" | tee fallback-evidence/fallback-report.txt
+          fi
+
+      - name: Prove diagnostic did not modify source artifact
+        run: |
+          set -euo pipefail
+          before256="$(grep '^SOURCE_APK_SHA256=' fallback-evidence/source-evidence.txt | cut -d= -f2-)"
+          before512="$(grep '^SOURCE_APK_SHA512=' fallback-evidence/source-evidence.txt | cut -d= -f2-)"
+          after256="$(sha256sum fallback-evidence/source.apk | awk '{print $1}')"
+          after512="$(sha512sum fallback-evidence/source.apk | awk '{print $1}')"
+          test "${before256}" = "${after256}"
+          test "${before512}" = "${after512}"
+          echo "SOURCE_IMMUTABLE=PASS" | tee -a fallback-evidence/fallback-report.txt
+
       - name: Upload fallback evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: gate0-fallback-evidence
+          name: gate0-fallback-evidence-${{ github.sha }}
           path: fallback-evidence/**
+          if-no-files-found: error
+          retention-days: 30
