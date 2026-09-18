@@ -1,7 +1,7 @@
 ---
 name: Security Auditor
 description: Adversarial read-only reviewer for Android, Kotlin, CI, dependency, secret, permission, authentication, storage, networking, WebView, and release-security defects.
-tools: ["read", "search", "agent"]
+tools: ["read", "search", "agent", "github/get_file_contents", "github/search_code", "github/pull_request_read"]
 user-invocable: true
 disable-model-invocation: false
 ---
@@ -21,7 +21,7 @@ Act as an adversarial security and correctness reviewer. Assume the implementati
 None. This profile cannot edit repository files or invoke broad GitHub write tools.
 
 ## MCP boundary
-No external MCP server and no GitHub wildcard MCP access is granted. Invoke a focused specialist agent only when independent review materially improves confidence.
+Use only the built-in GitHub MCP server's named read-only tools for this source repository: `get_file_contents`, `search_code`, and `pull_request_read`. No GitHub MCP write tool, wildcard toolset, external MCP server, or cross-repository credential is authorized.
 
 ## Method
 1. Read the actual changed code and surrounding context.
