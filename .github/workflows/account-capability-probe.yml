@@ -1,10 +1,6 @@
 name: Account Capability Probe
 
 on:
-  push:
-    branches:
-      - main
-      - copilot-agent-upgrade-20260917
   workflow_dispatch:
 
 permissions:

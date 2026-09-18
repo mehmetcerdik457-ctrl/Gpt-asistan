@@ -76,7 +76,7 @@ jobs:
           echo "TARGET_WORKFLOW_PATH=${TARGET_WORKFLOW_PATH}"
           echo "TARGET_JOB=${TARGET_JOB}"
           run_id=""
-          for attempt in $(seq 1 180); do
+          for attempt in $(seq 1 255); do
             payload="$(gh api \
               -H 'Accept: application/vnd.github+json' \
               -H 'X-GitHub-Api-Version: 2026-03-10' \
@@ -95,7 +95,7 @@ jobs:
                 break
               fi
             fi
-            if [ "${attempt}" = 180 ]; then
+            if [ "${attempt}" = 255 ]; then
               echo "Timed out waiting for ${TARGET_WORKFLOW_PATH} at ${EXPECTED_SHA}" >&2
               exit 1
             fi
@@ -111,65 +111,3 @@ jobs:
             <<<"${jobs}")"
           echo "TARGET_JOB_CONCLUSION=${matched}"
           test "${matched}" = "success"
-
-  dependency-graph-admin-probe:
-    name: Dependency Graph Admin Probe
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    env:
-      EXPECTED_SHA: ${{ github.event.after || github.sha }}
-      GH_TOKEN: ${{ github.token }}
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
-        with:
-          ref: ${{ github.event.after || github.sha }}
-          persist-credentials: false
-
-      - name: Exact direct-head SHA guard
-        run: |
-          set -euo pipefail
-          actual="$(git rev-parse HEAD)"
-          echo "EXPECTED_SHA=${EXPECTED_SHA}"
-          echo "ACTUAL_GIT_SHA=${actual}"
-          test "${EXPECTED_SHA}" = "${actual}"
-
-      - name: Try supported dependency-security enablement path without weakening policy
-        run: |
-          set -euo pipefail
-          api="https://api.github.com/repos/${GITHUB_REPOSITORY}"
-          get_code() {
-            curl -sS -o /tmp/body.json -w '%{http_code}' \
-              -H 'Accept: application/vnd.github+json' \
-              -H "Authorization: Bearer ${GH_TOKEN}" \
-              -H 'X-GitHub-Api-Version: 2026-03-10' "$1"
-          }
-          before="$(get_code "${api}/dependency-graph/sbom")"
-          echo "DEPENDENCY_GRAPH_SBOM_BEFORE_HTTP=${before}"
-
-          if [ "${before}" = "200" ]; then
-            echo "DEPENDENCY_GRAPH_OPERATIONAL=YES"
-            exit 0
-          fi
-
-          enable_code="$(curl -sS -o /tmp/enable.json -w '%{http_code}' -X PUT \
-            -H 'Accept: application/vnd.github+json' \
-            -H "Authorization: Bearer ${GH_TOKEN}" \
-            -H 'X-GitHub-Api-Version: 2026-03-10' \
-            "${api}/vulnerability-alerts")"
-          echo "VULNERABILITY_ALERTS_ENABLE_HTTP=${enable_code}"
-
-          after="$(get_code "${api}/dependency-graph/sbom")"
-          echo "DEPENDENCY_GRAPH_SBOM_AFTER_HTTP=${after}"
-
-          if [ "${after}" = "200" ]; then
-            echo "DEPENDENCY_GRAPH_OPERATIONAL=YES"
-            depfix="$(curl -sS -o /tmp/depfix.json -w '%{http_code}' -X PUT \
-              -H 'Accept: application/vnd.github+json' \
-              -H "Authorization: Bearer ${GH_TOKEN}" \
-              -H 'X-GitHub-Api-Version: 2026-03-10' \
-              "${api}/automated-security-fixes")"
-            echo "DEPENDABOT_SECURITY_UPDATES_ENABLE_HTTP=${depfix}"
-          else
-            echo "DEPENDENCY_GRAPH_OPERATIONAL=NO"
-            echo "DEPENDENCY_GRAPH_ENABLEMENT_REQUIRES_ADMIN_AUTHORITY=YES"
-          fi

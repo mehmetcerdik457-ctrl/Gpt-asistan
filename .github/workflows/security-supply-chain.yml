@@ -9,13 +9,13 @@ on:
 
 permissions:
   contents: read
-  security-events: write
-  actions: read
-  id-token: write
-  attestations: write
 
 jobs:
   codeql:
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
     name: CodeQL Java-Kotlin
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -65,6 +65,10 @@ jobs:
           retry-on-snapshot-warnings-timeout: 600
 
   supply-chain:
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     name: APK SBOM Provenance
     runs-on: ubuntu-latest
     timeout-minutes: 30
