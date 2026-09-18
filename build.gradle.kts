@@ -2,14 +2,20 @@ buildscript {
     repositories {
         google()
         mavenCentral()
+        gradlePluginPortal()
     }
-    dependencies {
-        constraints {
-            classpath("io.netty:netty-handler:4.1.137.Final") {
-                because("Patches current critical/high Netty build-classpath advisories while AGP 8.5.2 remains in use")
+
+    configurations.classpath {
+        resolutionStrategy.eachDependency {
+            if (requested.group == "io.netty") {
+                useVersion("4.1.137.Final")
+                because("Patch Netty build-classpath advisories, including CVE-2026-75595, without shipping Netty in the app")
             }
         }
     }
-}
 
-plugins { id("com.android.application") version "8.5.2" apply false; kotlin("android") version "1.9.24" apply false }
+    dependencies {
+        classpath("com.android.tools.build:gradle:8.5.2")
+        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.24")
+    }
+}
