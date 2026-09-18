@@ -46,7 +46,7 @@ READ_ONLY_AGENTS = {
     "release-engineer.agent.md",
 }
 
-ACTION_REF = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+@[0-9a-fA-F]{40}$")
+ACTION_REF = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*@[0-9a-fA-F]{40}$")
 USES = re.compile(r"^\s*-?\s*uses:\s*([^\s#]+)")
 
 
