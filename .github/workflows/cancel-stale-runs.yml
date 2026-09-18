@@ -1,0 +1,57 @@
+name: Cancel Stale Branch Runs
+
+on:
+  push:
+    branches: [copilot-agent-upgrade-20260917]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CURRENT_SHA: ${{ github.sha }}
+      CURRENT_RUN_ID: ${{ github.run_id }}
+    steps:
+      - name: Cancel obsolete automatic runs without touching current head
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          live_sha="$(gh api "repos/${GITHUB_REPOSITORY}/branches/${GITHUB_REF_NAME}" --jq '.commit.sha')"
+          echo "CURRENT_SHA=${CURRENT_SHA}"
+          echo "LIVE_BRANCH_SHA=${live_sha}"
+          if [ "${live_sha}" != "${CURRENT_SHA}" ]; then
+            echo "STALE_CLEANER_NOOP=YES"
+            exit 0
+          fi
+
+          payload="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs?branch=${GITHUB_REF_NAME}&per_page=100")"
+          mapfile -t stale_ids < <(
+            jq -r               --arg sha "${CURRENT_SHA}"               --arg run "${CURRENT_RUN_ID}"               '.workflow_runs[]
+               | select(.head_sha != $sha)
+               | select((.event == "push") or (.event == "pull_request"))
+               | select((.status == "queued") or (.status == "in_progress") or (.status == "pending"))
+               | select((.id | tostring) != $run)
+               | .id' <<<"${payload}"
+          )
+
+          handled=0
+          for id in "${stale_ids[@]:-}"; do
+            [ -n "${id}" ] || continue
+            code="$(curl -sS -o "/tmp/cancel-${id}.json" -w '%{http_code}' -X POST               -H 'Accept: application/vnd.github+json'               -H "Authorization: Bearer ${GH_TOKEN}"               -H 'X-GitHub-Api-Version: 2026-03-10'               "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/${id}/cancel")"
+            echo "CANCEL_RUN_ID=${id} HTTP=${code}"
+            case "${code}" in
+              202|409) handled=$((handled + 1)) ;;
+              *) cat "/tmp/cancel-${id}.json" >&2 || true; exit 1 ;;
+            esac
+          done
+
+          echo "STALE_RUNS_MATCHED=${#stale_ids[@]}"
+          echo "STALE_RUNS_HANDLED=${handled}"
+          echo "STALE_RUN_CLEANUP=PASS"
