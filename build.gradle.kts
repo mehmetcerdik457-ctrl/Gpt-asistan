@@ -2,20 +2,25 @@ buildscript {
     repositories {
         google()
         mavenCentral()
-        gradlePluginPortal()
     }
 
-    configurations.classpath {
-        resolutionStrategy.eachDependency {
-            if (requested.group == "io.netty") {
-                useVersion("4.1.137.Final")
-                because("Patch Netty build-classpath advisories, including CVE-2026-75595, without shipping Netty in the app")
-            }
+    configurations.configureEach {
+        resolutionStrategy {
+            force(
+                "io.netty:netty-buffer:4.1.138.Final",
+                "io.netty:netty-codec:4.1.138.Final",
+                "io.netty:netty-codec-http:4.1.138.Final",
+                "io.netty:netty-codec-http2:4.1.138.Final",
+                "io.netty:netty-codec-socks:4.1.138.Final",
+                "io.netty:netty-common:4.1.138.Final",
+                "io.netty:netty-handler:4.1.138.Final",
+                "io.netty:netty-handler-proxy:4.1.138.Final",
+                "io.netty:netty-resolver:4.1.138.Final",
+                "io.netty:netty-transport:4.1.138.Final",
+                "io.netty:netty-transport-native-unix-common:4.1.138.Final"
+            )
         }
     }
-
-    dependencies {
-        classpath("com.android.tools.build:gradle:8.5.2")
-        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.24")
-    }
 }
+
+plugins { id("com.android.application") version "8.5.2" apply false; kotlin("android") version "1.9.24" apply false }
