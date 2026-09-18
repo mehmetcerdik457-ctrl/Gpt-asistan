@@ -1,0 +1,29 @@
+name: OpenAI CI Preflight
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: openai-ci-preflight
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    environment:
+      name: openai-ci
+      deployment: false
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+    steps:
+      - name: Verify environment secret wiring without disclosure
+        shell: bash
+        run: |
+          if [ -z "${OPENAI_API_KEY:-}" ]; then
+            echo "OPENAI_API_KEY is not configured for the openai-ci environment."
+            exit 1
+          fi
+          echo "OPENAI_API_KEY wiring is present. Secret value was not printed."
