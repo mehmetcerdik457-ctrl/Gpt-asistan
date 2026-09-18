@@ -27,19 +27,22 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Prepare Gradle
-        run: |
-          if [ ! -f gradlew ]; then
-            curl -fsSL https://services.gradle.org/distributions/gradle-8.7-bin.zip -o /tmp/gradle.zip
-            unzip -q /tmp/gradle.zip -d /tmp
-            printf '#!/bin/sh\nexec /tmp/gradle-8.7/bin/gradle "$@"\n' > gradlew
-            chmod +x gradlew
-          fi
+      - name: Set up pinned Gradle
+        uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92
+        with:
+          gradle-version: '8.7'
+          cache-provider: basic
       - uses: github/codeql-action/init@b96794f015dfd88f77b49b1c93e0fa7110f94c63
         with:
           languages: java-kotlin
       - name: Build for CodeQL
-        run: ./gradlew :app:assembleDebug --stacktrace
+        run: |
+          set -euo pipefail
+          if [ -x ./gradlew ]; then
+            ./gradlew :app:assembleDebug --stacktrace
+          else
+            gradle :app:assembleDebug --stacktrace
+          fi
       - uses: github/codeql-action/analyze@b96794f015dfd88f77b49b1c93e0fa7110f94c63
         with:
           category: /language:java-kotlin
@@ -55,38 +58,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - name: Probe dependency graph API state
-        id: graph
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          code=$(curl -sS -o /tmp/dependency-sbom.json -w '%{http_code}' \
-            -H 'Accept: application/vnd.github+json' \
-            -H "Authorization: Bearer ${GH_TOKEN}" \
-            -H 'X-GitHub-Api-Version: 2026-03-10' \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}/dependency-graph/sbom")
-          echo "DEPENDENCY_GRAPH_SBOM_HTTP=$code"
-          case "$code" in
-            200)
-              echo 'enabled=true' >> "$GITHUB_OUTPUT"
-              echo 'DEPENDENCY_REVIEW_FEATURE_STATE=ENABLED'
-              ;;
-            404)
-              echo 'enabled=false' >> "$GITHUB_OUTPUT"
-              echo 'DEPENDENCY_REVIEW=USER_ACTION_REQUIRED REASON=DEPENDENCY_GRAPH_FEATURE_DISABLED'
-              ;;
-            403)
-              echo 'enabled=false' >> "$GITHUB_OUTPUT"
-              echo 'DEPENDENCY_REVIEW=USER_ACTION_REQUIRED REASON=DEPENDENCY_GRAPH_API_PERMISSION'
-              ;;
-            *)
-              echo "DEPENDENCY_REVIEW=BLOCKED REASON=UNEXPECTED_HTTP_${code}"
-              exit 1
-              ;;
-          esac
-      - uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48
-        if: steps.graph.outputs.enabled == 'true'
+      - name: Run dependency review against the PR dependency diff
+        uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48
         with:
           retry-on-snapshot-warnings: true
           retry-on-snapshot-warnings-timeout: 600
@@ -103,16 +76,19 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Prepare Gradle
-        run: |
-          if [ ! -f gradlew ]; then
-            curl -fsSL https://services.gradle.org/distributions/gradle-8.7-bin.zip -o /tmp/gradle.zip
-            unzip -q /tmp/gradle.zip -d /tmp
-            printf '#!/bin/sh\nexec /tmp/gradle-8.7/bin/gradle "$@"\n' > gradlew
-            chmod +x gradlew
-          fi
+      - name: Set up pinned Gradle
+        uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92
+        with:
+          gradle-version: '8.7'
+          cache-provider: basic
       - name: Build APK
-        run: ./gradlew :app:assembleDebug --stacktrace
+        run: |
+          set -euo pipefail
+          if [ -x ./gradlew ]; then
+            ./gradlew :app:assembleDebug --stacktrace
+          else
+            gradle :app:assembleDebug --stacktrace
+          fi
       - name: Capture immutable evidence
         run: |
           set -euo pipefail
