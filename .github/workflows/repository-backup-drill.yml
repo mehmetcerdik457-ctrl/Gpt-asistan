@@ -4,12 +4,14 @@ on:
   push:
     branches:
       - copilot-agent-upgrade-20260917
-    paths:
-      - .github/workflows/repository-backup-drill.yml
   workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: repository-backup-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   backup-restore:
