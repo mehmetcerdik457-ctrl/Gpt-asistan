@@ -2,6 +2,11 @@ name: OpenAI CI Preflight
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - control-plane-openai-ci-prep-20260919
+    paths:
+      - .github/workflows/openai-ci-preflight.yml
 
 permissions:
   contents: read
@@ -15,7 +20,6 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: openai-ci
-      deployment: false
     env:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
     steps:
@@ -24,6 +28,6 @@ jobs:
         run: |
           if [ -z "${OPENAI_API_KEY:-}" ]; then
             echo "OPENAI_API_KEY is not configured for the openai-ci environment."
-            exit 1
+            exit 2
           fi
           echo "OPENAI_API_KEY wiring is present. Secret value was not printed."
