@@ -3,6 +3,8 @@ name: Platform Security State
 on:
   push:
     branches: [main, copilot-agent-upgrade-20260917]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -17,7 +19,16 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
+          ref: ${{ github.sha }}
           persist-credentials: false
+      - name: Exact checkout SHA guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual="$(git rev-parse HEAD)"
+          echo "EXPECTED_SHA=${GITHUB_SHA}"
+          echo "ACTUAL_GIT_SHA=${actual}"
+          test "${GITHUB_SHA}" = "${actual}"
       - name: Probe GitHub feature state with ephemeral GITHUB_TOKEN
         env:
           GH_TOKEN: ${{ github.token }}
