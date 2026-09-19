@@ -1,3 +1,14 @@
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+    configurations.getByName("classpath") {
+        resolutionStrategy.force("commons-io:commons-io:2.14.0")
+    }
+}
+
 pluginManagement {
     repositories {
         google()
