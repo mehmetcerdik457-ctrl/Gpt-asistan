@@ -5,8 +5,6 @@ on:
   schedule:
     - cron: '31 2 * * 1'
   push:
-    branches: [main, copilot-agent-upgrade-20260917]
-  pull_request:
     branches: [main]
   workflow_dispatch:
 
@@ -36,7 +34,7 @@ jobs:
         with:
           results_file: scorecard-results.sarif
           results_format: sarif
-          publish_results: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+          publish_results: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Upload SARIF to code scanning
         uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63
