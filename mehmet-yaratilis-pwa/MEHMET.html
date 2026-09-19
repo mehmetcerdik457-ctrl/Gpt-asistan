@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="tr" dir="ltr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#111827">
+  <meta name="description" content="MEHMET — sahip kontrollü, PWA tabanlı yapay zekâ çalışma arayüzü">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="icon" href="./icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="./icons/icon-192.png">
+  <link rel="stylesheet" href="./styles.css">
+  <title>MEHMET</title>
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar" id="sidebar">
+    <div class="brand"><div class="brand-mark">M</div><div><strong>MEHMET</strong><small>Yaratılış PWA · v0.2.2</small></div></div>
+    <nav id="nav" aria-label="Ana bölümler">
+      <button class="nav-item active" data-panel="chat">💬 <span data-i18n="chat">Sohbet</span></button>
+      <button class="nav-item" data-panel="memory">🧠 <span data-i18n="memory">Hafıza</span></button>
+      <button class="nav-item" data-panel="tasks">🧾 <span data-i18n="history">Görev Geçmişi</span></button>
+      <button class="nav-item" data-panel="tools">🧰 <span data-i18n="tools">Araçlar</span></button>
+      <button class="nav-item" data-panel="tests">🧪 <span data-i18n="tests">Test Durumu</span></button>
+      <button class="nav-item" data-panel="logs">⚠️ <span data-i18n="logs">Hata Kaydı</span></button>
+      <button class="nav-item" data-panel="settings">⚙️ <span data-i18n="settings">Ayarlar</span></button>
+      <button class="nav-item owner" data-panel="owner">🔐 <span data-i18n="owner">Sahip</span></button>
+    </nav>
+    <div class="sidebar-footer"><span id="bridgeDot" class="dot"></span><span id="bridgeText">Köprü denetleniyor…</span></div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <button id="menuButton" class="icon-btn" aria-label="Menü">☰</button>
+      <div class="model-wrap">
+        <label for="modelSelect" data-i18n="models">Model / Sağlayıcı</label>
+        <select id="modelSelect" aria-label="Model sağlayıcı seçimi"><option value="">Sağlayıcı denetleniyor…</option></select>
+      </div>
+      <span class="status-pill" id="ownerStatus">Sahip oturumu: KİLİTLİ</span>
+    </header>
+
+    <section class="panel active" id="panel-chat">
+      <div class="chat-heading">
+        <div><h1>MEHMET</h1><p id="chatSubhead">Model çağrıları yalnız güvenli köprü üzerinden yapılır; yapılandırılmamış servisler fail-closed kalır.</p></div>
+        <button id="newChat" class="secondary" data-i18n="new_chat">Yeni sohbet</button>
+      </div>
+      <div id="messages" class="messages" aria-live="polite"></div>
+      <div id="attachments" class="attachments"></div>
+      <form id="composer" class="composer">
+        <textarea id="prompt" rows="2" placeholder="Mesajınızı yazın…" data-i18n-placeholder="prompt_placeholder" required></textarea>
+        <div class="composer-actions">
+          <label class="tool-btn" title="Dosya">📎<span data-i18n="files">Dosya</span><input id="fileInput" type="file" multiple hidden></label>
+          <button type="button" class="tool-btn" id="cameraButton">📷<span data-i18n="camera">Kamera</span></button>
+          <button type="button" class="tool-btn" id="micButton">🎙️<span data-i18n="microphone">Mikrofon</span></button>
+          <button type="button" class="tool-btn" id="speakButton">🔊<span data-i18n="voice">Ses</span></button>
+          <label class="tool-btn" title="Görsel ekle">🖼️<span data-i18n="image">Görsel</span><input id="imageInput" type="file" accept="image/*" multiple hidden></label>
+          <button type="button" class="tool-btn" id="researchButton" disabled>🌐<span data-i18n="web_search">İnternet</span></button>
+          <button class="send" id="sendButton" type="submit"><span data-i18n="send">Gönder</span> ➜</button>
+        </div>
+        <div class="capability-line" id="actionVerification" aria-live="polite">Hazır.</div>
+      </form>
+    </section>
+
+    <section class="panel" id="panel-memory">
+      <div class="section-head"><div><h2 data-i18n="memory_title">Kalıcı Hafıza</h2><p>IndexedDB üzerinde yerel kayıt; her kayıtta kaynak ve zaman bilgisi tutulur.</p></div><button id="exportMemory" class="secondary" data-i18n="export">Dışa aktar</button></div>
+      <form id="memoryForm" class="row-form"><input id="memoryText" placeholder="Hatırlanacak bilgi / tercih" data-i18n-placeholder="memory_placeholder" required><select id="memoryType"><option>tercih</option><option>bilgi</option><option>yöntem</option><option>proje</option><option>olay</option></select><button>Kaydet</button></form>
+      <div id="memoryReopenStatus" class="status-card">Yeniden açılış kanıtı: henüz gözlenmedi.</div>
+      <div id="memoryList" class="card-list"></div>
+    </section>
+
+    <section class="panel" id="panel-tasks"><div class="section-head"><div><h2 data-i18n="history">Görev Geçmişi</h2><p>Gerçek kullanıcı eylemi ve doğrulama sonucu.</p></div><button id="clearTasks" class="danger" data-i18n="clear">Temizle</button></div><div id="taskList" class="card-list"></div></section>
+
+    <section class="panel" id="panel-tools"><h2 data-i18n="tools_title">Araç Sistemi</h2><div class="grid" id="toolGrid"></div></section>
+    <section class="panel" id="panel-tests"><div class="section-head"><div><h2 data-i18n="tests">Test Durumu</h2><p>CAPABILITY_PRESENT ile RUNTIME_PASS ayrı gösterilir.</p></div><button id="runTests" data-i18n="run_tests">Tarayıcı Kontrollerini Çalıştır</button></div><div id="testList" class="card-list"></div></section>
+    <section class="panel" id="panel-logs"><div class="section-head"><div><h2 data-i18n="logs">Hata Kaydı</h2><p>Hassas değerler redakte edilerek IndexedDB'ye yazılır.</p></div><button id="clearLogs" class="danger" data-i18n="clear">Temizle</button></div><div id="logList" class="card-list"></div></section>
+
+    <section class="panel" id="panel-settings">
+      <h2 data-i18n="settings">Ayarlar</h2><div class="settings-grid">
+        <label><span data-i18n="language">Dil</span><select id="language"></select></label>
+        <label><span data-i18n="theme">Tema</span><select id="theme"><option value="system">Sistem</option><option value="dark">Koyu</option><option value="light">Açık</option></select></label>
+        <label><span data-i18n="font_size">Yazı boyutu</span><input id="fontSize" type="range" min="14" max="22" value="16"></label>
+        <label class="check"><input id="memoryEnabled" type="checkbox" checked> <span data-i18n="memory_enabled">Hafıza etkin</span></label>
+        <label class="check"><input id="hapticEnabled" type="checkbox"> <span data-i18n="haptic_enabled">Dokunsal geri bildirim</span></label>
+      </div>
+      <div class="card"><h3 data-i18n="runtime_title">Çalışma Zamanı</h3><p id="runtimeContext">Güvenli bağlam denetleniyor…</p></div>
+      <div class="card"><h3 data-i18n="install_title">PWA Kurulum</h3><p id="installStatus">Kurulum uygunluğu denetleniyor…</p><button id="installButton" disabled data-i18n="install_button">Uygulamayı Kur</button></div>
+      <div class="card"><h3 data-i18n="offline_title">Çevrimdışı Kabuk</h3><p id="offlineStatus">Service worker denetleniyor…</p></div>
+    </section>
+
+    <section class="panel" id="panel-owner">
+      <h2 data-i18n="owner_title">Sahip Bölümü</h2>
+      <div class="owner-box"><p><strong>Sahip:</strong> Mehmet Cerdik</p><p id="ownerModelText">Kimlik veri modeli köprüden yükleniyor…</p><button id="ownerProvision" disabled>Güvenli Sahip Kurulumu (UNPROVISIONED)</button></div>
+      <h3 data-i18n="vault_title">API Kasası</h3><div id="vaultStatus" class="card"><p>Denetleniyor…</p></div>
+    </section>
+  </main>
+</div>
+
+<div id="cameraModal" class="modal" hidden>
+  <div class="modal-card"><h2>Kamera</h2><video id="cameraVideo" autoplay playsinline muted></video><canvas id="cameraCanvas" hidden></canvas><div class="modal-actions"><button id="cameraCapture" data-i18n="capture">Fotoğrafı Yakala</button><button id="cameraCancel" class="secondary" data-i18n="cancel">İptal</button></div><p id="cameraStatus"></p></div>
+</div>
+<script src="./app.js" defer></script>
+</body>
+</html>
