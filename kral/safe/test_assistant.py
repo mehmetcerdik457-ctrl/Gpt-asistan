@@ -2,6 +2,7 @@
 import importlib.util
 import json
 import os
+import stat
 from pathlib import Path
 import tempfile
 import unittest
@@ -64,7 +65,10 @@ class KralAssistantTests(unittest.TestCase):
                 rows = assistant.list_notes()
                 self.assertEqual(len(rows), 1)
                 self.assertEqual(rows[0][1], "test")
-                self.assertTrue((Path(tmp) / "kral-asistan" / "mem.db").exists())
+                db = Path(tmp) / "kral-asistan" / "mem.db"
+                self.assertTrue(db.exists())
+                self.assertEqual(stat.S_IMODE(db.stat().st_mode), 0o600)
+                self.assertEqual(stat.S_IMODE(db.parent.stat().st_mode), 0o700)
 
     def test_openai_request_does_not_need_third_party_sdk(self):
         env = {

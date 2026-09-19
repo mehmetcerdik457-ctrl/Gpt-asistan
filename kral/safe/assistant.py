@@ -13,6 +13,9 @@ import sys
 import urllib.error
 import urllib.request
 
+# Keep local memory and transient files private to the Codespace user.
+os.umask(0o077)
+
 DEFAULT_OPENAI_MODEL = "gpt-5.6-luna"
 DEFAULT_HF_MODEL = "openai/gpt-oss-20b:cheapest"
 DEFAULT_SYSTEM_PROMPT = (
@@ -31,8 +34,16 @@ def db_path() -> Path:
 
 def connect() -> sqlite3.Connection:
     path = db_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    try:
+        path.parent.chmod(0o700)
+    except OSError:
+        pass
     con = sqlite3.connect(path)
+    try:
+        path.chmod(0o600)
+    except OSError:
+        pass
     con.execute(
         "CREATE TABLE IF NOT EXISTS notes("
         "id INTEGER PRIMARY KEY, ts TEXT NOT NULL, text TEXT NOT NULL)"
