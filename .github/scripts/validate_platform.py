@@ -171,6 +171,9 @@ def validate_governance() -> None:
         ROOT / ".github" / "dependabot.yml",
         ROOT / ".github" / "pull_request_template.md",
         ROOT / ".github" / "workflows" / "privacy-guard.yml",
+        ROOT / ".github" / "workflows" / "scorecard.yml",
+        ROOT / ".github" / "workflows" / "security-supply-chain.yml",
+        ROOT / ".github" / "workflows" / "dependency-submission.yml",
     ]
     for path in required:
         if not path.is_file():
