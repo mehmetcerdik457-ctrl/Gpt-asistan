@@ -131,6 +131,8 @@ def validate_workflows() -> None:
             fail(f"{path.name}: explicit permissions block required")
         if re.search(r"(?m)^\s*permissions:\s*write-all\s*$", text):
             fail(f"{path.name}: write-all is forbidden")
+        if re.search(r"(?m)^\s*python-version:\s*[\'\"]?3\.x[\'\"]?\s*$", text):
+            fail(f"{path.name}: floating Python versions are forbidden; pin an explicit minor version")
         if re.search(r"(?m)^\s*pull_request_target\s*:", text):
             fail(f"{path.name}: pull_request_target is forbidden")
         if path.name in CRITICAL_CONCURRENCY_WORKFLOWS:
