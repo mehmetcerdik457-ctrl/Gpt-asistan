@@ -2,7 +2,7 @@ name: Cancel Stale Branch Runs
 
 on:
   push:
-    branches: [copilot-agent-upgrade-20260917]
+    branches-ignore: [main]
   workflow_dispatch:
 
 permissions:
