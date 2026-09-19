@@ -1,0 +1,7 @@
+'use strict';
+const CACHE='mehmet-pwa-v0.2.2';
+const CORE=['./','./index.html','./MEHMET.html','./styles.css','./app.js','./manifest.webmanifest','./locales/core.json','./icons/icon-192.png','./icons/icon-512.png','./icons/icon.svg'];
+self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(c=>c.addAll(CORE)).then(()=>self.skipWaiting())));
+self.addEventListener('activate',event=>event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith('mehmet-pwa-')&&k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
+async function navigationResponse(request){try{const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),4000);const resp=await fetch(request,{signal:controller.signal});clearTimeout(timer);return resp}catch{return (await caches.match(request))||(await caches.match('./MEHMET.html'))||(await caches.match('./index.html'))}}
+self.addEventListener('fetch',event=>{const u=new URL(event.request.url);if(event.request.method!=='GET'||u.pathname.includes('/api/'))return;if(event.request.mode==='navigate'){event.respondWith(navigationResponse(event.request));return}event.respondWith(caches.match(event.request).then(cached=>cached||fetch(event.request).then(resp=>{if(!resp||resp.status!==200||resp.type==='opaque')return resp;const copy=resp.clone();caches.open(CACHE).then(c=>c.put(event.request,copy));return resp;})))});
