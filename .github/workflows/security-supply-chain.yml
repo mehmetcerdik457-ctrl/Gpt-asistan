@@ -109,6 +109,14 @@ jobs:
           format: spdx-json
           output-file: release-evidence/app-debug.spdx.json
           upload-artifact: false
+      - name: Generate SHA-256 evidence manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          (
+            cd release-evidence
+            sha256sum app-debug.apk app-debug.spdx.json | tee SHA256SUMS.txt
+          )
       - name: Upload release evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
@@ -117,11 +125,12 @@ jobs:
             release-evidence/app-debug.apk
             release-evidence/app-debug.spdx.json
             release-evidence/evidence.txt
+            release-evidence/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 30
 
   attest-provenance:
-    name: APK Provenance Attestation
+    name: APK Provenance and SBOM Attestation
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     needs: supply-chain
     runs-on: ubuntu-24.04
@@ -131,28 +140,42 @@ jobs:
       actions: read
       id-token: write
       attestations: write
+      artifact-metadata: write
     steps:
-      - name: Download exact APK from the read-only SBOM job
+      - name: Download exact APK and SBOM from the read-only supply-chain job
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p attestation-input attestation-evidence
-          gh run download "${GITHUB_RUN_ID}" \
-            -n "security-supply-chain-${GITHUB_SHA}" \
-            -D attestation-input
+          gh run download "${GITHUB_RUN_ID}"             -n "security-supply-chain-${GITHUB_SHA}"             -D attestation-input
           APK="$(find attestation-input -type f -name 'app-debug.apk' | head -1)"
+          SBOM="$(find attestation-input -type f -name 'app-debug.spdx.json' | head -1)"
+          MANIFEST="$(find attestation-input -type f -name 'SHA256SUMS.txt' | head -1)"
           test -f "$APK"
+          test -f "$SBOM"
+          test -f "$MANIFEST"
           cp "$APK" attestation-evidence/app-debug.apk
-          sha256sum attestation-evidence/app-debug.apk | tee attestation-evidence/SHA256SUMS.txt
+          cp "$SBOM" attestation-evidence/app-debug.spdx.json
+          cp "$MANIFEST" attestation-evidence/SHA256SUMS.txt
+          (
+            cd attestation-evidence
+            sha256sum -c SHA256SUMS.txt
+          ) | tee attestation-evidence/manifest-verify.txt
 
       - name: Attest exact APK provenance
-        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d
         with:
           subject-path: attestation-evidence/app-debug.apk
 
-      - name: Verify APK provenance attestation
+      - name: Attest exact APK SBOM
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d
+        with:
+          subject-path: attestation-evidence/app-debug.apk
+          sbom-path: attestation-evidence/app-debug.spdx.json
+
+      - name: Verify APK attestations
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -175,6 +198,7 @@ jobs:
           name: security-attestation-${{ github.sha }}
           path: |
             attestation-evidence/SHA256SUMS.txt
+            attestation-evidence/manifest-verify.txt
             attestation-evidence/attestation-verify.txt
           if-no-files-found: error
           retention-days: 30
