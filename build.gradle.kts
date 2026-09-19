@@ -1,4 +1,6 @@
 buildscript {
+    val kotlinToolchainVersion = System.getenv("KOTLIN_VERSION_OVERRIDE") ?: "2.4.20"
+
     repositories {
         google()
         mavenCentral()
@@ -16,7 +18,7 @@ buildscript {
         classpath("com.android.tools.build:gradle:8.5.2") {
             exclude(group = "commons-io", module = "commons-io")
         }
-        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.20")
+        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlinToolchainVersion")
         classpath("commons-io:commons-io:2.14.0")
 
         constraints {

@@ -1,4 +1,7 @@
 plugins { id("com.android.application"); kotlin("android") }
+
+val kotlinRuntimeVersion = System.getenv("KOTLIN_VERSION_OVERRIDE") ?: "2.4.20"
+
 kotlin {
   compilerOptions {
     jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
@@ -25,7 +28,7 @@ android {
   }
 }
 dependencies {
-  implementation("org.jetbrains.kotlin:kotlin-stdlib:2.4.20")
+  implementation("org.jetbrains.kotlin:kotlin-stdlib:$kotlinRuntimeVersion")
   implementation("androidx.core:core-ktx:1.13.1")
   implementation("androidx.appcompat:appcompat:1.7.0")
   implementation("com.google.android.material:material:1.12.0")

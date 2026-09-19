@@ -19,6 +19,12 @@ jobs:
     name: CodeQL Java-Kotlin
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      # CodeQL CLI 2.27.0 cannot instrument Kotlin 2.4.20 yet.
+      # Production/default builds stay on patched Kotlin 2.4.20.
+      # This isolated scan-only override uses 2.4.10 with all Gradle build caching disabled.
+      KOTLIN_VERSION_OVERRIDE: '2.4.10'
+      GRADLE_OPTS: '-Dorg.gradle.caching=false'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -38,10 +44,11 @@ jobs:
       - name: Build for CodeQL
         run: |
           set -euo pipefail
+          echo "CodeQL compatibility Kotlin=${KOTLIN_VERSION_OVERRIDE}; build cache disabled"
           if [ -x ./gradlew ]; then
-            ./gradlew :app:assembleDebug --stacktrace
+            ./gradlew :app:assembleDebug --no-build-cache -Pkotlin.incremental=false --stacktrace
           else
-            gradle :app:assembleDebug --stacktrace
+            gradle :app:assembleDebug --no-build-cache -Pkotlin.incremental=false --stacktrace
           fi
       - uses: github/codeql-action/analyze@b96794f015dfd88f77b49b1c93e0fa7110f94c63
         with:
