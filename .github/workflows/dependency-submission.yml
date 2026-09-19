@@ -2,7 +2,7 @@ name: Dependency Submission
 
 on:
   push:
-    branches: [main, copilot-agent-upgrade-20260917]
+    branches: [main]
   pull_request:
     branches: [main]
   workflow_dispatch:
