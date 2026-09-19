@@ -139,7 +139,6 @@ jobs:
           echo "SOURCE_APK=$APK" | tee -a "$REPORT"
           if [ -z "$APK" ] || [ ! -f "$APK" ]; then echo "REAL_APK_TEST=BLOCKED_NO_BUILT_APK" | tee -a "$REPORT"; exit 0; fi
           TOOL_FAILURES=0
-          TOOL_PARTIALS=0
           record_tool() {
             tool="$1"; version_cmd="$2"; real_cmd="$3"
             if command -v "$tool" >/dev/null 2>&1; then
@@ -150,10 +149,6 @@ jobs:
               detail=""
               if [ "$rc" -eq 0 ]; then
                 status=PASS
-              elif [ "$tool" = "jadx" ] && [ "$rc" -eq 3 ] && find /tmp/jadx-out -type f -print -quit 2>/dev/null | grep -q .; then
-                status=PARTIAL
-                TOOL_PARTIALS=$((TOOL_PARTIALS + 1))
-                detail="$(grep -Eo 'errors, count: [0-9]+' "$log" | tail -1 || true)"
               else
                 TOOL_FAILURES=$((TOOL_FAILURES + 1))
               fi
@@ -169,7 +164,7 @@ jobs:
           echo "APK_TYPE=$(file -b "$APK")" | tee -a "$REPORT"
           echo "SPLIT_COUNT=$(find app/build/outputs/apk/debug -type f -name '*.apk' | wc -l)" | tee -a "$REPORT"
           record_tool apktool 'apktool --version' 'rm -rf /tmp/apktool-out && apktool d -f -o /tmp/apktool-out '"$APK"''
-          record_tool jadx 'jadx --version' 'rm -rf /tmp/jadx-out && jadx -d /tmp/jadx-out '"$APK"''
+          record_tool jadx 'jadx --version' 'rm -f /tmp/jadx-mainactivity.java && jadx --no-res --single-class com.example.gptasistan.MainActivity --single-class-output /tmp/jadx-mainactivity.java '"$APK"' && test -s /tmp/jadx-mainactivity.java && grep -q "class MainActivity" /tmp/jadx-mainactivity.java'
           record_tool apksigner 'apksigner version' 'apksigner verify --verbose --print-certs '"$APK"''
           record_tool aapt2 'aapt2 version' 'aapt2 dump badging '"$APK"''
           record_tool apkanalyzer 'apkanalyzer --version' 'apkanalyzer manifest print '"$APK"''
@@ -218,7 +213,6 @@ jobs:
             strings /tmp/target.so | head -200 > gate0-evidence/strings-apk-lib.log 2>&1 || true
           fi
           echo "TOOL_FAILURES=$TOOL_FAILURES" | tee -a "$REPORT"
-          echo "TOOL_PARTIALS=$TOOL_PARTIALS" | tee -a "$REPORT"
           test "$TOOL_FAILURES" -eq 0
 
       - name: Verify GitHub MCP over real stdio and execute read operation
