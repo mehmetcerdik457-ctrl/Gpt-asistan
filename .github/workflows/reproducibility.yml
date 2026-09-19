@@ -19,11 +19,11 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
-      EXPECTED_SHA: ${{ github.event_name == 'pull_request' && github.sha || github.event.after || github.sha }}
+      EXPECTED_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.event.after || github.sha }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: ${{ github.event_name == 'pull_request' && github.sha || github.event.after || github.sha }}
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.event.after || github.sha }}
           persist-credentials: false
 
       - name: Exact direct-head SHA guard
@@ -167,7 +167,8 @@ jobs:
             echo 'SIGNED_REPRODUCIBILITY=PARTIAL' | tee -a reproducibility/classification.txt
           fi
           {
-            echo "HEAD_SHA=${GITHUB_SHA}"
+            echo "HEAD_SHA=${EXPECTED_SHA}"
+            echo "EVENT_SHA=${GITHUB_SHA}"
             echo "RUN_ID=${GITHUB_RUN_ID}"
             cat reproducibility/unsigned-result.txt
             cat reproducibility/debug-result.txt
@@ -180,7 +181,7 @@ jobs:
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:
-          name: reproducibility-${{ github.sha }}
+          name: reproducibility-${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           path: reproducibility/**
           if-no-files-found: error
           retention-days: 30

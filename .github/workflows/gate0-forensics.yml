@@ -18,10 +18,21 @@ jobs:
   gate0:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    env:
+      EXPECTED_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.event.after || github.sha }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.event.after || github.sha }}
           persist-credentials: false
+
+      - name: Exact direct-head SHA guard
+        run: |
+          set -euo pipefail
+          actual="$(git rev-parse HEAD)"
+          echo "EXPECTED_SHA=${EXPECTED_SHA}"
+          echo "ACTUAL_GIT_SHA=${actual}"
+          test "${EXPECTED_SHA}" = "${actual}"
 
       - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6
         with:
@@ -127,14 +138,29 @@ jobs:
           : > "$REPORT"
           echo "SOURCE_APK=$APK" | tee -a "$REPORT"
           if [ -z "$APK" ] || [ ! -f "$APK" ]; then echo "REAL_APK_TEST=BLOCKED_NO_BUILT_APK" | tee -a "$REPORT"; exit 0; fi
+          TOOL_FAILURES=0
+          TOOL_PARTIALS=0
           record_tool() {
             tool="$1"; version_cmd="$2"; real_cmd="$3"
             if command -v "$tool" >/dev/null 2>&1; then
               ver=$(bash -lc "$version_cmd" 2>&1 | head -3 | tr '\n' ' ')
-              bash -lc "$real_cmd" >"gate0-evidence/${tool}.real.log" 2>&1; rc=$?
-              echo "TOOL=$tool | INSTALLED=YES | VERSION=$ver | REAL_COMMAND=$real_cmd | RESULT=RC_$rc" | tee -a "$REPORT"
+              log="gate0-evidence/${tool}.real.log"
+              bash -lc "$real_cmd" >"$log" 2>&1; rc=$?
+              status=FAIL
+              detail=""
+              if [ "$rc" -eq 0 ]; then
+                status=PASS
+              elif [ "$tool" = "jadx" ] && [ "$rc" -eq 3 ] && find /tmp/jadx-out -type f -print -quit 2>/dev/null | grep -q .; then
+                status=PARTIAL
+                TOOL_PARTIALS=$((TOOL_PARTIALS + 1))
+                detail="$(grep -Eo 'errors, count: [0-9]+' "$log" | tail -1 || true)"
+              else
+                TOOL_FAILURES=$((TOOL_FAILURES + 1))
+              fi
+              echo "TOOL=$tool | INSTALLED=YES | VERSION=$ver | REAL_COMMAND=$real_cmd | RESULT=RC_$rc | STATUS=$status | DETAIL=$detail" | tee -a "$REPORT"
             else
-              echo "TOOL=$tool | INSTALLED=NO | VERSION=NA | REAL_COMMAND=$real_cmd | RESULT=NOT_FOUND" | tee -a "$REPORT"
+              TOOL_FAILURES=$((TOOL_FAILURES + 1))
+              echo "TOOL=$tool | INSTALLED=NO | VERSION=NA | REAL_COMMAND=$real_cmd | RESULT=NOT_FOUND | STATUS=FAIL" | tee -a "$REPORT"
             fi
           }
           echo "FILE_SIZE=$(stat -c%s "$APK")" | tee -a "$REPORT"
@@ -161,7 +187,8 @@ jobs:
           print('PACKAGE=' + a.get_package()); print('VERSION_CODE=' + str(a.get_androidversion_code())); print('VERSION_NAME=' + str(a.get_androidversion_name())); print('DEX_COUNT=' + str(len(ds)))
           PY
           arc=$?; aver=$(python3 -c 'import importlib.metadata as m; print(m.version("androguard"))' 2>/dev/null)
-          echo "TOOL=Androguard | INSTALLED=YES | VERSION=$aver | REAL_COMMAND=AnalyzeAPK(actual APK) | RESULT=RC_$arc" | tee -a "$REPORT"
+          if [ "$arc" -eq 0 ]; then astatus=PASS; else astatus=FAIL; TOOL_FAILURES=$((TOOL_FAILURES + 1)); fi
+          echo "TOOL=Androguard | INSTALLED=YES | VERSION=$aver | REAL_COMMAND=AnalyzeAPK(actual APK) | RESULT=RC_$arc | STATUS=$astatus" | tee -a "$REPORT"
           if command -v apkanalyzer >/dev/null 2>&1; then
             echo "PACKAGE=$(apkanalyzer manifest application-id "$APK" 2>/dev/null)" | tee -a "$REPORT"
             echo "VERSION_NAME=$(apkanalyzer manifest version-name "$APK" 2>/dev/null)" | tee -a "$REPORT"
@@ -180,7 +207,8 @@ jobs:
           else
             echo "FLUTTER_AOT=ABSENT" | tee -a "$REPORT"; timeout 30 python3 /tmp/blutter/blutter.py --help > gate0-evidence/blutter.real.log 2>&1; brc=$?
           fi
-          echo "TOOL=Blutter | INSTALLED=$(test -f /tmp/blutter/blutter.py && echo YES || echo NO) | VERSION=git_HEAD_$(git -C /tmp/blutter rev-parse --short HEAD 2>/dev/null) | REAL_COMMAND=blutter.py against Flutter libs when present; --help otherwise | RESULT=RC_$brc" | tee -a "$REPORT"
+          if [ "$brc" -eq 0 ]; then bstatus=PASS; else bstatus=FAIL; TOOL_FAILURES=$((TOOL_FAILURES + 1)); fi
+          echo "TOOL=Blutter | INSTALLED=$(test -f /tmp/blutter/blutter.py && echo YES || echo NO) | VERSION=git_HEAD_$(git -C /tmp/blutter rev-parse --short HEAD 2>/dev/null) | REAL_COMMAND=blutter.py against Flutter libs when present; --help otherwise | RESULT=RC_$brc | STATUS=$bstatus" | tee -a "$REPORT"
           firstso=$(head -1 gate0-evidence/native-libs.txt)
           if [ -n "$firstso" ]; then
             unzip -p "$APK" "$firstso" > /tmp/target.so
@@ -189,6 +217,9 @@ jobs:
             nm -D /tmp/target.so > gate0-evidence/nm-apk-lib.log 2>&1 || true
             strings /tmp/target.so | head -200 > gate0-evidence/strings-apk-lib.log 2>&1 || true
           fi
+          echo "TOOL_FAILURES=$TOOL_FAILURES" | tee -a "$REPORT"
+          echo "TOOL_PARTIALS=$TOOL_PARTIALS" | tee -a "$REPORT"
+          test "$TOOL_FAILURES" -eq 0
 
       - name: Verify GitHub MCP over real stdio and execute read operation
         env:

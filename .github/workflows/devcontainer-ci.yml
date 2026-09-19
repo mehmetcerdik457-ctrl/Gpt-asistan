@@ -3,6 +3,10 @@ name: Devcontainer Toolchain
 on:
   push:
     branches: [main, copilot-agent-upgrade-20260917]
+    paths:
+      - '.devcontainer/**'
+      - '.github/workflows/devcontainer-ci.yml'
+      - '.github/workflows/direct-head-matrix.yml'
   pull_request:
     branches: [main]
     paths:
@@ -23,11 +27,11 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 75
     env:
-      EXPECTED_SHA: ${{ github.sha }}
+      EXPECTED_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
 
       - name: Exact direct-head SHA guard
@@ -67,7 +71,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4.6.2
         with:
-          name: devcontainer-toolchain-${{ github.sha }}
+          name: devcontainer-toolchain-${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           path: devcontainer-toolchain.log
           if-no-files-found: error
           retention-days: 30
