@@ -37,3 +37,21 @@ If a secret may have leaked:
 ## CI acceptance rule
 
 Secret-wiring checks must prove presence or functionality without echoing the credential. Paid external API probes must be opt-in unless a release gate explicitly requires them.
+
+## YouTube Copilot MCP
+
+Store YouTube OAuth material as **Copilot Agents secrets**, never repository files:
+
+- `COPILOT_MCP_YOUTUBE_CLIENT_ID`
+- `COPILOT_MCP_YOUTUBE_CLIENT_SECRET`
+- `COPILOT_MCP_YOUTUBE_REFRESH_TOKEN`
+
+Use repository **Agents variable** `COPILOT_MCP_YOUTUBE_WRITE_ENABLED=false` by default. Change it to `true` only when the owner intentionally enables metadata/comment moderation writes.
+
+The MCP server never persists refreshed access tokens.
+
+Required OAuth scopes:
+
+- `https://www.googleapis.com/auth/youtube.readonly`
+- `https://www.googleapis.com/auth/yt-analytics.readonly`
+- `https://www.googleapis.com/auth/youtube.force-ssl` only if write operations are desired

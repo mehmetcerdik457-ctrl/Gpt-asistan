@@ -23,3 +23,7 @@ jobs:
         run: python -V
       - name: Validate platform policy
         run: python .github/scripts/validate_platform.py
+      - name: Test Kral private AI runtime
+        run: python -m unittest discover -s kral/safe -p 'test_*.py'
+      - name: Test Kral MCP integrations
+        run: python -m unittest discover -s kral/mcp -p 'test_*.py'

@@ -88,6 +88,9 @@ def frontmatter(path: pathlib.Path) -> dict[str, str]:
     for raw in lines[1:end]:
         if not raw.strip() or raw.lstrip().startswith("#"):
             continue
+        # Parse only top-level frontmatter. Nested MCP blocks have their own tools key.
+        if raw[0].isspace():
+            continue
         if ":" not in raw:
             fail(f"{path.name}: malformed frontmatter line: {raw}")
         key, value = raw.split(":", 1)
