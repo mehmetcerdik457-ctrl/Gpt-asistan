@@ -119,10 +119,10 @@ jobs:
           mkdir -p "$user_site"
           unzip -q /tmp/capstone-5.0.9.whl -d "$user_site"
           python3 - <<'PY'
-import androguard, capstone
-print("ANDROGUARD_VERSION=" + getattr(androguard, "__version__", "unknown"))
-print("CAPSTONE_VERSION=" + capstone.__version__)
-PY
+          import androguard, capstone
+          print("ANDROGUARD_VERSION=" + getattr(androguard, "__version__", "unknown"))
+          print("CAPSTONE_VERSION=" + capstone.__version__)
+          PY
 
       - name: Static inventory and redacted report
         run: |
