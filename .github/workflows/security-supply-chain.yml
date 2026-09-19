@@ -29,7 +29,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6
         with:
           distribution: temurin
           java-version: '17'
@@ -64,7 +64,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6
         with:
           distribution: temurin
           java-version: '17'
@@ -106,7 +106,7 @@ jobs:
           output-file: release-evidence/app-debug.spdx.json
           upload-artifact: false
       - name: Upload release evidence
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: security-supply-chain-${{ github.sha }}
           path: |
@@ -144,7 +144,7 @@ jobs:
           sha256sum attestation-evidence/app-debug.apk | tee attestation-evidence/SHA256SUMS.txt
 
       - name: Attest exact APK provenance
-        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
         with:
           subject-path: attestation-evidence/app-debug.apk
 
@@ -166,7 +166,7 @@ jobs:
           echo 'ATTESTATION_VERIFY=PASS' | tee -a attestation-evidence/attestation-verify.txt
 
       - name: Upload attestation verification evidence
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: security-attestation-${{ github.sha }}
           path: |
