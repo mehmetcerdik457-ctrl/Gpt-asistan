@@ -5,7 +5,10 @@ buildscript {
         gradlePluginPortal()
     }
     configurations.configureEach {
-        resolutionStrategy.force("commons-io:commons-io:2.14.0")
+        resolutionStrategy.force(
+            "commons-io:commons-io:2.14.0",
+            "org.bitbucket.b_c:jose4j:0.9.6"
+        )
     }
     dependencies {
         classpath("com.android.tools.build:gradle:8.5.2") {
@@ -32,6 +35,7 @@ buildscript {
             classpath("com.google.protobuf:protobuf-java:3.25.9")
             classpath("com.google.protobuf:protobuf-java-util:3.25.9")
             classpath("commons-io:commons-io:2.14.0")
+            classpath("org.bitbucket.b_c:jose4j:0.9.6")
         }
     }
 }
@@ -45,7 +49,7 @@ allprojects {
             "io.netty:netty-codec-http2:4.1.138.Final",
             "io.netty:netty-codec-socks:4.1.138.Final",
             "io.netty:netty-common:4.1.138.Final",
-            "io.netty:netty-handler:4.1.138.Final",
+            "io.netty:netty-handler@4.1.138.Final",
             "io.netty:netty-handler-proxy:4.1.138.Final",
             "io.netty:netty-resolver:4.1.138.Final",
             "io.netty:netty-transport:4.1.138.Final",
@@ -55,7 +59,8 @@ allprojects {
             "org.bouncycastle:bcutil-jdk18on:1.86",
             "com.google.protobuf:protobuf-java:3.25.9",
             "com.google.protobuf:protobuf-java-util:3.25.9",
-            "commons-io:commons-io:2.14.0"
+            "commons-io:commons-io:2.14.0",
+            "org.bitbucket.b_c:jose4j:0.9.6"
         )
     }
 }
