@@ -15,11 +15,11 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: openai-ci
-    env:
-      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
     steps:
       - name: Verify environment secret wiring without disclosure
         shell: bash
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           set -euo pipefail
           if [ -z "${OPENAI_API_KEY:-}" ]; then
