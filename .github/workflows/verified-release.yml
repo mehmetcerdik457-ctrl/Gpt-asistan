@@ -39,16 +39,15 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - name: Set up pinned Gradle
+        uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92
+        with:
+          gradle-version: '8.7'
+          cache-provider: basic
       - name: Build candidate
         run: |
           set -euo pipefail
-          if [ ! -f gradlew ]; then
-            curl -fsSL https://services.gradle.org/distributions/gradle-8.7-bin.zip -o /tmp/gradle.zip
-            unzip -q /tmp/gradle.zip -d /tmp
-            printf '#!/bin/sh\nexec /tmp/gradle-8.7/bin/gradle "$@"\n' > gradlew
-            chmod +x gradlew
-          fi
-          ./gradlew :app:assembleDebug --stacktrace
+          gradle :app:assembleDebug --stacktrace
           mkdir -p candidate
           cp app/build/outputs/apk/debug/app-debug.apk candidate/app-debug.apk
           chmod 0444 candidate/app-debug.apk

@@ -53,13 +53,16 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p /tmp/jadx
-          url="$(curl -fsSL https://api.github.com/repos/skylot/jadx/releases/latest | jq -r '.assets[] | select(.name|test("^jadx-[0-9].*\\.zip$")) | .browser_download_url' | head -1)"
-          test -n "${url}"
-          curl -fsSL "${url}" -o /tmp/jadx.zip
+          curl -fsSL https://github.com/skylot/jadx/releases/download/v1.5.6/jadx-1.5.6.zip -o /tmp/jadx.zip
+          echo '545ea2be9c242511bc145755cf4bda2485ade42966e096f8b4d3da2a230e8974  /tmp/jadx.zip' | sha256sum -c -
           unzip -q /tmp/jadx.zip -d /tmp/jadx
           /tmp/jadx/bin/jadx --version | tee fallback-evidence/jadx-version.txt
 
-          git clone --depth 1 https://github.com/worawit/blutter.git /tmp/blutter > fallback-evidence/blutter-clone.log 2>&1
+          git init -q /tmp/blutter
+          git -C /tmp/blutter remote add origin https://github.com/worawit/blutter.git
+          git -C /tmp/blutter fetch --depth 1 origin 4a60ac648bf448c5a7596437243bcd0b9376fdf0 > fallback-evidence/blutter-clone.log 2>&1
+          git -C /tmp/blutter checkout --detach FETCH_HEAD >> fallback-evidence/blutter-clone.log 2>&1
+          test "$(git -C /tmp/blutter rev-parse HEAD)" = "4a60ac648bf448c5a7596437243bcd0b9376fdf0"
           test -f /tmp/blutter/blutter.py
           git -C /tmp/blutter rev-parse HEAD | tee fallback-evidence/blutter-head.txt
 

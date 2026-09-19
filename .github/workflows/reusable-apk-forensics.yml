@@ -56,10 +56,17 @@ jobs:
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
       - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
         with:
           distribution: temurin
           java-version: '17'
+      - name: Set up pinned Gradle
+        uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92
+        with:
+          gradle-version: '8.7'
+          cache-provider: basic
 
       - name: Acquire immutable source artifact
         env:
@@ -78,13 +85,7 @@ jobs:
             path=$(find incoming -type f \( -name '*.apk' -o -name '*.apkm' \) | head -1 || true)
           fi
           if [ ! -f "$path" ] && [ "${BUILD_IF_MISSING:-true}" = "true" ]; then
-            if [ ! -f gradlew ]; then
-              curl -fsSL https://services.gradle.org/distributions/gradle-8.7-bin.zip -o /tmp/gradle.zip
-              unzip -q /tmp/gradle.zip -d /tmp
-              printf '#!/bin/sh\nexec /tmp/gradle-8.7/bin/gradle "$@"\n' > gradlew
-              chmod +x gradlew
-            fi
-            ./gradlew :app:assembleDebug --stacktrace
+            gradle :app:assembleDebug --stacktrace
             path=app/build/outputs/apk/debug/app-debug.apk
           fi
           test -f "$path"
@@ -101,6 +102,7 @@ jobs:
         run: |
           set -euo pipefail
           curl -fsSL https://github.com/skylot/jadx/releases/download/v1.5.6/jadx-1.5.6.zip -o /tmp/jadx.zip
+          echo '545ea2be9c242511bc145755cf4bda2485ade42966e096f8b4d3da2a230e8974  /tmp/jadx.zip' | sha256sum -c -
           unzip -q /tmp/jadx.zip -d /tmp/jadx
           echo /tmp/jadx/bin >> "$GITHUB_PATH"
           curl -fsSL https://github.com/iBotPeaches/Apktool/releases/download/v3.0.3/apktool_3.0.3.jar -o /tmp/apktool.jar

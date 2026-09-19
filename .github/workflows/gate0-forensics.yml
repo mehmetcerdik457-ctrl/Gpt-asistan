@@ -23,6 +23,11 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - name: Set up pinned Gradle
+        uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92
+        with:
+          gradle-version: '8.7'
+          cache-provider: basic
 
       - name: Remote workspace identity
         run: |
@@ -38,19 +43,10 @@ jobs:
             java -version 2>&1
           } | tee gate0-evidence/remote-workspace.txt
 
-      - name: Ensure Gradle wrapper and build Android APK
+      - name: Build Android APK with pinned Gradle
         run: |
           set +e
-          if [ ! -f gradlew ]; then
-            curl -fsSL https://services.gradle.org/distributions/gradle-8.7-bin.zip -o /tmp/gradle.zip
-            unzip -q /tmp/gradle.zip -d /tmp
-            cat > gradlew <<'EOF'
-          #!/usr/bin/env sh
-          exec /tmp/gradle-8.7/bin/gradle "$@"
-          EOF
-            chmod +x gradlew
-          fi
-          ./gradlew :app:assembleDebug --stacktrace 2>&1 | tee gate0-evidence/android-build.log
+          gradle :app:assembleDebug --stacktrace 2>&1 | tee gate0-evidence/android-build.log
           rc=${PIPESTATUS[0]}
           echo "$rc" > gate0-evidence/android-build.rc
           echo "ANDROID_BUILD_RC=$rc"

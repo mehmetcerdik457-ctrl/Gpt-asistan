@@ -34,26 +34,24 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - name: Set up pinned Gradle
+        uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92
+        with:
+          gradle-version: '8.7'
+          cache-provider: basic
 
-      - name: Prepare Gradle
-        run: |
-          set -euo pipefail
-          if [ ! -f gradlew ]; then
-            curl -fsSL https://services.gradle.org/distributions/gradle-8.7-bin.zip -o /tmp/gradle.zip
-            unzip -q /tmp/gradle.zip -d /tmp
-            printf '#!/bin/sh\nexec /tmp/gradle-8.7/bin/gradle "$@"\n' > gradlew
-            chmod +x gradlew
-          fi
+      - name: Verify pinned Gradle
+        run: gradle --version
 
       - name: Compare two clean unsigned release builds
         run: |
           set -euo pipefail
           mkdir -p reproducibility
-          ./gradlew clean :app:assembleRelease --no-build-cache --rerun-tasks
+          gradle clean :app:assembleRelease --no-build-cache --rerun-tasks
           A=$(find app/build/outputs/apk/release -type f -name '*unsigned*.apk' | head -1)
           test -f "$A"
           cp "$A" reproducibility/release-A-unsigned.apk
-          ./gradlew clean :app:assembleRelease --no-build-cache --rerun-tasks
+          gradle clean :app:assembleRelease --no-build-cache --rerun-tasks
           B=$(find app/build/outputs/apk/release -type f -name '*unsigned*.apk' | head -1)
           test -f "$B"
           cp "$B" reproducibility/release-B-unsigned.apk
@@ -73,10 +71,10 @@ jobs:
           test -x "$APKSIGNER"
           rm -rf /tmp/debug-home-A /tmp/debug-home-B
           mkdir -p /tmp/debug-home-A /tmp/debug-home-B
-          ANDROID_USER_HOME=/tmp/debug-home-A ./gradlew clean :app:assembleDebug --no-build-cache --rerun-tasks
+          ANDROID_USER_HOME=/tmp/debug-home-A gradle clean :app:assembleDebug --no-build-cache --rerun-tasks
           cp app/build/outputs/apk/debug/app-debug.apk reproducibility/debug-A.apk
           "$APKSIGNER" verify --print-certs reproducibility/debug-A.apk > reproducibility/debug-A-cert.txt
-          ANDROID_USER_HOME=/tmp/debug-home-B ./gradlew clean :app:assembleDebug --no-build-cache --rerun-tasks
+          ANDROID_USER_HOME=/tmp/debug-home-B gradle clean :app:assembleDebug --no-build-cache --rerun-tasks
           cp app/build/outputs/apk/debug/app-debug.apk reproducibility/debug-B.apk
           "$APKSIGNER" verify --print-certs reproducibility/debug-B.apk > reproducibility/debug-B-cert.txt
           sha256sum reproducibility/debug-A.apk reproducibility/debug-B.apk | tee reproducibility/debug-sha256.txt
