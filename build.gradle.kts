@@ -16,7 +16,7 @@ buildscript {
         classpath("com.android.tools.build:gradle:8.5.2") {
             exclude(group = "commons-io", module = "commons-io")
         }
-        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.24")
+        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.20")
         classpath("commons-io:commons-io:2.14.0")
 
         constraints {
