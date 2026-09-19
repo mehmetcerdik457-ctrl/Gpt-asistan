@@ -16,7 +16,8 @@ buildscript {
         resolutionStrategy.force(
             "commons-io:commons-io:2.14.0",
             "org.bitbucket.b_c:jose4j:0.9.6",
-            "org.jdom:jdom2:2.0.6.1"
+            "org.jdom:jdom2:2.0.6.1",
+            "org.apache.commons:commons-compress:1.28.0"
         )
     }
 }
