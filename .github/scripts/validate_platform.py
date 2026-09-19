@@ -23,6 +23,19 @@ EXPECTED_AGENTS = {
     "test-engineer.agent.md",
 }
 
+YOUTUBE_MCP_ALLOW = {
+    "github-master-ai.agent.md": {
+        "youtube/status",
+        "youtube/channel_get",
+        "youtube/videos_list",
+        "youtube/playlists_list",
+        "youtube/comments_list",
+        "youtube/analytics_report",
+        "youtube/video_update_metadata",
+        "youtube/comment_moderate",
+    },
+}
+
 MCP_ALLOW = {
     "github-master-ai.agent.md": {
         "github/get_file_contents",
@@ -129,6 +142,19 @@ def validate_agents() -> None:
         allowed = MCP_ALLOW.get(path.name, set())
         if github_tools - allowed:
             fail(f"{path.name}: unauthorized GitHub MCP tools {sorted(github_tools - allowed)}")
+
+        youtube_tools = {t for t in tools if t.startswith("youtube/")}
+        allowed_youtube = YOUTUBE_MCP_ALLOW.get(path.name, set())
+        if youtube_tools - allowed_youtube:
+            fail(
+                f"{path.name}: unauthorized YouTube MCP tools "
+                f"{sorted(youtube_tools - allowed_youtube)}"
+            )
+        if path.name == "github-master-ai.agent.md" and youtube_tools != allowed_youtube:
+            fail(
+                f"{path.name}: YouTube MCP allowlist drift "
+                f"expected={sorted(allowed_youtube)} actual={sorted(youtube_tools)}"
+            )
 
 
 def validate_workflows() -> None:
