@@ -8,12 +8,14 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   dependency-submission:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    permissions:
+      contents: write
     steps:
       - name: Checkout sources
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
@@ -133,3 +135,22 @@ jobs:
           path: dependency-evidence/state.txt
           if-no-files-found: error
           retention-days: 30
+
+  dependency-review:
+    name: Dependency Review
+    if: github.event_name == 'pull_request'
+    needs: dependency-submission
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Review the submitted dependency diff
+        uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48
+        with:
+          retry-on-snapshot-warnings: true
+          retry-on-snapshot-warnings-timeout: 180
