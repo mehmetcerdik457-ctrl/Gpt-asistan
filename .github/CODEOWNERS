@@ -1,0 +1,8 @@
+# Default owner for all repository content
+* @mehmetcerdik457-ctrl
+
+# Sensitive engineering and security surfaces
+/.github/ @mehmetcerdik457-ctrl
+/app/ @mehmetcerdik457-ctrl
+/build.gradle.kts @mehmetcerdik457-ctrl
+/settings.gradle.kts @mehmetcerdik457-ctrl
