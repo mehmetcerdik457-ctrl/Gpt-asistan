@@ -174,6 +174,7 @@ def validate_governance() -> None:
         ROOT / ".github" / "workflows" / "scorecard.yml",
         ROOT / ".github" / "workflows" / "security-supply-chain.yml",
         ROOT / ".github" / "workflows" / "dependency-submission.yml",
+        ROOT / ".github" / "workflows" / "reusable-apk-forensics.yml",
     ]
     for path in required:
         if not path.is_file():
@@ -203,6 +204,22 @@ def validate_governance() -> None:
     stale = (WORKFLOW_DIR / "cancel-stale-runs.yml").read_text(encoding="utf-8")
     if "branches-ignore: [main]" not in stale:
         fail("cancel-stale-runs.yml must target non-main branches via branches-ignore: [main]")
+
+    reusable = (WORKFLOW_DIR / "reusable-apk-forensics.yml").read_text(encoding="utf-8")
+    reusable_guards = [
+        'test "$source_repo" = "$GITHUB_REPOSITORY"',
+        'test "$source_branch" = "$default_branch"',
+        'test "$source_status" = "completed"',
+        'test "$source_conclusion" = "success"',
+        'push|workflow_dispatch|schedule',
+        'SOURCE_SHA_NOT_IN_DEFAULT_BRANCH_HISTORY',
+        'SOURCE_TRUST=PASS',
+        'cache-disabled: true',
+        '--no-build-cache --no-configuration-cache',
+    ]
+    for guard in reusable_guards:
+        if guard not in reusable:
+            fail(f"reusable-apk-forensics.yml missing trust/cache guard: {guard}")
 
     print("GOVERNANCE_POLICY=PASS")
 
