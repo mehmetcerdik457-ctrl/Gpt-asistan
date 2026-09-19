@@ -5,7 +5,7 @@ on:
     branches:
       - mehmet-yaratilis-pwa
     paths:
-      - 'mehmet-yaratilis-pwa/**'
+      - 'mehmet-yaratilis-pwa/release/MEHMET_YARATILIS_PWA_v0.2.2.zip'
       - '.github/workflows/mehmet-yaratilis-pages.yml'
   workflow_dispatch:
 
@@ -25,18 +25,63 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout isolated branch
         uses: actions/checkout@v5
 
-      - name: Configure Pages
+      - name: Extract immutable v0.2.2 release
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import zipfile
+
+          archive = Path("mehmet-yaratilis-pwa/release/MEHMET_YARATILIS_PWA_v0.2.2.zip")
+          site = Path("_site")
+          prefix = "MEHMET_YARATILIS_PWA_v0.2.2/MEHMET_YARATILIS_PWA/"
+          site.mkdir(parents=True, exist_ok=True)
+
+          with zipfile.ZipFile(archive) as z:
+              names = z.namelist()
+              if not any(n.startswith(prefix) for n in names):
+                  raise SystemExit("expected PWA root not found in release ZIP")
+              for name in names:
+                  if not name.startswith(prefix) or name.endswith("/"):
+                      continue
+                  rel = name[len(prefix):]
+                  if not rel:
+                      continue
+                  dest = site / rel
+                  dest.parent.mkdir(parents=True, exist_ok=True)
+                  dest.write_bytes(z.read(name))
+
+          required = [
+              "index.html",
+              "MEHMET.html",
+              "app.js",
+              "styles.css",
+              "manifest.webmanifest",
+              "sw.js",
+              "locales/core.json",
+              "icons/icon-192.png",
+              "icons/icon-512.png",
+              "icons/icon.svg",
+          ]
+          missing = [p for p in required if not (site / p).is_file()]
+          if missing:
+              raise SystemExit("missing required PWA files: " + ", ".join(missing))
+          print("PWA_RELEASE_EXTRACT=PASS")
+          print("PWA_REQUIRED_FILES=PASS")
+          PY
+
+      - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
         with:
           enablement: true
 
-      - name: Upload Pages artifact
+      - name: Upload exact PWA site
         uses: actions/upload-pages-artifact@v4
         with:
-          path: ./mehmet-yaratilis-pwa
+          path: ./_site
 
       - name: Deploy to GitHub Pages
         id: deployment
