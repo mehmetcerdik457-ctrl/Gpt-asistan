@@ -43,6 +43,7 @@ jobs:
           - label: DEVCONTAINER
             workflow_path: .github/workflows/devcontainer-ci.yml
             target_job: verify-devcontainer
+            watch_paths: ".devcontainer .github/workflows/devcontainer-ci.yml .github/workflows/direct-head-matrix.yml"
           - label: ADVANCED_FORENSICS
             workflow_path: .github/workflows/advanced-forensics-toolchain.yml
             target_job: advanced-forensics
@@ -52,12 +53,14 @@ jobs:
 
     env:
       EXPECTED_SHA: ${{ github.event.after || github.sha }}
+      BEFORE_SHA: ${{ github.event.before || '' }}
       GH_TOKEN: ${{ github.token }}
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.event.after || github.sha }}
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Exact direct-head SHA guard
@@ -75,10 +78,20 @@ jobs:
         env:
           TARGET_WORKFLOW_PATH: ${{ matrix.workflow_path }}
           TARGET_JOB: ${{ matrix.target_job }}
+          WATCH_PATHS: ${{ matrix.watch_paths || '' }}
         run: |
           set -euo pipefail
           echo "TARGET_WORKFLOW_PATH=${TARGET_WORKFLOW_PATH}"
           echo "TARGET_JOB=${TARGET_JOB}"
+
+          if [ -n "${WATCH_PATHS:-}" ] && [ "${GITHUB_EVENT_NAME}" = "push" ] && [ -n "${BEFORE_SHA:-}" ] && [ "${BEFORE_SHA}" != "0000000000000000000000000000000000000000" ]; then
+            read -r -a watched <<< "${WATCH_PATHS}"
+            if git diff --quiet "${BEFORE_SHA}" "${EXPECTED_SHA}" -- "${watched[@]}"; then
+              echo "TARGET_JOB_CONCLUSION=NOT_REQUIRED_INPUTS_UNCHANGED"
+              exit 0
+            fi
+          fi
+
           run_id=""
           for attempt in $(seq 1 255); do
             payload="$(gh api \
