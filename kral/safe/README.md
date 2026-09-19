@@ -11,6 +11,20 @@ GitHub'da bu branch için Codespace oluştururken **New with options** akışın
 
 İkisinden biri yeterlidir. Değer GitHub Codespaces secret olarak saklanır ve kaynak dosyaya yazılmaz. Codespace açıldığında toolchain doğrulaması ve \`./kral-ai --status\` otomatik çalışır.
 
+## GitHub içinden, terminal açmadan kullanma
+
+Bu repository artık GitHub Copilot cloud agent için bir ana giriş ajanı içerir:
+
+- `Kral GitHub Master`
+- profil: `.github/agents/github-master-ai.agent.md`
+- repo-wide davranış: `.github/copilot-instructions.md`
+
+GitHub'da `github.com/copilot/agents` sayfasında bu repository'yi ve çalışmak istediğin branch'i seçip **Kral GitHub Master** ajanını çağırabilirsin. Ajan gerektiğinde Android, CI/CD, güvenlik, test, forensic, review ve release uzman ajanlarına delege eder; sonuçları tek cevapta birleştirir.
+
+GitHub.com Copilot Chat içinde bu repository bağlamını eklediğinde `.github/copilot-instructions.md` otomatik bağlama girer. Böylece basit repo sorularında doğrudan chat, çok adımlı uygulama işlerinde ise Kral GitHub Master aynı control-plane kurallarını kullanır.
+
+Bu GitHub-native mod için OpenAI veya Hugging Face anahtarı gerekmez. Dış model sağlayıcı anahtarları yalnız `./kral-ai` özel runtime'ını kullanmak istediğinde gerekir.
+
 ## Çalıştırma
 
 \`\`\`bash
