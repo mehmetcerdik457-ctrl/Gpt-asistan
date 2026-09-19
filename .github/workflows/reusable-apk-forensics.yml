@@ -62,13 +62,13 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Set up pinned Gradle
+      - name: Set up pinned Gradle without shared caches
         uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92
         with:
           gradle-version: '8.7'
-          cache-provider: basic
+          cache-disabled: true
 
-      - name: Acquire immutable source artifact
+      - name: Acquire trusted immutable source artifact
         env:
           GH_TOKEN: ${{ github.token }}
           INPUT_PATH: ${{ inputs.artifact_path }}
@@ -77,19 +77,62 @@ jobs:
           BUILD_IF_MISSING: ${{ inputs.build_if_missing }}
         run: |
           set -euo pipefail
+          mkdir -p forensic-evidence/source forensic-evidence/work
           path="${INPUT_PATH:-app/build/outputs/apk/debug/app-debug.apk}"
+
           if [ -n "${SOURCE_RUN_ID:-}" ]; then
             test -n "${SOURCE_ARTIFACT_NAME:-}" || { echo 'source_artifact_name is required with source_run_id' >&2; exit 2; }
+            case "$SOURCE_RUN_ID" in
+              *[!0-9]*|'') echo 'source_run_id must be a numeric GitHub Actions run ID' >&2; exit 2 ;;
+            esac
+
+            run_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN_ID}")"
+            default_branch="$(gh api "repos/${GITHUB_REPOSITORY}" --jq '.default_branch')"
+            source_repo="$(jq -r '.head_repository.full_name // ""' <<<"$run_json")"
+            source_branch="$(jq -r '.head_branch // ""' <<<"$run_json")"
+            source_sha="$(jq -r '.head_sha // ""' <<<"$run_json")"
+            source_event="$(jq -r '.event // ""' <<<"$run_json")"
+            source_status="$(jq -r '.status // ""' <<<"$run_json")"
+            source_conclusion="$(jq -r '.conclusion // ""' <<<"$run_json")"
+
+            test "$source_repo" = "$GITHUB_REPOSITORY" || { echo "UNTRUSTED_SOURCE_REPOSITORY=$source_repo" >&2; exit 1; }
+            test "$source_branch" = "$default_branch" || { echo "UNTRUSTED_SOURCE_BRANCH=$source_branch EXPECTED=$default_branch" >&2; exit 1; }
+            test "$source_status" = "completed" || { echo "SOURCE_RUN_NOT_COMPLETED=$source_status" >&2; exit 1; }
+            test "$source_conclusion" = "success" || { echo "SOURCE_RUN_NOT_SUCCESSFUL=$source_conclusion" >&2; exit 1; }
+            case "$source_event" in
+              push|workflow_dispatch|schedule) ;;
+              *) echo "UNTRUSTED_SOURCE_EVENT=$source_event" >&2; exit 1 ;;
+            esac
+
+            compare_status="$(gh api "repos/${GITHUB_REPOSITORY}/compare/${source_sha}...${default_branch}" --jq '.status')"
+            case "$compare_status" in
+              ahead|identical) ;;
+              *) echo "SOURCE_SHA_NOT_IN_DEFAULT_BRANCH_HISTORY=$source_sha STATUS=$compare_status" >&2; exit 1 ;;
+            esac
+
+            {
+              echo "SOURCE_RUN_ID=$SOURCE_RUN_ID"
+              echo "SOURCE_REPOSITORY=$source_repo"
+              echo "SOURCE_BRANCH=$source_branch"
+              echo "SOURCE_SHA=$source_sha"
+              echo "SOURCE_EVENT=$source_event"
+              echo "SOURCE_CONCLUSION=$source_conclusion"
+              echo "DEFAULT_BRANCH=$default_branch"
+              echo "COMPARE_STATUS=$compare_status"
+              echo "SOURCE_TRUST=PASS"
+            } | tee forensic-evidence/source-run.txt
+
             mkdir -p incoming
             gh run download "$SOURCE_RUN_ID" -n "$SOURCE_ARTIFACT_NAME" -D incoming
             path=$(find incoming -type f \( -name '*.apk' -o -name '*.apkm' \) | head -1 || true)
-          fi
-          if [ ! -f "$path" ] && [ "${BUILD_IF_MISSING:-true}" = "true" ]; then
-            gradle :app:assembleDebug --stacktrace
+            test -f "$path" || { echo 'trusted source run did not contain an APK/APKM artifact' >&2; exit 1; }
+          elif [ ! -f "$path" ] && [ "${BUILD_IF_MISSING:-true}" = "true" ]; then
+            export GRADLE_USER_HOME="$RUNNER_TEMP/isolated-gradle-home"
+            gradle :app:assembleDebug --no-build-cache --no-configuration-cache --stacktrace
             path=app/build/outputs/apk/debug/app-debug.apk
           fi
+
           test -f "$path"
-          mkdir -p forensic-evidence/source forensic-evidence/work
           cp "$path" forensic-evidence/source/original$(case "$path" in *.apkm) echo .apkm;; *) echo .apk;; esac)
           source_file=$(find forensic-evidence/source -type f | head -1)
           chmod 0444 "$source_file"
