@@ -6,10 +6,10 @@ ENV DEBIAN_FRONTEND=noninteractive \
     ANDROID_SDK_ROOT=/opt/android-sdk \
     JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 \
     GRADLE_HOME=/opt/gradle/gradle-8.7 \
-    PATH=/opt/android-sdk/cmdline-tools/latest/bin:/opt/android-sdk/platform-tools:/opt/android-sdk/build-tools/34.0.0:/opt/gradle/gradle-8.7/bin:/opt/jadx/bin:/opt/r2flutter/bin:/opt/forensic-venv/bin:$PATH
+    PATH=/opt/android-sdk/cmdline-tools/latest/bin:/opt/android-sdk/platform-tools:/opt/android-sdk/build-tools/34.0.0:/opt/gradle/gradle-8.7/bin:/opt/jadx/bin:/opt/r2flutter/bin:$PATH
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    openjdk-17-jdk openjdk-21-jdk python3 python3-pip python3-venv \
+    openjdk-17-jdk openjdk-21-jdk python3 python3-venv androguard python3-capstone python3-requests python3-pyelftools \
     git gh jq curl wget ca-certificates unzip zip binutils openssl file \
     build-essential cmake make meson ninja-build pkg-config libicu-dev libcapstone-dev \
     docker.io && rm -rf /var/lib/apt/lists/*
@@ -47,10 +47,16 @@ RUN curl -fsSL https://github.com/google/bundletool/releases/download/1.18.3/bun
  && printf '#!/bin/sh\nexec java -jar /opt/bundletool.jar "$@"\n' > /usr/local/bin/bundletool \
  && chmod +x /usr/local/bin/bundletool
 
-RUN python3 -m venv /opt/forensic-venv \
- && /opt/forensic-venv/bin/pip install --no-cache-dir --upgrade pip \
- && /opt/forensic-venv/bin/pip install --no-cache-dir \
-      androguard==4.1.4 capstone==5.0.9 requests==2.34.2 pyelftools==0.33
+# Python forensic libraries come from Ubuntu's signed package repository.
+# Avoid runtime pip resolution in the devcontainer supply chain.
+RUN python3 - <<'PY'
+import androguard, capstone, requests
+import elftools
+print("androguard=" + getattr(androguard, "__version__", "unknown"))
+print("capstone=" + getattr(capstone, "__version__", "unknown"))
+print("requests=" + requests.__version__)
+print("pyelftools=system-package")
+PY
 
 # Native-analysis source tools are fetched by immutable commit, not mutable branch HEAD.
 RUN git init -q /opt/radare2 \
@@ -88,5 +94,5 @@ RUN curl -fsSL https://github.com/NationalSecurityAgency/ghidra/releases/downloa
  && chmod +x /usr/local/bin/ghidra-headless \
  && rm /tmp/ghidra.zip
 
-RUN chown -R vscode:vscode /opt/android-sdk /opt/gradle /opt/jadx /opt/forensic-venv /opt/radare2 /opt/r2flutter /opt/blutter /opt/ghidra-unpack
+RUN chown -R vscode:vscode /opt/android-sdk /opt/gradle /opt/jadx /opt/radare2 /opt/r2flutter /opt/blutter /opt/ghidra-unpack
 USER vscode
