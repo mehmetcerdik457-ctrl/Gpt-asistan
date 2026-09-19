@@ -9,7 +9,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PATH=/opt/android-sdk/cmdline-tools/latest/bin:/opt/android-sdk/platform-tools:/opt/android-sdk/build-tools/34.0.0:/opt/gradle/gradle-8.7/bin:/opt/jadx/bin:/opt/r2flutter/bin:$PATH
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    openjdk-17-jdk openjdk-21-jdk python3 python3-venv androguard python3-capstone python3-requests python3-pyelftools \
+    openjdk-17-jdk openjdk-21-jdk python3 python3-venv python3-pip python-is-python3 androguard python3-capstone python3-requests python3-pyelftools \
     git gh jq curl wget ca-certificates unzip zip binutils openssl file \
     build-essential cmake make meson ninja-build pkg-config libicu-dev libcapstone-dev \
     docker.io && rm -rf /var/lib/apt/lists/*
