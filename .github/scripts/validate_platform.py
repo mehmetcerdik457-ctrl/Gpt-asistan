@@ -12,12 +12,15 @@ AGENT_DIR = ROOT / ".github" / "agents"
 WORKFLOW_DIR = ROOT / ".github" / "workflows"
 
 EXPECTED_AGENTS = {
+    "ai-ml-engineer.agent.md",
     "android-engineer.agent.md",
     "apk-forensic.agent.md",
     "chief-engineer.agent.md",
     "ci-cd-engineer.agent.md",
+    "cloud-engineer.agent.md",
     "code-reviewer.agent.md",
     "github-master-ai.agent.md",
+    "mcp-engineer.agent.md",
     "release-engineer.agent.md",
     "security-auditor.agent.md",
     "test-engineer.agent.md",
