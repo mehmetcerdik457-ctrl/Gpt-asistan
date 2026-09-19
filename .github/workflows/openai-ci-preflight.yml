@@ -2,6 +2,12 @@ name: OpenAI CI Preflight
 
 on:
   workflow_dispatch:
+    inputs:
+      run_api_probe:
+        description: 'Call the paid OpenAI API after checking secret wiring'
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -29,7 +35,12 @@ jobs:
           fi
           echo "OPENAI_CI_SECRET_WIRING=PASS"
 
+      - name: Report wiring-only scope
+        if: ${{ !inputs.run_api_probe }}
+        run: echo 'OPENAI_RESPONSES_ACCEPTANCE=NOT_TESTED'
+
       - name: Verify OpenAI Responses API acceptance
+        if: ${{ inputs.run_api_probe }}
         shell: bash
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -40,7 +51,15 @@ jobs:
           trap 'rm -f "$body_file"' EXIT
 
           http_code="$(
-            curl --silent --show-error               --connect-timeout 10               --max-time 60               --output "$body_file"               --write-out '%{http_code}'               --request POST 'https://api.openai.com/v1/responses'               --header 'Content-Type: application/json'               --header "Authorization: Bearer ${OPENAI_API_KEY}"               --data '{"model":"gpt-5.6-luna","input":"Return exactly OPENAI_CI_OK and nothing else.","max_output_tokens":16}'
+            curl --silent --show-error \
+              --connect-timeout 10 \
+              --max-time 60 \
+              --output "$body_file" \
+              --write-out '%{http_code}' \
+              --request POST 'https://api.openai.com/v1/responses' \
+              --header 'Content-Type: application/json' \
+              --header "Authorization: Bearer ${OPENAI_API_KEY}" \
+              --data '{"model":"gpt-5.6-luna","input":"Return exactly OPENAI_CI_OK and nothing else.","max_output_tokens":16}'
           )"
 
           echo "OPENAI_RESPONSES_HTTP=${http_code}"
