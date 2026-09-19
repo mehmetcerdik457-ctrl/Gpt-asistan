@@ -17,7 +17,7 @@ jobs:
       security-events: write
       actions: read
     name: CodeQL Java-Kotlin
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
       # CodeQL CLI 2.27.0 cannot instrument Kotlin 2.4.20 yet.
@@ -58,7 +58,7 @@ jobs:
     permissions:
       contents: read
     name: APK SBOM Provenance
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -120,7 +120,7 @@ jobs:
     name: APK Provenance Attestation
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     needs: supply-chain
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: read
