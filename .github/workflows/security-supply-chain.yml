@@ -47,28 +47,9 @@ jobs:
         with:
           category: /language:java-kotlin
 
-  dependency-review:
-    name: Dependency Review
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          persist-credentials: false
-      - name: Run dependency review against the PR dependency diff
-        uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48
-        with:
-          retry-on-snapshot-warnings: true
-          retry-on-snapshot-warnings-timeout: 600
-
   supply-chain:
     permissions:
       contents: read
-      id-token: write
-      attestations: write
     name: APK SBOM Provenance
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -117,27 +98,6 @@ jobs:
           format: spdx-json
           output-file: release-evidence/app-debug.spdx.json
           upload-artifact: false
-      - name: Attest APK provenance
-        if: github.event_name != 'pull_request'
-        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be
-        with:
-          subject-path: release-evidence/app-debug.apk
-      - name: Verify APK provenance attestation
-        if: github.event_name != 'pull_request'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          ok=0
-          for attempt in 1 2 3 4 5; do
-            if gh attestation verify release-evidence/app-debug.apk --repo "$GITHUB_REPOSITORY" | tee release-evidence/attestation-verify.txt; then
-              ok=1
-              break
-            fi
-            sleep 5
-          done
-          test "$ok" -eq 1
-          echo 'ATTESTATION_VERIFY=PASS' | tee -a release-evidence/attestation-verify.txt
       - name: Upload release evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
@@ -146,6 +106,64 @@ jobs:
             release-evidence/app-debug.apk
             release-evidence/app-debug.spdx.json
             release-evidence/evidence.txt
-            release-evidence/attestation-verify.txt
+          if-no-files-found: error
+          retention-days: 30
+
+  attest-provenance:
+    name: APK Provenance Attestation
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: supply-chain
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      attestations: write
+    steps:
+      - name: Download exact APK from the read-only SBOM job
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p attestation-input attestation-evidence
+          gh run download "${GITHUB_RUN_ID}" \
+            -n "security-supply-chain-${GITHUB_SHA}" \
+            -D attestation-input
+          APK="$(find attestation-input -type f -name 'app-debug.apk' | head -1)"
+          test -f "$APK"
+          cp "$APK" attestation-evidence/app-debug.apk
+          sha256sum attestation-evidence/app-debug.apk | tee attestation-evidence/SHA256SUMS.txt
+
+      - name: Attest exact APK provenance
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be
+        with:
+          subject-path: attestation-evidence/app-debug.apk
+
+      - name: Verify APK provenance attestation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ok=0
+          for attempt in 1 2 3 4 5; do
+            if gh attestation verify attestation-evidence/app-debug.apk --repo "$GITHUB_REPOSITORY" | tee attestation-evidence/attestation-verify.txt; then
+              ok=1
+              break
+            fi
+            sleep 5
+          done
+          test "$ok" -eq 1
+          echo 'ATTESTATION_VERIFY=PASS' | tee -a attestation-evidence/attestation-verify.txt
+
+      - name: Upload attestation verification evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: security-attestation-${{ github.sha }}
+          path: |
+            attestation-evidence/SHA256SUMS.txt
+            attestation-evidence/attestation-verify.txt
           if-no-files-found: error
           retention-days: 30
