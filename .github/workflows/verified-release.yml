@@ -2,7 +2,7 @@ name: Verified Release Pipeline
 
 on:
   push:
-    branches: [main, copilot-agent-upgrade-20260917]
+    branches: [main]
     paths:
       - '.github/workflows/verified-release.yml'
       - 'app/**'
@@ -27,6 +27,7 @@ permissions:
 
 jobs:
   verify-candidate:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     outputs:
@@ -100,7 +101,7 @@ jobs:
           retention-days: 30
 
   publish-release:
-    if: github.event_name == 'workflow_dispatch' && inputs.publish == true
+    if: github.event_name == 'workflow_dispatch' && inputs.publish == true && github.ref == 'refs/heads/main'
     needs: verify-candidate
     runs-on: ubuntu-24.04
     permissions:
