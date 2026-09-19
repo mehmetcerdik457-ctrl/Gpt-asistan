@@ -25,6 +25,7 @@ buildscript {
             classpath("org.bouncycastle:bcutil-jdk18on:1.86")
             classpath("com.google.protobuf:protobuf-java:3.25.9")
             classpath("com.google.protobuf:protobuf-java-util:3.25.9")
+            classpath("commons-io:commons-io:2.14.0")
         }
     }
 }
