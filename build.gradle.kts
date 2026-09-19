@@ -7,7 +7,8 @@ buildscript {
     configurations.configureEach {
         resolutionStrategy.force(
             "commons-io:commons-io:2.14.0",
-            "org.bitbucket.b_c:jose4j:0.9.6"
+            "org.bitbucket.b_c:jose4j:0.9.6",
+            "org.jdom:jdom2:2.0.6.1"
         )
     }
     dependencies {
@@ -36,6 +37,7 @@ buildscript {
             classpath("com.google.protobuf:protobuf-java-util:3.25.9")
             classpath("commons-io:commons-io:2.14.0")
             classpath("org.bitbucket.b_c:jose4j:0.9.6")
+            classpath("org.jdom:jdom2:2.0.6.1")
         }
     }
 }
