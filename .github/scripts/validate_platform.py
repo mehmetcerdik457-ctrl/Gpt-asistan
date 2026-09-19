@@ -58,6 +58,7 @@ CRITICAL_CONCURRENCY_WORKFLOWS = {
     "privacy-guard.yml",
     "reproducibility.yml",
     "security-supply-chain.yml",
+    "scorecard.yml",
 }
 
 ACTION_REF = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*@[0-9a-fA-F]{40}$")
