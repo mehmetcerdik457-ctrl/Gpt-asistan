@@ -17,3 +17,8 @@ credentials*.json
 /.idea/
 *.iml
 .gradle/
+
+# Kral Asistan local/private state
+mem.db
+kral/safe/*.db
+.kral/
