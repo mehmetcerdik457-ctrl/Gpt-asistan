@@ -2,6 +2,15 @@
 
 Bu klasör public repoya gizli prompt veya anahtar yazmadan, GitHub Codespaces terminali içinde çalışan kişisel AI konsoludur.
 
+## En kısa kurulum
+
+GitHub'da bu branch için Codespace oluştururken **New with options** akışını kullan. Devcontainer artık iki secret'ı önerir:
+
+- \`OPENAI_API_KEY\`
+- isteğe bağlı \`HUGGINGFACE_TOKEN\`
+
+İkisinden biri yeterlidir. Değer GitHub Codespaces secret olarak saklanır ve kaynak dosyaya yazılmaz. Codespace açıldığında toolchain doğrulaması ve \`./kral-ai --status\` otomatik çalışır.
+
 ## Çalıştırma
 
 \`\`\`bash
@@ -39,12 +48,7 @@ Varsayılan modeller:
 
 API anahtarını dosyaya, APK'ya, issue yorumuna veya GitHub Actions loguna koyma.
 
-Codespaces kullanırken anahtarları GitHub Codespaces secret olarak tanımla:
-
-- \`OPENAI_API_KEY\`
-- isteğe bağlı \`HUGGINGFACE_TOKEN\`
-
-Bu repository secret değerlerini kaynakta tutmaz.
+Codespaces secret'ları yalnız yetkili Codespace'e environment variable olarak gelir. Bu repository secret değerlerini kaynakta tutmaz.
 
 ## Yerel hafıza
 
@@ -54,7 +58,7 @@ Chat ve \`/kaydet\` notları varsayılan olarak:
 ~/.local/share/kral-asistan/mem.db
 \`\`\`
 
-altında SQLite olarak tutulur. Repository çalışma ağacında değildir ve Git'e commit edilmez.
+altında SQLite olarak tutulur. Klasör \`0700\`, veritabanı \`0600\` izinleriyle korunur; repository çalışma ağacında değildir ve Git'e commit edilmez.
 
 Komutlar:
 
