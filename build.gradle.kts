@@ -4,9 +4,15 @@ buildscript {
         mavenCentral()
         gradlePluginPortal()
     }
+    configurations.configureEach {
+        resolutionStrategy.force("commons-io:commons-io:2.14.0")
+    }
     dependencies {
-        classpath("com.android.tools.build:gradle:8.5.2")
+        classpath("com.android.tools.build:gradle:8.5.2") {
+            exclude(group = "commons-io", module = "commons-io")
+        }
         classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.24")
+        classpath("commons-io:commons-io:2.14.0")
 
         constraints {
             classpath("io.netty:netty-buffer:4.1.138.Final")
@@ -48,7 +54,8 @@ allprojects {
             "org.bouncycastle:bcpkix-jdk18on:1.86",
             "org.bouncycastle:bcutil-jdk18on:1.86",
             "com.google.protobuf:protobuf-java:3.25.9",
-            "com.google.protobuf:protobuf-java-util:3.25.9"
+            "com.google.protobuf:protobuf-java-util:3.25.9",
+            "commons-io:commons-io:2.14.0"
         )
     }
 }
