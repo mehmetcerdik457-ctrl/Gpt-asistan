@@ -75,10 +75,10 @@ jobs:
           printf '#!/bin/sh\nexec java -jar "$HOME/bin/apktool.jar" "$@"\n' > "$HOME/bin/apktool"
           chmod +x "$HOME/bin/apktool"
           python3 - <<'PY' >/tmp/python-tools.log 2>&1
-import androguard, requests
-print("androguard=" + getattr(androguard, "__version__", "unknown"))
-print("requests=" + requests.__version__)
-PY
+          import androguard, requests
+          print("androguard=" + getattr(androguard, "__version__", "unknown"))
+          print("requests=" + requests.__version__)
+          PY
           bundle_url="https://github.com/google/bundletool/releases/download/1.18.3/bundletool-all-1.18.3.jar"
           curl -fsSL "$bundle_url" -o "$HOME/bin/bundletool.jar"
           echo 'a099cfa1543f55593bc2ed16a70a7c67fe54b1747bb7301f37fdfd6d91028e29  '"$HOME/bin/bundletool.jar" | sha256sum -c -
@@ -103,11 +103,11 @@ PY
           mkdir -p "$user_site"
           unzip -q /tmp/pyelftools-0.33.whl -d "$user_site"
           python3 - <<'PY' >/tmp/blutter-pip.log 2>&1
-import requests
-import elftools
-print("requests=" + requests.__version__)
-print("pyelftools=0.33")
-PY
+          import requests
+          import elftools
+          print("requests=" + requests.__version__)
+          print("pyelftools=0.33")
+          PY
           export PATH="$HOME/.local/bin:$HOME/bin:$PATH"
           {
             echo "PATH=$PATH"
