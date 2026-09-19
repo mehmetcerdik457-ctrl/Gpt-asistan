@@ -62,7 +62,7 @@ jobs:
           mkdir -p "$HOME/bin" gate0-evidence /tmp/apktool-out /tmp/jadx-out
           export PATH="$HOME/bin:$PATH"
           sudo apt-get update -qq
-          sudo apt-get install -y -qq binutils openssl unzip zip jq curl git python3-pip python3-requests cmake ninja-build pkg-config libcapstone-dev libicu-dev >/tmp/apt-tools.log 2>&1
+          sudo apt-get install -y -qq binutils openssl unzip zip jq curl git python3-requests androguard cmake ninja-build pkg-config libcapstone-dev libicu-dev >/tmp/apt-tools.log 2>&1
           echo "APT_RC=$?" | tee gate0-evidence/tool-install.txt
           url="https://github.com/skylot/jadx/releases/download/v1.5.6/jadx-1.5.6.zip"
           curl -fsSL "$url" -o /tmp/jadx.zip
@@ -74,7 +74,11 @@ jobs:
           echo 'dbf930b076c6b9be08d57c449cacefc3bdd6b71ebd59b3066fc0e1f5b14f9423  '"$HOME/bin/apktool.jar" | sha256sum -c -
           printf '#!/bin/sh\nexec java -jar "$HOME/bin/apktool.jar" "$@"\n' > "$HOME/bin/apktool"
           chmod +x "$HOME/bin/apktool"
-          python3 -m pip install --user --quiet androguard==4.1.4 mcp==2.2.0 >/tmp/pip-tools.log 2>&1
+          python3 - <<'PY' >/tmp/python-tools.log 2>&1
+import androguard, requests
+print("androguard=" + getattr(androguard, "__version__", "unknown"))
+print("requests=" + requests.__version__)
+PY
           bundle_url="https://github.com/google/bundletool/releases/download/1.18.3/bundletool-all-1.18.3.jar"
           curl -fsSL "$bundle_url" -o "$HOME/bin/bundletool.jar"
           echo 'a099cfa1543f55593bc2ed16a70a7c67fe54b1747bb7301f37fdfd6d91028e29  '"$HOME/bin/bundletool.jar" | sha256sum -c -
@@ -196,19 +200,75 @@ PY
           set +e
           export PATH="$HOME/.local/bin:$HOME/bin:$PATH"
           cat > /tmp/mcp_smoke.py <<'PY'
-          import asyncio, os
-          from mcp import ClientSession, StdioServerParameters
-          from mcp.client.stdio import stdio_client
-          async def main():
-              params = StdioServerParameters(command='docker', args=['run','-i','--rm','-e','GITHUB_PERSONAL_ACCESS_TOKEN','-e','GITHUB_TOOLS=get_file_contents','ghcr.io/github/github-mcp-server:1.12.2@sha256:508a0857ec762b1ab1cece29193345b501fab1dd9d1228a7b617062954cecac6','stdio','--read-only'], env=os.environ.copy())
-              async with stdio_client(params) as (read, write):
-                  async with ClientSession(read, write) as session:
-                      await session.initialize(); tools = await session.list_tools(); names = [t.name for t in tools.tools]
-                      print('MCP_TOOLS=' + ','.join(names))
-                      if 'get_file_contents' not in names: raise RuntimeError('get_file_contents tool absent')
-                      result = await session.call_tool('get_file_contents', {'owner': os.environ['OWNER'], 'repo': os.environ['REPO'], 'path': 'README.md', 'ref': os.environ['REF']})
-                      print('MCP_CALL=get_file_contents'); print('MCP_RESULT=' + str(result)[:3000])
-          asyncio.run(main())
+          import json, os, subprocess, sys, time
+          cmd = [
+              'docker','run','-i','--rm',
+              '-e','GITHUB_PERSONAL_ACCESS_TOKEN',
+              '-e','GITHUB_TOOLS=get_file_contents',
+              'ghcr.io/github/github-mcp-server:1.12.2@sha256:508a0857ec762b1ab1cece29193345b501fab1dd9d1228a7b617062954cecac6',
+              'stdio','--read-only'
+          ]
+          p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=sys.stderr, text=True, bufsize=1, env=os.environ.copy())
+          next_id = 1
+          def send(method, params=None, notification=False):
+              global next_id
+              msg = {'jsonrpc':'2.0','method':method}
+              if params is not None: msg['params'] = params
+              if not notification:
+                  msg['id'] = next_id
+                  wanted = next_id
+                  next_id += 1
+              else:
+                  wanted = None
+              p.stdin.write(json.dumps(msg, separators=(',',':')) + '\n')
+              p.stdin.flush()
+              return wanted
+          def recv(wanted):
+              while True:
+                  line = p.stdout.readline()
+                  if not line:
+                      raise RuntimeError('MCP server closed stdout')
+                  line = line.strip()
+                  if not line:
+                      continue
+                  obj = json.loads(line)
+                  if wanted is None or obj.get('id') == wanted:
+                      if 'error' in obj:
+                          raise RuntimeError('MCP error: ' + json.dumps(obj['error']))
+                      return obj
+          try:
+              rid = send('initialize', {
+                  'protocolVersion':'2025-11-25',
+                  'capabilities':{},
+                  'clientInfo':{'name':'gate0-stdlib-client','version':'1.0.0'}
+              })
+              init = recv(rid)
+              print('MCP_PROTOCOL=' + str(init.get('result',{}).get('protocolVersion','unknown')))
+              send('notifications/initialized', {}, notification=True)
+              rid = send('tools/list', {})
+              tools = recv(rid)
+              names = [t.get('name') for t in tools.get('result',{}).get('tools',[])]
+              print('MCP_TOOLS=' + ','.join(x for x in names if x))
+              if 'get_file_contents' not in names:
+                  raise RuntimeError('get_file_contents tool absent')
+              rid = send('tools/call', {'name':'get_file_contents','arguments':{
+                  'owner':os.environ['OWNER'],
+                  'repo':os.environ['REPO'],
+                  'path':'README.md',
+                  'ref':os.environ['REF']
+              }})
+              result = recv(rid)
+              print('MCP_CALL=get_file_contents')
+              print('MCP_RESULT=' + json.dumps(result.get('result',{}))[:3000])
+          finally:
+              try:
+                  p.stdin.close()
+              except Exception:
+                  pass
+              try:
+                  p.wait(timeout=10)
+              except Exception:
+                  p.kill()
           PY
           python3 /tmp/mcp_smoke.py > gate0-evidence/mcp-smoke.log 2>&1
           rc=$?; echo "MCP_RC=$rc" | tee -a gate0-evidence/gate0-report.txt; tail -100 gate0-evidence/mcp-smoke.log || true
