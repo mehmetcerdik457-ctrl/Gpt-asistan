@@ -282,17 +282,20 @@ def comment_moderate(args: dict) -> dict:
     _require_write()
     comment_id = str(args.get("comment_id", "")).strip()
     moderation_status = str(args.get("moderation_status", "")).strip()
+    ban_author = args.get("ban_author", False)
     if not comment_id:
         raise RuntimeError("comment_id is required")
     if moderation_status not in {"published", "heldForReview", "rejected"}:
         raise RuntimeError("moderation_status must be published, heldForReview or rejected")
+    if not isinstance(ban_author, bool):
+        raise RuntimeError("ban_author must be a boolean")
     return api_request(
         "comments/setModerationStatus",
         method="POST",
         params={
             "id": comment_id,
             "moderationStatus": moderation_status,
-            "banAuthor": "true" if bool(args.get("ban_author", False)) else "false",
+            "banAuthor": "true" if ban_author else "false",
         },
         body={},
     )
@@ -430,9 +433,18 @@ def rpc_error(req_id: object, code: int, message: str) -> dict:
 
 
 def handle_rpc(message: dict) -> dict | None:
+    if not isinstance(message, dict):
+        return rpc_error(None, -32600, "Invalid Request")
+
     method = message.get("method")
     req_id = message.get("id")
-    params = message.get("params") or {}
+    raw_params = message.get("params")
+    if raw_params is None:
+        params = {}
+    elif not isinstance(raw_params, dict):
+        return rpc_error(req_id, -32602, "Invalid params")
+    else:
+        params = raw_params
 
     if method == "initialize":
         version = params.get("protocolVersion") or "2025-06-18"
@@ -452,7 +464,19 @@ def handle_rpc(message: dict) -> dict | None:
         return rpc_result(req_id, {"tools": TOOLS})
     if method == "tools/call":
         name = str(params.get("name", ""))
-        args = params.get("arguments") or {}
+        raw_args = params.get("arguments")
+        if raw_args is None:
+            args = {}
+        elif not isinstance(raw_args, dict):
+            return rpc_result(
+                req_id,
+                {
+                    "content": [{"type": "text", "text": "arguments must be an object"}],
+                    "isError": True,
+                },
+            )
+        else:
+            args = raw_args
         try:
             payload = call_tool(name, args)
             return rpc_result(
