@@ -206,20 +206,33 @@ def validate_governance() -> None:
         fail("cancel-stale-runs.yml must target non-main branches via branches-ignore: [main]")
 
     reusable = (WORKFLOW_DIR / "reusable-apk-forensics.yml").read_text(encoding="utf-8")
+    # The reusable forensic workflow intentionally analyzes only an artifact created
+    # inside its own checked-out workspace. Cross-run artifact fetching is forbidden,
+    # so the old source_run/source_repo trust chain is no longer applicable.
     reusable_guards = [
-        'test "$source_repo" = "$GITHUB_REPOSITORY"',
-        'test "$source_branch" = "$default_branch"',
-        'test "$source_status" = "completed"',
-        'test "$source_conclusion" = "success"',
-        'push|workflow_dispatch|schedule',
-        'SOURCE_SHA_NOT_IN_DEFAULT_BRANCH_HISTORY',
-        'SOURCE_TRUST=PASS',
+        'SOURCE_MODE=WORKSPACE_ONLY',
+        'SHARED_GRADLE_CACHE=DISABLED',
         'cache-disabled: true',
         '--no-build-cache --no-configuration-cache',
+        'chmod 0444 "$source_file"',
+        'forensic-evidence/work/analysis-copy',
+        'forensic-evidence/source.sha256.before',
+        'forensic-evidence/source.sha256.after',
+        'ORIGINAL_PRESERVATION=PASS',
     ]
     for guard in reusable_guards:
         if guard not in reusable:
-            fail(f"reusable-apk-forensics.yml missing trust/cache guard: {guard}")
+            fail(f"reusable-apk-forensics.yml missing workspace-isolation guard: {guard}")
+
+    reusable_forbidden = [
+        "actions/download-artifact",
+        "source_run_id",
+        "gh run download",
+        "workflow_run:",
+    ]
+    for forbidden in reusable_forbidden:
+        if forbidden in reusable:
+            fail(f"reusable-apk-forensics.yml forbidden cross-run input path: {forbidden}")
 
     print("GOVERNANCE_POLICY=PASS")
 
