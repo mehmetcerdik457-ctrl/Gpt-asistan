@@ -19,6 +19,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
+      # Required by GitHub's Dependency Submission API to submit snapshots.
+      # Scope is intentionally limited to this job; workflow default remains read-only.
       contents: write
     steps:
       - name: Checkout sources
