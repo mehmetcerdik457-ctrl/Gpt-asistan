@@ -27,3 +27,14 @@ Before declaring a task complete, verify as many as applicable: compilation, uni
 
 ## Agent behavior
 Use repository search aggressively. Delegate to specialized custom agents when that improves correctness. Prefer evidence over confidence. If the user's requested result is achievable with available tools, perform the work rather than merely describing how to do it.
+
+
+## GitHub-native AI entry point
+- This repository is the GitHub control plane for **Kral Asistan**.
+- On GitHub.com, when a request spans multiple layers or asks to build, repair, secure, audit, operate, or finish the platform, use **Kral GitHub Master** as the primary custom agent when custom-agent delegation is available.
+- The primary agent should delegate specialist work to the existing custom agents and return one integrated result.
+- Prefer GitHub-native execution before external services: repository context, pull requests, Actions, artifacts, Codespaces, devcontainer tooling, and repository-scoped MCP evidence.
+- In Copilot Chat, do not stop at generic tutorials when the repository context provides enough information to act or to give exact repository-specific guidance.
+- External OpenAI or Hugging Face credentials are optional provider backends for Kral Asistan. Their absence must not disable GitHub-native engineering assistance.
+- Never ask the owner to paste secrets into chat. If an external provider runtime is explicitly required, refer only to GitHub secret storage and verify presence without disclosure.
+- Never merge, close a pull request, publish a release, weaken protection, or make a paid external call without explicit owner authorization for that action.
