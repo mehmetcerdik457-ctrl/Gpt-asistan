@@ -1,0 +1,100 @@
+name: Platform Security State
+
+on:
+  push:
+    branches: [main, copilot-agent-upgrade-20260917]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  security-events: read
+  actions: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Exact checkout SHA guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual="$(git rev-parse HEAD)"
+          echo "EXPECTED_SHA=${GITHUB_SHA}"
+          echo "ACTUAL_GIT_SHA=${actual}"
+          test "${GITHUB_SHA}" = "${actual}"
+      - name: Probe GitHub feature state with ephemeral GITHUB_TOKEN
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p platform-evidence
+          api="https://api.github.com/repos/${GITHUB_REPOSITORY}"
+          probe() {
+            name="$1"; url="$2"; outfile="platform-evidence/${name}.json"
+            code=$(curl -sS -o "$outfile" -w '%{http_code}' \
+              -H 'Accept: application/vnd.github+json' \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H 'X-GitHub-Api-Version: 2026-03-10' \
+              "$url")
+            echo "${name}_HTTP=${code}" | tee -a platform-evidence/state.txt
+          }
+          probe repository "$api"
+          probe dependency_graph_sbom "$api/dependency-graph/sbom"
+          probe dependabot_security_updates "$api/automated-security-fixes"
+          probe dependabot_alerts "$api/dependabot/alerts?per_page=1"
+          probe secret_scanning_alerts "$api/secret-scanning/alerts?state=open&per_page=1"
+          probe branch_protection "$api/branches/main/protection"
+          probe rulesets "$api/rulesets"
+          probe actions_workflow_permissions "$api/actions/permissions/workflow"
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path('platform-evidence/repository.json')
+          try:
+              d=json.loads(p.read_text())
+          except Exception:
+              d={}
+          s=d.get('security_and_analysis')
+          print('SECURITY_AND_ANALYSIS_PRESENT=' + ('YES' if isinstance(s,dict) else 'NO'))
+          if isinstance(s,dict):
+              for k,v in sorted(s.items()):
+                  if isinstance(v,dict) and 'status' in v:
+                      print(f'{k.upper()}={v["status"]}')
+          PY
+          python3 - <<'PY' >> platform-evidence/state.txt
+          import json
+          from pathlib import Path
+          p=Path('platform-evidence/repository.json')
+          try:
+              d=json.loads(p.read_text())
+          except Exception:
+              d={}
+          s=d.get('security_and_analysis')
+          print('SECURITY_AND_ANALYSIS_PRESENT=' + ('YES' if isinstance(s,dict) else 'NO'))
+          if isinstance(s,dict):
+              for k,v in sorted(s.items()):
+                  if isinstance(v,dict) and 'status' in v:
+                      print(f'{k.upper()}={v["status"]}')
+          PY
+
+          # Never publish alert bodies. Keep only status codes and non-sensitive repository settings.
+          rm -f platform-evidence/dependabot_alerts.json platform-evidence/secret_scanning_alerts.json
+      - name: Upload non-sensitive feature-state evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: platform-security-state-${{ github.sha }}
+          path: platform-evidence/state.txt
+          if-no-files-found: error
+          retention-days: 30

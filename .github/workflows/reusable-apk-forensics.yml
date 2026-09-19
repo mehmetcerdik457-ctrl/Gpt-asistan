@@ -1,0 +1,179 @@
+name: Reusable APK Forensics
+
+on:
+  workflow_call:
+    inputs:
+      artifact_path:
+        description: Local APK/APKM path in the checked-out workspace
+        required: false
+        type: string
+        default: app/build/outputs/apk/debug/app-debug.apk
+      build_if_missing:
+        required: false
+        type: boolean
+        default: true
+  workflow_dispatch:
+    inputs:
+      artifact_path:
+        description: Local APK/APKM path
+        required: false
+        default: app/build/outputs/apk/debug/app-debug.apk
+      build_if_missing:
+        description: Build debug APK if local path is absent
+        required: true
+        type: boolean
+        default: true
+  push:
+    branches: [copilot-agent-upgrade-20260917]
+    paths:
+      - '.github/workflows/reusable-apk-forensics.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  forensic:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Set up pinned Gradle without shared caches
+        uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92
+        with:
+          gradle-version: '8.7'
+          cache-disabled: true
+
+      - name: Acquire workspace artifact without shared caches
+        env:
+          INPUT_PATH: ${{ inputs.artifact_path }}
+          BUILD_IF_MISSING: ${{ inputs.build_if_missing }}
+        run: |
+          set -euo pipefail
+          mkdir -p forensic-evidence/source forensic-evidence/work
+          path="${INPUT_PATH:-app/build/outputs/apk/debug/app-debug.apk}"
+
+          if [ ! -f "$path" ] && [ "${BUILD_IF_MISSING:-true}" = "true" ]; then
+            export GRADLE_USER_HOME="$RUNNER_TEMP/isolated-gradle-home"
+            gradle :app:assembleDebug --no-build-cache --no-configuration-cache --stacktrace
+            path=app/build/outputs/apk/debug/app-debug.apk
+          fi
+
+          test -f "$path" || { echo "workspace APK/APKM not found: $path" >&2; exit 1; }
+          case "$path" in
+            *.apk|*.apkm) ;;
+            *) echo "artifact_path must end in .apk or .apkm" >&2; exit 2 ;;
+          esac
+
+          {
+            echo "SOURCE_MODE=WORKSPACE_ONLY"
+            echo "SOURCE_PATH=$path"
+            echo "SHARED_GRADLE_CACHE=DISABLED"
+          } | tee forensic-evidence/source-mode.txt
+
+          cp "$path" forensic-evidence/source/original$(case "$path" in *.apkm) echo .apkm;; *) echo .apk;; esac)
+          source_file=$(find forensic-evidence/source -type f | head -1)
+          chmod 0444 "$source_file"
+          cp "$source_file" forensic-evidence/work/analysis-copy
+          sha256sum "$source_file" | tee forensic-evidence/source.sha256.before
+          sha512sum "$source_file" | tee forensic-evidence/source.sha512.before
+          printf '%s\n' "$source_file" > forensic-evidence/source-path.txt
+
+      - name: Install pinned static tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq androguard
+          curl -fsSL https://github.com/skylot/jadx/releases/download/v1.5.6/jadx-1.5.6.zip -o /tmp/jadx.zip
+          echo '545ea2be9c242511bc145755cf4bda2485ade42966e096f8b4d3da2a230e8974  /tmp/jadx.zip' | sha256sum -c -
+          unzip -q /tmp/jadx.zip -d /tmp/jadx
+          echo /tmp/jadx/bin >> "$GITHUB_PATH"
+          curl -fsSL https://github.com/iBotPeaches/Apktool/releases/download/v3.0.3/apktool_3.0.3.jar -o /tmp/apktool.jar
+          echo 'dbf930b076c6b9be08d57c449cacefc3bdd6b71ebd59b3066fc0e1f5b14f9423  /tmp/apktool.jar' | sha256sum -c -
+          printf '#!/bin/sh\nexec java -jar /tmp/apktool.jar "$@"\n' > /tmp/apktool
+          chmod +x /tmp/apktool
+          echo /tmp >> "$GITHUB_PATH"
+          capstone_url="https://files.pythonhosted.org/packages/d1/39/17747862222bb062e86b501f1f148d5ff589b77908b080d30f7f085cbfb7/capstone-5.0.9-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl"
+          curl -fsSL "$capstone_url" -o /tmp/capstone-5.0.9.whl
+          echo '273fd8d747d2e35c88f91450be51a603ecfaafb00d96d9f315dcb8689c86193e  /tmp/capstone-5.0.9.whl' | sha256sum -c -
+          user_site="$(python3 -m site --user-site)"
+          mkdir -p "$user_site"
+          unzip -q /tmp/capstone-5.0.9.whl -d "$user_site"
+          python3 - <<'PY'
+          import androguard, capstone
+          print("ANDROGUARD_VERSION=" + getattr(androguard, "__version__", "unknown"))
+          print("CAPSTONE_VERSION=" + capstone.__version__)
+          PY
+
+      - name: Static inventory and redacted report
+        run: |
+          set -euo pipefail
+          src=$(cat forensic-evidence/source-path.txt)
+          copy=forensic-evidence/work/analysis-copy
+          file "$copy" | tee forensic-evidence/file.txt
+          unzip -t "$copy" > forensic-evidence/zip-test.txt
+          ext=${src##*.}
+          if [ "$ext" = apkm ]; then
+            zipinfo -1 "$copy" | grep -E '\.apk$' | tee forensic-evidence/splits.txt
+            apk_count=$(wc -l < forensic-evidence/splits.txt)
+            mkdir -p forensic-evidence/work/apkm
+            unzip -q "$copy" -d forensic-evidence/work/apkm
+            target_apk=$(find forensic-evidence/work/apkm -type f -name '*.apk' | sort | head -1)
+          else
+            apk_count=1
+            target_apk="$copy"
+          fi
+          zipinfo -1 "$target_apk" | grep -E '^classes([0-9]+)?\.dex$' | tee forensic-evidence/dex.txt || true
+          zipinfo -1 "$target_apk" | grep -E '^lib/[^/]+/[^/]+\.so$' | tee forensic-evidence/native-libs.txt || true
+          if zipinfo -1 "$target_apk" | grep -Eq 'libapp\.so|libflutter\.so|flutter_assets'; then flutter=yes; else flutter=no; fi
+          {
+            echo "# Reusable APK/APKM Static Forensic Report"
+            echo
+            echo "head_sha=${GITHUB_SHA}"
+            echo "run_id=${GITHUB_RUN_ID}"
+            echo "artifact_type=${ext}"
+            echo "physical_apk_count=${apk_count}"
+            echo "flutter_detected=${flutter}"
+            echo "dex_count=$(wc -l < forensic-evidence/dex.txt)"
+            echo "native_library_count=$(wc -l < forensic-evidence/native-libs.txt)"
+            echo "jadx=$(jadx --version)"
+            echo "apktool=$(apktool --version)"
+            echo "androguard=$(python3 -c 'import androguard; print(androguard.__version__)')"
+            echo
+            echo 'Static evidence only. No runtime claims. Secret-shaped values are not emitted.'
+          } | tee forensic-evidence/report.md
+          if command -v apksigner >/dev/null 2>&1; then
+            apksigner verify --print-certs "$target_apk" > forensic-evidence/signing.txt 2>&1 || true
+          else
+            echo 'apksigner unavailable on runner' > forensic-evidence/signing.txt
+          fi
+          if command -v aapt2 >/dev/null 2>&1; then
+            aapt2 dump badging "$target_apk" > forensic-evidence/manifest-badging.txt 2>&1 || true
+          elif command -v aapt >/dev/null 2>&1; then
+            aapt dump badging "$target_apk" > forensic-evidence/manifest-badging.txt 2>&1 || true
+          else
+            echo 'aapt/aapt2 unavailable on runner' > forensic-evidence/manifest-badging.txt
+          fi
+
+      - name: Prove original preservation
+        run: |
+          set -euo pipefail
+          src=$(cat forensic-evidence/source-path.txt)
+          sha256sum "$src" | tee forensic-evidence/source.sha256.after
+          sha512sum "$src" | tee forensic-evidence/source.sha512.after
+          test "$(cut -d' ' -f1 forensic-evidence/source.sha256.before)" = "$(cut -d' ' -f1 forensic-evidence/source.sha256.after)"
+          test "$(cut -d' ' -f1 forensic-evidence/source.sha512.before)" = "$(cut -d' ' -f1 forensic-evidence/source.sha512.after)"
+          echo 'ORIGINAL_PRESERVATION=PASS' | tee forensic-evidence/preservation.txt
+
+      - name: Upload forensic evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: reusable-forensics-${{ github.sha }}
+          path: forensic-evidence
+          if-no-files-found: error
+          retention-days: 30

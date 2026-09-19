@@ -1,6 +1,24 @@
+# Environment and secret-bearing files
 .env
+.env.*
+!.env.example
+*.jks
+*.keystore
+key.properties
+local.properties
+google-services.json
+service-account*.json
+service_account*.json
+credentials*.json
+
+# Build and tooling outputs
 /build/
 /app/build/
 /.idea/
 *.iml
 .gradle/
+
+# Kral Asistan local/private state
+mem.db
+kral/safe/*.db
+.kral/

@@ -1,0 +1,115 @@
+name: Verified Release Candidate
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/verified-release.yml'
+      - 'app/**'
+      - 'build.gradle.kts'
+      - 'settings.gradle.kts'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
+jobs:
+  verify-candidate:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      sha256: ${{ steps.identity.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up pinned Gradle
+        uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92
+        with:
+          gradle-version: '8.7'
+          cache-provider: basic
+
+      - name: Build unsigned release candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle :app:assembleRelease --stacktrace
+          APK="$(find app/build/outputs/apk/release -maxdepth 1 -type f -name '*.apk' -print -quit)"
+          test -n "$APK"
+          test -f "$APK"
+          mkdir -p candidate
+          cp "$APK" candidate/app-release-candidate.apk
+          chmod 0444 candidate/app-release-candidate.apk
+          echo "SOURCE_APK=$APK"
+
+      - name: Record candidate identity
+        id: identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha256="$(sha256sum candidate/app-release-candidate.apk | awk '{print $1}')"
+          sha512="$(sha512sum candidate/app-release-candidate.apk | awk '{print $1}')"
+          size="$(stat -c%s candidate/app-release-candidate.apk)"
+          {
+            echo "head_sha=${GITHUB_SHA}"
+            echo "run_id=${GITHUB_RUN_ID}"
+            echo "size=${size}"
+            echo "sha256=${sha256}"
+            echo "sha512=${sha512}"
+            echo "publication=BLOCKED_UNTIL_PRODUCTION_SIGNING_IS_CONFIGURED"
+          } | tee candidate/identity.txt
+          echo "sha256=${sha256}" >> "$GITHUB_OUTPUT"
+
+      - name: Attest candidate provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
+        with:
+          subject-path: candidate/app-release-candidate.apk
+
+      - name: Verify attestation from GitHub
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ok=0
+          for attempt in 1 2 3 4 5; do
+            if gh attestation verify candidate/app-release-candidate.apk --repo "$GITHUB_REPOSITORY" | tee candidate/attestation-verify.txt; then
+              ok=1
+              break
+            fi
+            sleep 5
+          done
+          test "$ok" -eq 1
+          echo 'ATTESTATION_VERIFY=PASS' | tee -a candidate/attestation-verify.txt
+
+      - name: Re-hash candidate after verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          before="$(awk -F= '/^sha256=/{print $2}' candidate/identity.txt)"
+          after="$(sha256sum candidate/app-release-candidate.apk | awk '{print $1}')"
+          test "$before" = "$after"
+          echo 'CANDIDATE_PRESERVATION=PASS' | tee candidate/preservation.txt
+
+      - name: Enforce no production publication without signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'PRODUCTION_RELEASE_PUBLICATION=BLOCKED'
+          echo 'REASON=PRODUCTION_SIGNING_NOT_CONFIGURED'
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: verified-release-candidate-${{ github.sha }}
+          path: candidate
+          if-no-files-found: error
+          retention-days: 30
