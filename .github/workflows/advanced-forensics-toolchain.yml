@@ -28,7 +28,7 @@ jobs:
       - name: Capstone real execution
         run: |
           set -euo pipefail
-          python3 -m pip install --user --quiet capstone
+          python3 -m pip install --user --quiet capstone==5.0.9
           python3 - <<'PY' > advanced-evidence/capstone.log 2>&1
           import capstone
           print('CAPSTONE_VERSION=' + capstone.__version__)
@@ -42,9 +42,9 @@ jobs:
       - name: Ghidra headless install and real ELF analysis
         run: |
           set -euo pipefail
-          url=$(curl -fsSL https://api.github.com/repos/NationalSecurityAgency/ghidra/releases/latest | jq -r '.assets[] | select(.name|test("PUBLIC.*\\.zip$")) | .browser_download_url' | head -1)
-          test -n "$url"
+          url="https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_12.1.3_build/ghidra_12.1.3_PUBLIC_20260817.zip"
           curl -fsSL "$url" -o /tmp/ghidra.zip
+          echo '93a5d11a9ad510622acaaf908c556a7b9b764d338e78a7567f3689bf5081fd54  /tmp/ghidra.zip' | sha256sum -c -
           rm -rf /tmp/ghidra-unpack /tmp/ghidra-project
           mkdir -p /tmp/ghidra-unpack /tmp/ghidra-project
           unzip -q /tmp/ghidra.zip -d /tmp/ghidra-unpack
@@ -60,12 +60,20 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq build-essential git make pkg-config meson ninja-build python3-pip >/tmp/r2-apt.log 2>&1
           rm -rf /tmp/radare2 /tmp/r2flutter
-          git clone --depth 1 https://github.com/radareorg/radare2.git /tmp/radare2 > advanced-evidence/radare2-clone.log 2>&1
+          git init -q /tmp/radare2
+          git -C /tmp/radare2 remote add origin https://github.com/radareorg/radare2.git
+          git -C /tmp/radare2 fetch --depth 1 origin 39b18895dc5fd85177959d4af90434e975866d56 > advanced-evidence/radare2-clone.log 2>&1
+          git -C /tmp/radare2 checkout --detach FETCH_HEAD >> advanced-evidence/radare2-clone.log 2>&1
+          test "$(git -C /tmp/radare2 rev-parse HEAD)" = "39b18895dc5fd85177959d4af90434e975866d56"
           (cd /tmp/radare2 && sys/install.sh) > advanced-evidence/radare2-build.log 2>&1
           r2 -v | tee advanced-evidence/radare2-version.log
           echo 'TOOL=radare2 TARGET=VERSION_PROBE COMMAND=r2_-v RESULT=RC_0' | tee advanced-evidence/radare2.status
 
-          git clone --depth 1 https://github.com/radareorg/r2flutter.git /tmp/r2flutter > advanced-evidence/r2flutter-clone.log 2>&1
+          git init -q /tmp/r2flutter
+          git -C /tmp/r2flutter remote add origin https://github.com/radareorg/r2flutter.git
+          git -C /tmp/r2flutter fetch --depth 1 origin 67935055e5a113ede14b4e410264fc8ee62e0c37 > advanced-evidence/r2flutter-clone.log 2>&1
+          git -C /tmp/r2flutter checkout --detach FETCH_HEAD >> advanced-evidence/r2flutter-clone.log 2>&1
+          test "$(git -C /tmp/r2flutter rev-parse HEAD)" = "67935055e5a113ede14b4e410264fc8ee62e0c37"
           (cd /tmp/r2flutter && make) > advanced-evidence/r2flutter-build.log 2>&1
           /tmp/r2flutter/bin/r2flutter -V | tee advanced-evidence/r2flutter-version.log
           sample=$(find /tmp/r2flutter/test/bins -type f -name 'libapp.so' -print -quit 2>/dev/null)
@@ -80,9 +88,13 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get install -y -qq cmake ninja-build pkg-config libicu-dev libcapstone-dev >/dev/null 2>&1
-          python3 -m pip install --user --quiet requests pyelftools
+          python3 -m pip install --user --quiet requests==2.34.2 pyelftools==0.33
           rm -rf /tmp/blutter
-          git clone --depth 1 https://github.com/worawit/blutter.git /tmp/blutter > advanced-evidence/blutter-clone.log 2>&1
+          git init -q /tmp/blutter
+          git -C /tmp/blutter remote add origin https://github.com/worawit/blutter.git
+          git -C /tmp/blutter fetch --depth 1 origin 4a60ac648bf448c5a7596437243bcd0b9376fdf0 > advanced-evidence/blutter-clone.log 2>&1
+          git -C /tmp/blutter checkout --detach FETCH_HEAD >> advanced-evidence/blutter-clone.log 2>&1
+          test "$(git -C /tmp/blutter rev-parse HEAD)" = "4a60ac648bf448c5a7596437243bcd0b9376fdf0"
           python3 /tmp/blutter/blutter.py --help > advanced-evidence/blutter-help.log 2>&1
           echo "BLUTTER_HEAD=$(git -C /tmp/blutter rev-parse HEAD)" | tee advanced-evidence/blutter.status
           echo 'TOOL=Blutter TARGET=HELP_CAPABILITY COMMAND=blutter.py_--help RESULT=RC_0' | tee -a advanced-evidence/blutter.status

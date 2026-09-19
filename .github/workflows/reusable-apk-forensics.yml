@@ -108,7 +108,7 @@ jobs:
           printf '#!/bin/sh\nexec java -jar /tmp/apktool.jar "$@"\n' > /tmp/apktool
           chmod +x /tmp/apktool
           echo /tmp >> "$GITHUB_PATH"
-          python3 -m pip install --user --quiet androguard==4.1.3 capstone==5.0.6
+          python3 -m pip install --user --quiet androguard==4.1.4 capstone==5.0.9
 
       - name: Static inventory and redacted report
         run: |

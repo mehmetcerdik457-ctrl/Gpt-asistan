@@ -13,17 +13,19 @@ permissions:
 jobs:
   dependency-submission:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - name: Checkout sources
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           persist-credentials: false
+
       - name: Setup Java
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
         with:
           distribution: temurin
           java-version: '17'
+
       - name: Probe dependency graph feature state
         id: graph
         env:
@@ -55,13 +57,74 @@ jobs:
               exit 1
               ;;
           esac
-      - name: Generate and submit Gradle dependency graph
+
+      - name: Checkout exact PR base for differential baseline
+        if: github.event_name == 'pull_request' && steps.graph.outputs.enabled == 'true'
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: dependency-base
+          persist-credentials: false
+
+      - name: Bootstrap exact PR base dependency resolution
+        if: github.event_name == 'pull_request' && steps.graph.outputs.enabled == 'true'
+        id: base
+        shell: bash
+        env:
+          EXPECTED_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          base_sha="$(git -C dependency-base rev-parse HEAD)"
+          echo "DEPENDENCY_REVIEW_BASE_SHA=${base_sha}" | tee -a dependency-evidence/state.txt
+          test "${base_sha}" = "${EXPECTED_BASE_SHA}"
+          if ! grep -q '^pluginManagement' dependency-base/settings.gradle.kts; then
+            tmp="$(mktemp)"
+            cat > "${tmp}" <<'EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+
+          EOF
+            cat dependency-base/settings.gradle.kts >> "${tmp}"
+            mv "${tmp}" dependency-base/settings.gradle.kts
+            echo 'DEPENDENCY_REVIEW_BASE_BOOTSTRAP=RESOLUTION_REPOSITORIES_ONLY' | tee -a dependency-evidence/state.txt
+          else
+            echo 'DEPENDENCY_REVIEW_BASE_BOOTSTRAP=NOT_REQUIRED' | tee -a dependency-evidence/state.txt
+          fi
+          echo "sha=${base_sha}" >> "$GITHUB_OUTPUT"
+
+      - name: Submit exact PR base dependency snapshot
+        if: github.event_name == 'pull_request' && steps.graph.outputs.enabled == 'true'
+        uses: gradle/actions/dependency-submission@9c971963bec38e04b3d30dcc455b5382be2fdbfb
+        env:
+          GITHUB_DEPENDENCY_GRAPH_REF: refs/heads/${{ github.base_ref }}
+          GITHUB_DEPENDENCY_GRAPH_SHA: ${{ steps.base.outputs.sha }}
+        with:
+          build-root-directory: dependency-base
+          gradle-version: '8.7'
+          cache-provider: basic
+          dependency-graph: generate-and-submit
+
+      - name: Generate and submit current dependency graph
         if: steps.graph.outputs.enabled == 'true'
         uses: gradle/actions/dependency-submission@9c971963bec38e04b3d30dcc455b5382be2fdbfb
         with:
           gradle-version: '8.7'
           cache-provider: basic
           dependency-graph: generate-and-submit
+
       - name: Preserve dependency graph state evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
