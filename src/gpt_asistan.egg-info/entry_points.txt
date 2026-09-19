@@ -1,0 +1,2 @@
+[console_scripts]
+ga = gpt_asistan.cli:main

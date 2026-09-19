@@ -1,0 +1,14 @@
+LICENSE
+README.md
+pyproject.toml
+src/gpt_asistan/__init__.py
+src/gpt_asistan/app.py
+src/gpt_asistan/cli.py
+src/gpt_asistan/memory.py
+src/gpt_asistan/provider.py
+src/gpt_asistan.egg-info/PKG-INFO
+src/gpt_asistan.egg-info/SOURCES.txt
+src/gpt_asistan.egg-info/dependency_links.txt
+src/gpt_asistan.egg-info/entry_points.txt
+src/gpt_asistan.egg-info/requires.txt
+src/gpt_asistan.egg-info/top_level.txt
