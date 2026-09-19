@@ -41,8 +41,10 @@ jobs:
           commit_count="$(git rev-list --all --count)"
           git bundle create backup-evidence/Gpt-asistan-full.bundle --all
           git bundle verify backup-evidence/Gpt-asistan-full.bundle | tee backup-evidence/bundle-verify.txt
-          sha256sum backup-evidence/Gpt-asistan-full.bundle | tee backup-evidence/SHA256SUMS.txt
-          sha512sum backup-evidence/Gpt-asistan-full.bundle | tee backup-evidence/SHA512SUMS.txt
+          (cd backup-evidence && sha256sum Gpt-asistan-full.bundle | tee SHA256SUMS.txt)
+          (cd backup-evidence && sha512sum Gpt-asistan-full.bundle | tee SHA512SUMS.txt)
+          (cd backup-evidence && sha256sum -c SHA256SUMS.txt)
+          (cd backup-evidence && sha512sum -c SHA512SUMS.txt)
           {
             echo "SOURCE_HEAD=${head_sha}"
             echo "SOURCE_MAIN=${main_sha}"
