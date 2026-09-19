@@ -1,0 +1,50 @@
+name: Governance Labels
+
+on:
+  push:
+    branches:
+      - copilot-agent-upgrade-20260917
+      - main
+    paths:
+      - '.github/workflows/governance-labels.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  labels:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Create or update standard labels
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          labels=$(cat <<'EOF'
+          security|B60205|Security-sensitive work or vulnerability handling
+          critical|B60205|Critical priority or impact
+          bug|D73A4A|Something is not working
+          feature|A2EEEF|New capability or enhancement
+          infra|5319E7|Infrastructure, CI/CD, cloud, or automation
+          ai|7057FF|AI, model, agent, prompt, eval, or tool work
+          android|3DDC84|Android application or APK work
+          release|0E8A16|Release, signing, provenance, or artifact work
+          ci|1D76DB|Continuous integration and workflow maintenance
+          docs|0075CA|Documentation and governance
+          EOF
+          )
+
+          while IFS='|' read -r name color description; do
+            [ -n "$name" ] || continue
+            if gh api "repos/$GITHUB_REPOSITORY/labels/$name" >/dev/null 2>&1; then
+              gh api --method PATCH "repos/$GITHUB_REPOSITORY/labels/$name"                 -f new_name="$name" -f color="$color" -f description="$description" >/dev/null
+              echo "UPDATED=$name"
+            else
+              gh api --method POST "repos/$GITHUB_REPOSITORY/labels"                 -f name="$name" -f color="$color" -f description="$description" >/dev/null
+              echo "CREATED=$name"
+            fi
+          done <<< "$labels"

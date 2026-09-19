@@ -1,0 +1,111 @@
+name: APK Forensic Smoke
+
+on:
+  push:
+    branches:
+      - copilot-agent-upgrade-20260917
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  forensic:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download verified APK artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: app-debug
+          path: evidence
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: 35263828095
+
+      - name: Read-only forensic smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="evidence/app-debug.apk"
+          WORK="evidence/app-debug.analysis.apk"
+          test -f "$SRC"
+          cp --preserve=mode,timestamps "$SRC" "$WORK"
+          chmod a-w "$SRC" "$WORK"
+
+          mkdir -p forensic-output
+          REPORT="forensic-output/GATE0_APK_FORENSIC_SMOKE.txt"
+
+          {
+            echo "SOURCE=$SRC"
+            echo "SOURCE_BYTES=$(stat -c %s "$SRC")"
+            echo "SOURCE_SHA256=$(sha256sum "$SRC" | awk '{print $1}')"
+            echo "SOURCE_SHA512=$(sha512sum "$SRC" | awk '{print $1}')"
+            echo "WORK_SHA256=$(sha256sum "$WORK" | awk '{print $1}')"
+            echo "WORK_SHA512=$(sha512sum "$WORK" | awk '{print $1}')"
+            cmp -s "$SRC" "$WORK" && echo "BYTE_IDENTICAL=PASS" || { echo "BYTE_IDENTICAL=FAIL"; exit 1; }
+            echo
+            echo "== FILE =="
+            file "$SRC"
+            echo
+            echo "== ZIP INTEGRITY =="
+            zipinfo -t "$SRC"
+            echo
+            echo "== TOOL PROBE =="
+          } | tee "$REPORT"
+
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner 2>/dev/null | sort -V | tail -1 || true)"
+          AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt 2>/dev/null | sort -V | tail -1 || true)"
+          AAPT2="$(find "$ANDROID_HOME/build-tools" -type f -name aapt2 2>/dev/null | sort -V | tail -1 || true)"
+          APKANALYZER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name apkanalyzer 2>/dev/null | sort -V | tail -1 || true)"
+
+          {
+            for t in unzip zipinfo readelf objdump strings nm file openssl keytool jadx jadx-cli apktool bundletool androguard mobsf; do
+              if command -v "$t" >/dev/null 2>&1; then echo "$t=AVAILABLE:$(command -v "$t")"; else echo "$t=NOT_AVAILABLE"; fi
+            done
+            [ -n "$APKSIGNER" ] && echo "apksigner=AVAILABLE:$APKSIGNER" || echo "apksigner=NOT_AVAILABLE"
+            [ -n "$AAPT" ] && echo "aapt=AVAILABLE:$AAPT" || echo "aapt=NOT_AVAILABLE"
+            [ -n "$AAPT2" ] && echo "aapt2=AVAILABLE:$AAPT2" || echo "aapt2=NOT_AVAILABLE"
+            [ -n "$APKANALYZER" ] && echo "apkanalyzer=AVAILABLE:$APKANALYZER" || echo "apkanalyzer=NOT_AVAILABLE"
+            echo
+            echo "== MANIFEST / PACKAGE =="
+            if [ -n "$AAPT" ]; then "$AAPT" dump badging "$SRC" | head -40; fi
+            if [ -n "$APKANALYZER" ]; then
+              echo "APPLICATION_ID=$($APKANALYZER manifest application-id "$SRC")"
+              echo "VERSION_NAME=$($APKANALYZER manifest version-name "$SRC")"
+              echo "VERSION_CODE=$($APKANALYZER manifest version-code "$SRC")"
+              echo "MIN_SDK=$($APKANALYZER manifest min-sdk "$SRC")"
+              echo "TARGET_SDK=$($APKANALYZER manifest target-sdk "$SRC")"
+            fi
+            echo
+            echo "== SIGNING =="
+            if [ -n "$APKSIGNER" ]; then "$APKSIGNER" verify --verbose --print-certs "$SRC"; fi
+            echo
+            echo "== DEX INVENTORY =="
+            zipinfo -1 "$SRC" | grep -E '^classes([0-9]+)?\.dex$' || true
+            echo "DEX_COUNT=$(zipinfo -1 "$SRC" | grep -Ec '^classes([0-9]+)?\.dex$' || true)"
+            echo
+            echo "== NATIVE INVENTORY =="
+            zipinfo -1 "$SRC" | grep -E '^lib/[^/]+/[^/]+\.so$' || true
+            echo "NATIVE_SO_COUNT=$(zipinfo -1 "$SRC" | grep -Ec '^lib/[^/]+/[^/]+\.so$' || true)"
+            echo "FLUTTER_LIBAPP_COUNT=$(zipinfo -1 "$SRC" | grep -Ec '^lib/[^/]+/libapp\.so$' || true)"
+            echo "FLUTTER_LIBFLUTTER_COUNT=$(zipinfo -1 "$SRC" | grep -Ec '^lib/[^/]+/libflutter\.so$' || true)"
+            echo
+            echo "== STATIC SECURITY INDICATORS =="
+            if unzip -p "$SRC" 'classes*.dex' 2>/dev/null | strings | grep -Eqi 'AIza[0-9A-Za-z_-]{30,}|AKIA[0-9A-Z]{16}|sk-[A-Za-z0-9_-]{20,}|BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY'; then
+              echo "CREDENTIAL_SHAPED_STATIC_STRING=INDICATOR_REDACTED"
+            else
+              echo "CREDENTIAL_SHAPED_STATIC_STRING=NONE_DETECTED_BY_SMOKE_REGEX"
+            fi
+            echo "NOTE=Static strings do not prove active or valid secrets."
+            echo
+            echo "== FINAL PRESERVATION =="
+            echo "SOURCE_SHA256_AFTER=$(sha256sum "$SRC" | awk '{print $1}')"
+            echo "SOURCE_SHA512_AFTER=$(sha512sum "$SRC" | awk '{print $1}')"
+            cmp -s "$SRC" "$WORK" && echo "BYTE_IDENTICAL_AFTER=PASS" || { echo "BYTE_IDENTICAL_AFTER=FAIL"; exit 1; }
+          } | tee -a "$REPORT"
+
+      - name: Upload forensic report
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: gate0-apk-forensic-smoke
+          path: forensic-output/GATE0_APK_FORENSIC_SMOKE.txt
