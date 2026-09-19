@@ -1,0 +1,28 @@
+name: OpenAI CI Preflight
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: openai-ci-preflight
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    environment:
+      name: openai-ci
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+    steps:
+      - name: Verify environment secret wiring without disclosure
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${OPENAI_API_KEY:-}" ]; then
+            echo "OPENAI_CI_SECRET_WIRING=BLOCKED"
+            exit 2
+          fi
+          echo "OPENAI_CI_SECRET_WIRING=PASS"
