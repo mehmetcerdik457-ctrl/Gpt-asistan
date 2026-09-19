@@ -1,0 +1,41 @@
+{
+  "name": "MEHMET — Yaratılış v0.2.1",
+  "short_name": "MEHMET",
+  "id": "./MEHMET.html",
+  "start_url": "./MEHMET.html",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": [
+    "window-controls-overlay",
+    "standalone"
+  ],
+  "background_color": "#0b1020",
+  "theme_color": "#111827",
+  "lang": "tr",
+  "description": "Sahip kontrollü, kalıcı ve geliştirilebilir PWA yapay zekâ çalışma arayüzü.",
+  "icons": [
+    {
+      "src": "./icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "./icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "./icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "orientation": "any",
+  "categories": [
+    "productivity",
+    "utilities"
+  ]
+}
