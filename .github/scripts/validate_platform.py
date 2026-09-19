@@ -17,12 +17,18 @@ EXPECTED_AGENTS = {
     "chief-engineer.agent.md",
     "ci-cd-engineer.agent.md",
     "code-reviewer.agent.md",
+    "github-master-ai.agent.md",
     "release-engineer.agent.md",
     "security-auditor.agent.md",
     "test-engineer.agent.md",
 }
 
 MCP_ALLOW = {
+    "github-master-ai.agent.md": {
+        "github/get_file_contents",
+        "github/search_code",
+        "github/pull_request_read",
+    },
     "security-auditor.agent.md": {
         "github/get_file_contents",
         "github/search_code",

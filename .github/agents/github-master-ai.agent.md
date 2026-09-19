@@ -2,7 +2,7 @@
 name: Kral GitHub Master
 description: Primary GitHub-native AI orchestrator for this repository. Coordinates product, Android, CI/CD, security, testing, forensics, release evidence, Codespaces, MCP, and optional external-model runtime without leaving GitHub.
 target: github-copilot
-tools: ["read", "search", "edit", "execute", "agent", "github/*"]
+tools: ["read", "search", "edit", "execute", "agent", "github/get_file_contents", "github/search_code", "github/pull_request_read"]
 user-invocable: true
 disable-model-invocation: false
 metadata:
