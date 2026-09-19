@@ -8,6 +8,7 @@ on:
 permissions:
   contents: read
   actions: write
+  pull-requests: read
 
 jobs:
   cleanup:
@@ -18,17 +19,20 @@ jobs:
       CURRENT_SHA: ${{ github.sha }}
       CURRENT_RUN_ID: ${{ github.run_id }}
     steps:
-      - name: Cancel only older push runs from obsolete heads
+      - name: Cancel older runs from obsolete heads of this branch and PR
         shell: bash
         run: |
           set -euo pipefail
 
           live_sha="$(gh api "repos/${GITHUB_REPOSITORY}/branches/${GITHUB_REF_NAME}" --jq '.commit.sha')"
           current_created_at="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${CURRENT_RUN_ID}" --jq '.created_at')"
+          owner="${GITHUB_REPOSITORY%%/*}"
+          current_pr="$(gh api "repos/${GITHUB_REPOSITORY}/pulls?state=open&head=${owner}:${GITHUB_REF_NAME}&per_page=1" --jq '.[0].number // empty')"
 
           echo "CURRENT_SHA=${CURRENT_SHA}"
           echo "LIVE_BRANCH_SHA=${live_sha}"
           echo "CURRENT_RUN_CREATED_AT=${current_created_at}"
+          echo "CURRENT_PR=${current_pr:-NONE}"
 
           if [ "${live_sha}" != "${CURRENT_SHA}" ]; then
             echo "STALE_CLEANER_NOOP=YES REASON=BRANCH_ADVANCED"
@@ -41,12 +45,17 @@ jobs:
               --arg sha "${CURRENT_SHA}" \
               --arg run "${CURRENT_RUN_ID}" \
               --arg created "${current_created_at}" \
+              --arg pr "${current_pr}" \
               '.workflow_runs[]
-               | select(.event == "push")
                | select(.head_sha != $sha)
                | select(.created_at < $created)
                | select((.status == "queued") or (.status == "in_progress") or (.status == "pending"))
                | select((.id | tostring) != $run)
+               | select(
+                   (.event == "push")
+                   or
+                   (.event == "pull_request" and $pr != "" and any(.pull_requests[]?; (.number | tostring) == $pr))
+                 )
                | .id' <<<"${payload}"
           )
 
@@ -54,7 +63,7 @@ jobs:
           for id in "${stale_ids[@]:-}"; do
             [ -n "${id}" ] || continue
 
-            # Re-check branch identity immediately before every destructive action.
+            # Re-check live branch identity immediately before every destructive action.
             live_now="$(gh api "repos/${GITHUB_REPOSITORY}/branches/${GITHUB_REF_NAME}" --jq '.commit.sha')"
             if [ "${live_now}" != "${CURRENT_SHA}" ]; then
               echo "ABORT_CLEANUP=YES REASON=BRANCH_ADVANCED LIVE_SHA=${live_now}"
@@ -65,8 +74,16 @@ jobs:
             target_sha="$(jq -r '.head_sha' <<<"${target}")"
             target_event="$(jq -r '.event' <<<"${target}")"
             target_created="$(jq -r '.created_at' <<<"${target}")"
+            target_pr="$(jq -r '.pull_requests[0].number // empty' <<<"${target}")"
 
-            if [ "${target_event}" != "push" ] || [ "${target_sha}" = "${CURRENT_SHA}" ] || [[ ! "${target_created}" < "${current_created_at}" ]]; then
+            eligible=false
+            if [ "${target_event}" = "push" ]; then
+              eligible=true
+            elif [ "${target_event}" = "pull_request" ] && [ -n "${current_pr}" ] && [ "${target_pr}" = "${current_pr}" ]; then
+              eligible=true
+            fi
+
+            if [ "${eligible}" != "true" ] || [ "${target_sha}" = "${CURRENT_SHA}" ] || [[ ! "${target_created}" < "${current_created_at}" ]]; then
               echo "SKIP_RUN_ID=${id} REASON=SAFETY_GUARD"
               continue
             fi
@@ -76,7 +93,7 @@ jobs:
               -H "Authorization: Bearer ${GH_TOKEN}" \
               -H 'X-GitHub-Api-Version: 2026-03-10' \
               "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/${id}/cancel")"
-            echo "CANCEL_RUN_ID=${id} HTTP=${code}"
+            echo "CANCEL_RUN_ID=${id} EVENT=${target_event} HTTP=${code}"
             case "${code}" in
               202|409) handled=$((handled + 1)) ;;
               *) cat "/tmp/cancel-${id}.json" >&2 || true; exit 1 ;;
