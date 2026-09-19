@@ -46,6 +46,19 @@ READ_ONLY_AGENTS = {
     "release-engineer.agent.md",
 }
 
+CRITICAL_CONCURRENCY_WORKFLOWS = {
+    "advanced-forensics-toolchain.yml",
+    "android.yml",
+    "cancel-stale-runs.yml",
+    "ci.yml",
+    "dependency-submission.yml",
+    "direct-head-matrix.yml",
+    "gate0-forensics.yml",
+    "platform-security-state.yml",
+    "reproducibility.yml",
+    "security-supply-chain.yml",
+}
+
 ACTION_REF = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*@[0-9a-fA-F]{40}$")
 USES = re.compile(r"^\s*-?\s*uses:\s*([^\s#]+)")
 
@@ -120,6 +133,11 @@ def validate_workflows() -> None:
             fail(f"{path.name}: write-all is forbidden")
         if re.search(r"(?m)^\s*pull_request_target\s*:", text):
             fail(f"{path.name}: pull_request_target is forbidden")
+        if path.name in CRITICAL_CONCURRENCY_WORKFLOWS:
+            if re.search(r"(?m)^concurrency:\s*$", text) is None:
+                fail(f"{path.name}: top-level concurrency block required")
+            if "cancel-in-progress: true" not in text:
+                fail(f"{path.name}: concurrency must cancel stale runs")
         lines = text.splitlines()
         for index, line in enumerate(lines):
             if "uses: actions/checkout@" in line:
@@ -157,9 +175,17 @@ def validate_governance() -> None:
     if duplicate.exists():
         fail("duplicate PR template forbidden; keep .github/pull_request_template.md only")
 
+    smoke = (WORKFLOW_DIR / "apk-forensic-smoke.yml").read_text(encoding="utf-8")
+    if "source_run_id:" not in smoke or "inputs.source_run_id" not in smoke:
+        fail("apk-forensic-smoke.yml must use an explicit workflow_dispatch source_run_id")
+    if re.search(r"(?m)^\s*run-id:\s*[0-9]+\s*$", smoke):
+        fail("apk-forensic-smoke.yml cannot pin a stale literal workflow run id")
+
     backup = (WORKFLOW_DIR / "repository-backup-drill.yml").read_text(encoding="utf-8")
     if re.search(r"(?m)^\s*-\s*main\s*$", backup) is None:
         fail("repository-backup-drill.yml must run on main")
+    if "copilot-agent-upgrade-20260917" in backup:
+        fail("repository-backup-drill.yml cannot depend on a temporary feature branch")
 
     stale = (WORKFLOW_DIR / "cancel-stale-runs.yml").read_text(encoding="utf-8")
     if "branches-ignore: [main]" not in stale:

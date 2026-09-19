@@ -3,7 +3,6 @@ name: Governance Labels
 on:
   push:
     branches:
-      - copilot-agent-upgrade-20260917
       - main
     paths:
       - '.github/workflows/governance-labels.yml'

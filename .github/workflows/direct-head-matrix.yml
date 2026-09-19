@@ -5,6 +5,10 @@ on:
     branches: [main, copilot-agent-upgrade-20260917]
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   actions: read

@@ -1,9 +1,21 @@
 name: APK Forensic Smoke
 
 on:
-  push:
-    branches:
-      - copilot-agent-upgrade-20260917
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: Successful Build APK workflow run ID to inspect
+        required: true
+        type: string
+      source_artifact_name:
+        description: Artifact name produced by the selected build run
+        required: false
+        default: app-debug
+        type: string
+
+concurrency:
+  group: apk-forensic-smoke-${{ inputs.source_run_id }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -17,11 +29,11 @@ jobs:
       - name: Download verified APK artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
-          name: app-debug
+          name: ${{ inputs.source_artifact_name }}
           path: evidence
           github-token: ${{ secrets.GITHUB_TOKEN }}
           repository: ${{ github.repository }}
-          run-id: 35263828095
+          run-id: ${{ inputs.source_run_id }}
 
       - name: Read-only forensic smoke
         shell: bash
