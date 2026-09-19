@@ -43,6 +43,31 @@ class YouTubeMCPTests(unittest.TestCase):
                     {"comment_id": "x", "moderation_status": "rejected"}
                 )
 
+    def test_comment_moderation_rejects_non_boolean_ban_author(self):
+        with patch.dict(os.environ, {"YOUTUBE_WRITE_ENABLED": "true"}, clear=True):
+            with patch.object(youtube, "api_request") as mocked:
+                with self.assertRaisesRegex(RuntimeError, "ban_author must be a boolean"):
+                    youtube.comment_moderate(
+                        {
+                            "comment_id": "x",
+                            "moderation_status": "rejected",
+                            "ban_author": "false",
+                        }
+                    )
+                mocked.assert_not_called()
+
+    def test_mcp_rejects_non_object_arguments(self):
+        response = youtube.handle_rpc(
+            {
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "tools/call",
+                "params": {"name": "status", "arguments": "not-an-object"},
+            }
+        )
+        self.assertTrue(response["result"]["isError"])
+        self.assertIn("arguments must be an object", response["result"]["content"][0]["text"])
+
     def test_tools_list_contains_read_and_guarded_write_tools(self):
         names = {tool["name"] for tool in youtube.TOOLS}
         self.assertIn("channel_get", names)
