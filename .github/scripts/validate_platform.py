@@ -55,6 +55,7 @@ CRITICAL_CONCURRENCY_WORKFLOWS = {
     "direct-head-matrix.yml",
     "gate0-forensics.yml",
     "platform-security-state.yml",
+    "privacy-guard.yml",
     "reproducibility.yml",
     "security-supply-chain.yml",
 }
@@ -168,6 +169,7 @@ def validate_governance() -> None:
         ROOT / ".github" / "SECURITY.md",
         ROOT / ".github" / "dependabot.yml",
         ROOT / ".github" / "pull_request_template.md",
+        ROOT / ".github" / "workflows" / "privacy-guard.yml",
     ]
     for path in required:
         if not path.is_file():
@@ -176,6 +178,11 @@ def validate_governance() -> None:
     duplicate = ROOT / ".github" / "PULL_REQUEST_TEMPLATE.md"
     if duplicate.exists():
         fail("duplicate PR template forbidden; keep .github/pull_request_template.md only")
+
+    privacy = (WORKFLOW_DIR / "privacy-guard.yml").read_text(encoding="utf-8")
+    expected_privacy_pin = "mehmetcerdik457-ctrl/.github/.github/workflows/reusable-privacy-guard.yml@328c770208878e97aa0765265b6201322fa39cd2"
+    if expected_privacy_pin not in privacy:
+        fail("privacy-guard.yml must pin the approved account-wide privacy guard commit")
 
     smoke = (WORKFLOW_DIR / "apk-forensic-smoke.yml").read_text(encoding="utf-8")
     if "source_run_id:" not in smoke or "inputs.source_run_id" not in smoke:
