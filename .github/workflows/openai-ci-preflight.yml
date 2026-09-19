@@ -3,7 +3,8 @@ name: OpenAI CI Preflight
 on:
   workflow_dispatch:
 
-permissions: {}
+permissions:
+  contents: read
 
 concurrency:
   group: openai-ci-preflight
