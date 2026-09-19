@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/devcontainers/base:ubuntu-24.04
+FROM mcr.microsoft.com/devcontainers/base:ubuntu-24.04@sha256:d94c97dd9cacf183d0a6fd12a8e87b526e9e928307674ae9c94139139c0c6eae
 
 USER root
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -14,8 +14,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential cmake make meson ninja-build pkg-config libicu-dev libcapstone-dev \
     docker.io && rm -rf /var/lib/apt/lists/*
 
+# Android command-line tools 12.0. Version and SHA-256 are fixed.
 RUN mkdir -p /opt/android-sdk/cmdline-tools /tmp/android-cli \
  && curl -fsSL https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -o /tmp/android-cli.zip \
+ && echo "2d2d50857e4eb553af5a6dc3ad507a17adf43d115264b1afc116f95c92e5e258  /tmp/android-cli.zip" | sha256sum -c - \
  && unzip -q /tmp/android-cli.zip -d /tmp/android-cli \
  && mkdir -p /opt/android-sdk/cmdline-tools/latest \
  && mv /tmp/android-cli/cmdline-tools/* /opt/android-sdk/cmdline-tools/latest/ \
@@ -25,10 +27,12 @@ RUN mkdir -p /opt/android-sdk/cmdline-tools /tmp/android-cli \
 
 RUN mkdir -p /opt/gradle \
  && curl -fsSL https://services.gradle.org/distributions/gradle-8.7-bin.zip -o /tmp/gradle.zip \
+ && echo "544c35d6bd849ae8a5ed0bcea39ba677dc40f49df7d1835561582da2009b961d  /tmp/gradle.zip" | sha256sum -c - \
  && unzip -q /tmp/gradle.zip -d /opt/gradle \
  && rm /tmp/gradle.zip
 
 RUN curl -fsSL https://github.com/skylot/jadx/releases/download/v1.5.6/jadx-1.5.6.zip -o /tmp/jadx.zip \
+ && echo "545ea2be9c242511bc145755cf4bda2485ade42966e096f8b4d3da2a230e8974  /tmp/jadx.zip" | sha256sum -c - \
  && mkdir -p /opt/jadx \
  && unzip -q /tmp/jadx.zip -d /opt/jadx \
  && rm /tmp/jadx.zip
@@ -45,26 +49,36 @@ RUN curl -fsSL https://github.com/google/bundletool/releases/download/1.18.3/bun
 
 RUN python3 -m venv /opt/forensic-venv \
  && /opt/forensic-venv/bin/pip install --no-cache-dir --upgrade pip \
- && /opt/forensic-venv/bin/pip install --no-cache-dir androguard==4.1.3 capstone==5.0.7 requests pyelftools
+ && /opt/forensic-venv/bin/pip install --no-cache-dir \
+      androguard==4.1.4 capstone==5.0.9 requests==2.34.2 pyelftools==0.33
 
-# radare2 + r2flutter: build the current upstream toolchain and retain exact Git SHAs in the image.
-RUN git clone --depth 1 https://github.com/radareorg/radare2.git /opt/radare2 \
+# Native-analysis source tools are fetched by immutable commit, not mutable branch HEAD.
+RUN git init -q /opt/radare2 \
+ && git -C /opt/radare2 remote add origin https://github.com/radareorg/radare2.git \
+ && git -C /opt/radare2 fetch --depth 1 origin 39b18895dc5fd85177959d4af90434e975866d56 \
+ && git -C /opt/radare2 checkout --detach FETCH_HEAD \
+ && test "$(git -C /opt/radare2 rev-parse HEAD)" = "39b18895dc5fd85177959d4af90434e975866d56" \
  && cd /opt/radare2 \
  && sys/install.sh \
  && git rev-parse HEAD > /opt/RADARE2_GIT_SHA \
- && git clone --depth 1 https://github.com/radareorg/r2flutter.git /opt/r2flutter \
+ && git init -q /opt/r2flutter \
+ && git -C /opt/r2flutter remote add origin https://github.com/radareorg/r2flutter.git \
+ && git -C /opt/r2flutter fetch --depth 1 origin 67935055e5a113ede14b4e410264fc8ee62e0c37 \
+ && git -C /opt/r2flutter checkout --detach FETCH_HEAD \
+ && test "$(git -C /opt/r2flutter rev-parse HEAD)" = "67935055e5a113ede14b4e410264fc8ee62e0c37" \
  && cd /opt/r2flutter \
  && make \
  && git rev-parse HEAD > /opt/R2FLUTTER_GIT_SHA
 
-# Blutter is retained as a source-analysis tool; no target APK is embedded in this image.
-RUN git clone --depth 1 https://github.com/worawit/blutter.git /opt/blutter \
+RUN git init -q /opt/blutter \
+ && git -C /opt/blutter remote add origin https://github.com/worawit/blutter.git \
+ && git -C /opt/blutter fetch --depth 1 origin 4a60ac648bf448c5a7596437243bcd0b9376fdf0 \
+ && git -C /opt/blutter checkout --detach FETCH_HEAD \
+ && test "$(git -C /opt/blutter rev-parse HEAD)" = "4a60ac648bf448c5a7596437243bcd0b9376fdf0" \
  && git -C /opt/blutter rev-parse HEAD > /opt/BLUTTER_GIT_SHA
 
-# Ghidra headless. The resolved release and installation path are recorded for evidence.
-RUN url=$(curl -fsSL https://api.github.com/repos/NationalSecurityAgency/ghidra/releases/latest | jq -r '.assets[] | select(.name|test("PUBLIC.*\\.zip$")) | .browser_download_url' | head -1) \
- && test -n "$url" \
- && curl -fsSL "$url" -o /tmp/ghidra.zip \
+RUN curl -fsSL https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_12.1.3_build/ghidra_12.1.3_PUBLIC_20260817.zip -o /tmp/ghidra.zip \
+ && echo "93a5d11a9ad510622acaaf908c556a7b9b764d338e78a7567f3689bf5081fd54  /tmp/ghidra.zip" | sha256sum -c - \
  && mkdir -p /opt/ghidra-unpack \
  && unzip -q /tmp/ghidra.zip -d /opt/ghidra-unpack \
  && GH=$(find /opt/ghidra-unpack -maxdepth 4 -type f -path '*/support/analyzeHeadless' -print -quit) \
