@@ -3,6 +3,7 @@ name: Repository Backup and Restore Drill
 on:
   push:
     branches:
+      - main
       - copilot-agent-upgrade-20260917
   workflow_dispatch:
 
