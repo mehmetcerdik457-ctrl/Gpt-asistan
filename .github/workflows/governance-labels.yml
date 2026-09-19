@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - copilot-agent-upgrade-20260917
     paths:
       - '.github/workflows/governance-labels.yml'
   workflow_dispatch:
@@ -25,6 +26,7 @@ jobs:
           set -euo pipefail
           labels=$(cat <<'EOF'
           security|B60205|Security-sensitive work or vulnerability handling
+          dependencies|0366D6|Dependency and automated update work
           critical|B60205|Critical priority or impact
           bug|D73A4A|Something is not working
           feature|A2EEEF|New capability or enhancement
