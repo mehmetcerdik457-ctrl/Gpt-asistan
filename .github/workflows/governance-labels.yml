@@ -36,6 +36,13 @@ jobs:
           release|0E8A16|Release, signing, provenance, or artifact work
           ci|1D76DB|Continuous integration and workflow maintenance
           docs|0075CA|Documentation and governance
+          connector|8250DF|External connector, plugin, API integration, or MCP work
+          secrets|B60205|Credential, token, key, secret-store, or rotation work
+          deploy|1D76DB|Deployment, hosting, environment, or runtime rollout work
+          database|006B75|Database, persistence, migration, or storage work
+          observability|5319E7|Logs, metrics, tracing, analytics, or monitoring work
+          blocked|D93F0B|Blocked by an external dependency, permission, review, or human action
+          evidence|0E8A16|Verification evidence, hashes, attestations, logs, or reproducibility proof
           EOF
           )
 
