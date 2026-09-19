@@ -11,7 +11,8 @@ permissions:
 
 jobs:
   forensic:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - name: Download verified APK artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
@@ -107,5 +108,6 @@ jobs:
       - name: Upload forensic report
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
+          retention-days: 14
           name: gate0-apk-forensic-smoke
           path: forensic-output/GATE0_APK_FORENSIC_SMOKE.txt
