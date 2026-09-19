@@ -13,3 +13,9 @@ These rules apply to AI agents working in this repository.
 - When a path fails, diagnose the concrete root cause and try a technically distinct fallback before declaring BLOCKED.
 - Reuse previous verified findings rather than presenting them as new progress.
 - For release artifacts, bind filename, byte size, SHA-256, commit SHA, workflow run, and provenance evidence.
+
+## Project isolation
+- Keep GitHub Master Platform, MEHMET APK — OWNER EDITION, Public APK Forensic, Hatice/Zelal, Emrullah, and other independent workspaces as separate evidence and authorization domains.
+- Never reuse a credential, signing key, release artifact, forensic source, approval, attestation, hash, or runtime result from one isolated project as proof or authority for another.
+- Shared workflows and tooling may be reused only as versioned non-secret infrastructure; shared infrastructure does not imply shared secrets or release authority.
+- When project identity is ambiguous, fail closed and require explicit project scope before mutating artifacts or external systems.
