@@ -118,7 +118,15 @@ def validate_workflows() -> None:
             fail(f"{path.name}: explicit permissions block required")
         if re.search(r"(?m)^\s*permissions:\s*write-all\s*$", text):
             fail(f"{path.name}: write-all is forbidden")
-        for line in text.splitlines():
+        if re.search(r"(?m)^\s*pull_request_target\s*:", text):
+            fail(f"{path.name}: pull_request_target is forbidden")
+        lines = text.splitlines()
+        for index, line in enumerate(lines):
+            if "uses: actions/checkout@" in line:
+                window = "\n".join(lines[index:index + 10])
+                if re.search(r"(?m)^\s*persist-credentials:\s*false\s*$", window) is None:
+                    fail(f"{path.name}: actions/checkout must set persist-credentials: false")
+        for line in lines:
             match = USES.match(line)
             if not match:
                 continue
@@ -133,9 +141,37 @@ def validate_workflows() -> None:
     print(f"IMMUTABLE_ACTION_REFS={count}")
 
 
+
+def validate_governance() -> None:
+    required = [
+        ROOT / ".github" / "CODEOWNERS",
+        ROOT / ".github" / "SECURITY.md",
+        ROOT / ".github" / "dependabot.yml",
+        ROOT / ".github" / "pull_request_template.md",
+    ]
+    for path in required:
+        if not path.is_file():
+            fail(f"missing governance file: {path.relative_to(ROOT)}")
+
+    duplicate = ROOT / ".github" / "PULL_REQUEST_TEMPLATE.md"
+    if duplicate.exists():
+        fail("duplicate PR template forbidden; keep .github/pull_request_template.md only")
+
+    backup = (WORKFLOW_DIR / "repository-backup-drill.yml").read_text(encoding="utf-8")
+    if re.search(r"(?m)^\s*-\s*main\s*$", backup) is None:
+        fail("repository-backup-drill.yml must run on main")
+
+    stale = (WORKFLOW_DIR / "cancel-stale-runs.yml").read_text(encoding="utf-8")
+    if "branches-ignore: [main]" not in stale:
+        fail("cancel-stale-runs.yml must target non-main branches via branches-ignore: [main]")
+
+    print("GOVERNANCE_POLICY=PASS")
+
+
 def main() -> None:
     validate_agents()
     validate_workflows()
+    validate_governance()
     print("AGENT_POLICY=PASS")
     print("WORKFLOW_SUPPLY_CHAIN_POLICY=PASS")
     print("PLATFORM_POLICY=PASS")
