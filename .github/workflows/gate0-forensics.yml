@@ -62,7 +62,7 @@ jobs:
           mkdir -p "$HOME/bin" gate0-evidence /tmp/apktool-out /tmp/jadx-out
           export PATH="$HOME/bin:$PATH"
           sudo apt-get update -qq
-          sudo apt-get install -y -qq binutils openssl unzip zip jq curl git python3-pip cmake ninja-build pkg-config libcapstone-dev libicu-dev >/tmp/apt-tools.log 2>&1
+          sudo apt-get install -y -qq binutils openssl unzip zip jq curl git python3-pip python3-requests cmake ninja-build pkg-config libcapstone-dev libicu-dev >/tmp/apt-tools.log 2>&1
           echo "APT_RC=$?" | tee gate0-evidence/tool-install.txt
           url="https://github.com/skylot/jadx/releases/download/v1.5.6/jadx-1.5.6.zip"
           curl -fsSL "$url" -o /tmp/jadx.zip
@@ -92,7 +92,18 @@ jobs:
           git -C /tmp/blutter fetch --depth 1 origin 4a60ac648bf448c5a7596437243bcd0b9376fdf0 >/tmp/blutter-clone.log 2>&1
           git -C /tmp/blutter checkout --detach FETCH_HEAD >>/tmp/blutter-clone.log 2>&1
           test "$(git -C /tmp/blutter rev-parse HEAD)" = "4a60ac648bf448c5a7596437243bcd0b9376fdf0"
-          python3 -m pip install --user --quiet requests==2.34.2 pyelftools==0.33 >/tmp/blutter-pip.log 2>&1
+          pyelftools_url="https://files.pythonhosted.org/packages/46/2a/f9697576603dae937727827505a6126a066affb227034e77e6f9068910da/pyelftools-0.33-py3-none-any.whl"
+          curl -fsSL "$pyelftools_url" -o /tmp/pyelftools-0.33.whl
+          echo 'f215ad5f47d3f1373a21496a6c9e0707c622840d0622f23ff7ce08678b020036  /tmp/pyelftools-0.33.whl' | sha256sum -c -
+          user_site="$(python3 -m site --user-site)"
+          mkdir -p "$user_site"
+          unzip -q /tmp/pyelftools-0.33.whl -d "$user_site"
+          python3 - <<'PY' >/tmp/blutter-pip.log 2>&1
+import requests
+import elftools
+print("requests=" + requests.__version__)
+print("pyelftools=0.33")
+PY
           export PATH="$HOME/.local/bin:$HOME/bin:$PATH"
           {
             echo "PATH=$PATH"
