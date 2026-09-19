@@ -11,11 +11,13 @@ concurrency:
 
 permissions:
   contents: read
-  actions: write
-  pull-requests: read
 
 jobs:
   cleanup:
+    permissions:
+      contents: read
+      actions: write
+      pull-requests: read
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     env:
