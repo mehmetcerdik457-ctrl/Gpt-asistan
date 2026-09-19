@@ -23,6 +23,8 @@ buildscript {
             classpath("org.bouncycastle:bcprov-jdk18on:1.86")
             classpath("org.bouncycastle:bcpkix-jdk18on:1.86")
             classpath("org.bouncycastle:bcutil-jdk18on:1.86")
+            classpath("com.google.protobuf:protobuf-java:3.25.9")
+            classpath("com.google.protobuf:protobuf-java-util:3.25.9")
         }
     }
 }
@@ -43,7 +45,9 @@ allprojects {
             "io.netty:netty-transport-native-unix-common:4.1.138.Final",
             "org.bouncycastle:bcprov-jdk18on:1.86",
             "org.bouncycastle:bcpkix-jdk18on:1.86",
-            "org.bouncycastle:bcutil-jdk18on:1.86"
+            "org.bouncycastle:bcutil-jdk18on:1.86",
+            "com.google.protobuf:protobuf-java:3.25.9",
+            "com.google.protobuf:protobuf-java-util:3.25.9"
         )
     }
 }
