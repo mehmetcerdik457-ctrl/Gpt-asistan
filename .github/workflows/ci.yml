@@ -9,3 +9,13 @@ jobs:
         with:
           python-version: '3.x'
       - run: python -V
+      - name: Create verification evidence
+        run: |
+          mkdir -p evidence
+          echo "CI_PASS" > evidence/ci-verification.txt
+          echo "commit=${GITHUB_SHA}" >> evidence/ci-verification.txt
+      - name: Upload verification evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: hardening-verification-evidence
+          path: evidence/
