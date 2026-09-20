@@ -14,30 +14,48 @@ jobs:
     name: Validate Control Plane Structure
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout exact target revision
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Verify exact checkout
+        shell: bash
+        run: |
+          ACTUAL_SHA="$(git rev-parse HEAD)"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            EXPECTED_SHA="${{ github.event.pull_request.head.sha }}"
+          else
+            EXPECTED_SHA="${GITHUB_SHA}"
+          fi
+          test "${ACTUAL_SHA}" = "${EXPECTED_SHA}"
+          printf 'expected_sha=%s\nactual_sha=%s\n' "${EXPECTED_SHA}" "${ACTUAL_SHA}" > /tmp/exact-head.txt
 
       - name: Validate control plane
         run: |
           python3 control-plane/validate.py | tee /tmp/control-plane-validation.json
 
       - name: Generate evidence
+        shell: bash
         run: |
           mkdir -p evidence
           cp /tmp/control-plane-validation.json evidence/control-plane-validation.json
+          cp /tmp/exact-head.txt evidence/exact-head.txt
           {
-            echo "commit=${GITHUB_SHA}"
+            echo "event=${GITHUB_EVENT_NAME}"
+            echo "github_sha=${GITHUB_SHA}"
             echo "run_id=${GITHUB_RUN_ID}"
             echo "repository=${GITHUB_REPOSITORY}"
           } > evidence/run-metadata.txt
-          sha256sum evidence/control-plane-validation.json evidence/run-metadata.txt > evidence/SHA256SUMS
+          (cd evidence && sha256sum control-plane-validation.json exact-head.txt run-metadata.txt > SHA256SUMS)
+
+      - name: Verify evidence checksums
+        run: |
+          (cd evidence && sha256sum -c SHA256SUMS)
 
       - name: Upload evidence
         uses: actions/upload-artifact@v4
         with:
           name: control-plane-validation-evidence
-          path: |
-            evidence/control-plane-validation.json
-            evidence/run-metadata.txt
-            evidence/SHA256SUMS
+          path: evidence/
           if-no-files-found: error
