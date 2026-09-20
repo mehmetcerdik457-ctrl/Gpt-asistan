@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "rollback_strategy": "branch-and-pr",
+  "preserve_evidence": true,
+  "external_archive": "PENDING_VERIFICATION",
+  "destructive_actions_require_explicit_approval": true
+}

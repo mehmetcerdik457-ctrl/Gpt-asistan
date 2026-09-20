@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "mode": "policy-gated",
+  "fallback": "none",
+  "require_provider_authorization": true,
+  "require_task_classification": true,
+  "providers": []
+}

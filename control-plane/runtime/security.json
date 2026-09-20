@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "execution": "deny-by-default",
+  "require_owner_authority_for_high_risk": true,
+  "require_postcondition_check": true,
+  "log_evidence": true
+}

@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "default_access": "deny",
+  "require_explicit_authorization": true,
+  "prohibit_secret_export": true,
+  "connectors": {
+    "github": {
+      "read": "VERIFIED",
+      "write": "VERIFIED",
+      "admin": "VERIFIED",
+      "purpose": "repository-control-plane"
+    },
+    "google_drive": {
+      "read": "VERIFIED",
+      "write": "NOT_VERIFIED",
+      "admin": "NOT_VERIFIED",
+      "purpose": "evidence-archive"
+    }
+  }
+}

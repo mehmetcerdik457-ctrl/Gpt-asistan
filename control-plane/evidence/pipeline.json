@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "required_chain": [
+    "claim",
+    "source",
+    "change",
+    "verify",
+    "evidence",
+    "status"
+  ],
+  "unverified_status": "NOT_VERIFIED",
+  "artifact_name": "control-plane-validation-evidence"
+}
