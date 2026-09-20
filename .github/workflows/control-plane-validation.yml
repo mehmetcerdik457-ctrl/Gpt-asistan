@@ -1,0 +1,38 @@
+name: Control Plane Validation
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  control-plane-validation:
+    name: Validate Control Plane Structure
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify control-plane boundary
+        run: |
+          test -d control-plane
+          test -d control-plane/security
+          test -d control-plane/evidence
+          test -d control-plane/connectors
+          test -d control-plane/agents
+          test -d control-plane/models
+          test -d control-plane/runtime
+          test -d control-plane/recovery
+
+      - name: Generate evidence
+        run: |
+          mkdir -p evidence
+          echo "CONTROL_PLANE_VALIDATION_PASS" > evidence/control-plane-validation.txt
+          git rev-parse HEAD >> evidence/control-plane-validation.txt
+
+      - name: Upload evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: control-plane-validation-evidence
+          path: evidence/control-plane-validation.txt
