@@ -49,4 +49,18 @@ router=json.loads((ROOT/'models/router.json').read_text())
 if router.get('fallback') != 'none': fail('model router fallback must remain none')
 if not router.get('require_provider_authorization'): fail('model router provider authorization gate missing')
 
+runtime=json.loads((ROOT/'runtime/security.json').read_text())
+constraints=runtime.get('constraints',{})
+if not constraints.get('preserve_original_bytes'): fail('runtime must preserve original bytes')
+for key in ('root','bootloader_unlock','repack','resign'):
+    if constraints.get(key) is not False: fail(f'runtime constraint must remain disabled: {key}')
+if 'real-device-install' not in set(runtime.get('user_gate',[])): fail('real device install must remain user gated')
+
+recovery=json.loads((ROOT/'recovery/state.json').read_text())
+if recovery.get('rollback_strategy')!='branch-and-pr': fail('recovery must use branch-and-pr')
+if recovery.get('external_archive')!='VERIFIED': fail('external evidence archive must be verified')
+if not recovery.get('merge_requires_explicit_approval'): fail('recovery merge must require explicit approval')
+required_sources={'git-head','ci-artifact-hash','drive-readback-hash'}
+if not required_sources.issubset(set(recovery.get('required_sources',[]))): fail('recovery source set incomplete')
+
 print(json.dumps({'status':'CONTROL_PLANE_VALIDATION_PASS','files':records,'connectors':len(connectors['connectors'])},sort_keys=True))
