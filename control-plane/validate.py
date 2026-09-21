@@ -9,6 +9,8 @@ FILES = [
     'agents/boundary.json',
     'models/router.json',
     'runtime/security.json',
+    'runtime/device_schema.json',
+    'runtime/phone_agent.json',
     'recovery/state.json',
 ]
 
@@ -24,6 +26,18 @@ for rel in FILES:
     except Exception as exc: fail(f'invalid JSON {rel}: {exc}')
     if data.get('version') != 1: fail(f'unsupported version in {rel}')
     records.append({'file':rel,'sha256':hashlib.sha256(path.read_bytes()).hexdigest()})
+
+for rel in [
+    'evidence/frozen_head.py',
+    'connectors/authorize.py',
+    'agents/enforce.py',
+    'models/route.py',
+    'runtime/check_policy.py',
+    'runtime/device_evidence.py',
+    'runtime/phone_agent.py',
+    'recovery/checkpoint.py'
+]:
+    if not (ROOT/rel).is_file(): fail(f'missing executable {rel}')
 
 security=json.loads((ROOT/'security/baseline.json').read_text())
 if any(security[k] for k in ('production_source','production_credentials','production_deployment')):
@@ -55,6 +69,16 @@ if not constraints.get('preserve_original_bytes'): fail('runtime must preserve o
 for key in ('root','bootloader_unlock','repack','resign'):
     if constraints.get(key) is not False: fail(f'runtime constraint must remain disabled: {key}')
 if 'real-device-install' not in set(runtime.get('user_gate',[])): fail('real device install must remain user gated')
+
+schema=json.loads((ROOT/'runtime/device_schema.json').read_text())
+needed={'device_model','android_version','package_name','version_name','version_code','artifact_sha256','install_result','launch_result','postcondition_result'}
+if not needed.issubset(set(schema.get('required_fields',[]))): fail('device evidence schema incomplete')
+
+phone=json.loads((ROOT/'runtime/phone_agent.json').read_text())
+actions=phone.get('actions',{})
+if actions.get('install_on_real_device')!='USER_GATE': fail('real-device install must be user gated')
+if actions.get('alter_baseline_artifact')!='DENY': fail('baseline artifact mutation must be denied')
+if actions.get('verify_artifact_hash')!='ALLOW': fail('artifact hash verification must be allowed')
 
 recovery=json.loads((ROOT/'recovery/state.json').read_text())
 if recovery.get('rollback_strategy')!='branch-and-pr': fail('recovery must use branch-and-pr')
