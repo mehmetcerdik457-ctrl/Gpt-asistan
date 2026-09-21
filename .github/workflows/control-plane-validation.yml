@@ -62,6 +62,31 @@ jobs:
           python3 control-plane/runtime/check_policy.py real-device-install | tee /tmp/runtime-user-gate.json
           grep -q '"decision": "USER_GATE"' /tmp/runtime-user-gate.json
 
+      - name: Verify phone-agent policy
+        shell: bash
+        run: |
+          python3 control-plane/runtime/phone_agent.py verify_artifact_hash ALLOW | tee /tmp/phone-allow.json
+          python3 control-plane/runtime/phone_agent.py install_on_real_device USER_GATE | tee /tmp/phone-user-gate.json
+          python3 control-plane/runtime/phone_agent.py alter_baseline_artifact DENY | tee /tmp/phone-deny.json
+
+      - name: Verify real-device evidence gate
+        shell: bash
+        run: |
+          python3 control-plane/runtime/device_evidence.py template --output /tmp/device-evidence.json | tee /tmp/device-template.json
+          set +e
+          python3 control-plane/runtime/device_evidence.py validate --input /tmp/device-evidence.json > /tmp/device-gate.json
+          CODE=$?
+          set -e
+          test "${CODE}" -eq 3
+          grep -q '"status": "USER_GATE"' /tmp/device-gate.json
+
+      - name: Create and verify frozen-head readiness manifest
+        shell: bash
+        run: |
+          HEAD_SHA="$(grep '^actual_sha=' /tmp/exact-head.txt | cut -d= -f2)"
+          python3 control-plane/evidence/frozen_head.py create --head-sha "${HEAD_SHA}" --output /tmp/frozen-head.json | tee /tmp/frozen-create.json
+          python3 control-plane/evidence/frozen_head.py verify --manifest /tmp/frozen-head.json --expected-head "${HEAD_SHA}" | tee /tmp/frozen-verify.json
+
       - name: Create and verify recovery checkpoint
         shell: bash
         run: |
@@ -73,12 +98,15 @@ jobs:
         shell: bash
         run: |
           mkdir -p evidence
-          cp /tmp/control-plane-validation.json evidence/control-plane-validation.json
-          cp /tmp/exact-head.txt evidence/exact-head.txt
+          cp /tmp/control-plane-validation.json evidence/
+          cp /tmp/exact-head.txt evidence/
           cp /tmp/connector-*.json evidence/
           cp /tmp/agent-*.json evidence/
           cp /tmp/model-*.json evidence/
           cp /tmp/runtime-*.json evidence/
+          cp /tmp/phone-*.json evidence/
+          cp /tmp/device-*.json evidence/
+          cp /tmp/frozen-*.json evidence/
           cp /tmp/recovery-*.json evidence/
           {
             echo "event=${GITHUB_EVENT_NAME}"
