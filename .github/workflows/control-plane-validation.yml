@@ -52,6 +52,23 @@ jobs:
           python3 control-plane/models/route.py open-source-model-discovery --mode discovery --expect route | tee /tmp/model-discovery.json
           python3 control-plane/models/route.py reasoning --mode execution --expect deny | tee /tmp/model-execution-denied.json
 
+      - name: Verify runtime security gates
+        shell: bash
+        run: |
+          python3 control-plane/runtime/check_policy.py verify-hash | tee /tmp/runtime-allow.json
+          grep -q '"decision": "ALLOW"' /tmp/runtime-allow.json
+          python3 control-plane/runtime/check_policy.py privilege-escalation | tee /tmp/runtime-deny.json
+          grep -q '"decision": "DENY"' /tmp/runtime-deny.json
+          python3 control-plane/runtime/check_policy.py real-device-install | tee /tmp/runtime-user-gate.json
+          grep -q '"decision": "USER_GATE"' /tmp/runtime-user-gate.json
+
+      - name: Create and verify recovery checkpoint
+        shell: bash
+        run: |
+          HEAD_SHA="$(grep '^actual_sha=' /tmp/exact-head.txt | cut -d= -f2)"
+          python3 control-plane/recovery/checkpoint.py create --head-sha "${HEAD_SHA}" --output /tmp/recovery-checkpoint.json | tee /tmp/recovery-create.json
+          python3 control-plane/recovery/checkpoint.py verify --manifest /tmp/recovery-checkpoint.json | tee /tmp/recovery-verify.json
+
       - name: Generate evidence
         shell: bash
         run: |
@@ -61,6 +78,8 @@ jobs:
           cp /tmp/connector-*.json evidence/
           cp /tmp/agent-*.json evidence/
           cp /tmp/model-*.json evidence/
+          cp /tmp/runtime-*.json evidence/
+          cp /tmp/recovery-*.json evidence/
           {
             echo "event=${GITHUB_EVENT_NAME}"
             echo "github_sha=${GITHUB_SHA}"
