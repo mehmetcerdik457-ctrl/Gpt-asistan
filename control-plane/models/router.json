@@ -30,6 +30,16 @@
       "task_classes": [
         "compute"
       ]
+    },
+    {
+      "name": "github_actions_sklearn",
+      "discovery": "VERIFIED",
+      "execution": "PENDING_VALIDATION",
+      "task_classes": [
+        "classification-smoke"
+      ],
+      "purpose": "open-source-model-execution-validation",
+      "evidence": "pending"
     }
   ]
 }
