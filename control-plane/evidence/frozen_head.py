@@ -1,25 +1,35 @@
 #!/usr/bin/env python3
 import argparse, hashlib, json, pathlib
 
-ROOT=pathlib.Path(__file__).resolve().parents[1]
+ROOT=pathlib.Path(__file__).resolve().parents[2]
 FILES=[
- 'security/baseline.json',
- 'evidence/pipeline.json',
- 'connectors/permissions.json',
- 'agents/boundary.json',
- 'models/router.json',
- 'runtime/security.json',
- 'runtime/device_schema.json',
- 'runtime/phone_agent.json',
- 'recovery/state.json'
+ 'control-plane/security/baseline.json',
+ 'control-plane/evidence/pipeline.json',
+ 'control-plane/connectors/permissions.json',
+ 'control-plane/agents/boundary.json',
+ 'control-plane/models/router.json',
+ 'control-plane/runtime/security.json',
+ 'control-plane/runtime/device_schema.json',
+ 'control-plane/runtime/phone_agent.json',
+ 'control-plane/recovery/state.json',
+ '.github/workflows/control-plane-validation.yml',
+ '.github/workflows/android.yml',
+ 'settings.gradle.kts',
+ 'build.gradle.kts',
+ 'app/build.gradle.kts',
+ 'app/src/main/AndroidManifest.xml',
+ 'app/src/main/java/com/example/gptasistan/MainActivity.kt',
+ 'app/src/main/res/values/strings.xml',
+ 'app/src/main/res/values/themes.xml'
 ]
 
 def sha(path): return hashlib.sha256(path.read_bytes()).hexdigest()
 
 def create(head,output):
-    data={'version':1,'head_sha':head,'status':'READY_FOR_REAL_DEVICE_EVIDENCE','files':{rel:sha(ROOT/rel) for rel in FILES}}
+    files={rel:sha(ROOT/rel) for rel in FILES}
+    data={'version':1,'head_sha':head,'status':'READY_FOR_REAL_DEVICE_EVIDENCE','files':files}
     pathlib.Path(output).write_text(json.dumps(data,sort_keys=True,indent=2)+'\n',encoding='utf-8')
-    print(json.dumps({'status':data['status'],'head_sha':head,'files':len(FILES)},sort_keys=True))
+    print(json.dumps({'status':data['status'],'head_sha':head,'files':len(files)},sort_keys=True))
 
 def verify(manifest,expected_head):
     data=json.loads(pathlib.Path(manifest).read_text(encoding='utf-8'))
