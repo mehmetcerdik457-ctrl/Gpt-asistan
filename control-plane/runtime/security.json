@@ -3,5 +3,28 @@
   "execution": "deny-by-default",
   "require_owner_authority_for_high_risk": true,
   "require_postcondition_check": true,
-  "log_evidence": true
+  "log_evidence": true,
+  "constraints": {
+    "root": false,
+    "bootloader_unlock": false,
+    "repack": false,
+    "resign": false,
+    "preserve_original_bytes": true
+  },
+  "allow": [
+    "read-metadata",
+    "verify-hash",
+    "runtime-observe"
+  ],
+  "user_gate": [
+    "real-device-install",
+    "privileged-bridge-enrollment"
+  ],
+  "deny": [
+    "privilege-escalation",
+    "device-boot-security-change",
+    "artifact-repack",
+    "artifact-resign",
+    "baseline-byte-mutation"
+  ]
 }
