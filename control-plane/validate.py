@@ -32,6 +32,7 @@ for rel in [
     'connectors/authorize.py',
     'agents/enforce.py',
     'models/route.py',
+    'models/runtime_smoke.py',
     'runtime/check_policy.py',
     'runtime/device_evidence.py',
     'runtime/phone_agent.py',
@@ -62,6 +63,13 @@ if 'merge-main' not in set(agents.get('user_gate',[])): fail('merge-main must re
 router=json.loads((ROOT/'models/router.json').read_text())
 if router.get('fallback') != 'none': fail('model router fallback must remain none')
 if not router.get('require_provider_authorization'): fail('model router provider authorization gate missing')
+verified_execution=[p for p in router.get('providers',[]) if p.get('execution')=='VERIFIED']
+if not verified_execution: fail('at least one model execution provider must be verified')
+for provider in verified_execution:
+    evidence=provider.get('evidence')
+    if not isinstance(evidence,dict): fail(f'model provider missing evidence: {provider.get("name")}')
+    for key in ('run_id','artifact_id','artifact_sha256','exact_head'):
+        if not evidence.get(key): fail(f'model provider evidence incomplete: {provider.get("name")}:{key}')
 
 runtime=json.loads((ROOT/'runtime/security.json').read_text())
 constraints=runtime.get('constraints',{})
@@ -87,4 +95,4 @@ if not recovery.get('merge_requires_explicit_approval'): fail('recovery merge mu
 required_sources={'git-head','ci-artifact-hash','drive-readback-hash'}
 if not required_sources.issubset(set(recovery.get('required_sources',[]))): fail('recovery source set incomplete')
 
-print(json.dumps({'status':'CONTROL_PLANE_VALIDATION_PASS','files':records,'connectors':len(connectors['connectors'])},sort_keys=True))
+print(json.dumps({'status':'CONTROL_PLANE_VALIDATION_PASS','files':records,'connectors':len(connectors['connectors']),'verified_model_execution_providers':[p['name'] for p in verified_execution]},sort_keys=True))

@@ -12,6 +12,7 @@ CRITICAL=[
  'agents/enforce.py',
  'models/router.json',
  'models/route.py',
+ 'models/runtime_smoke.py',
  'runtime/security.json',
  'runtime/check_policy.py',
  'runtime/device_schema.json',

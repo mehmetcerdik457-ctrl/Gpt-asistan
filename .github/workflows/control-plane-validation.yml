@@ -50,6 +50,7 @@ jobs:
       - name: Verify model router gates
         run: |
           python3 control-plane/models/route.py open-source-model-discovery --mode discovery --expect route | tee /tmp/model-discovery.json
+          python3 control-plane/models/route.py classification-smoke --mode execution --provider github_actions_sklearn --expect route | tee /tmp/model-execution-route.json
           python3 control-plane/models/route.py reasoning --mode execution --expect deny | tee /tmp/model-execution-denied.json
 
       - name: Verify runtime security gates
