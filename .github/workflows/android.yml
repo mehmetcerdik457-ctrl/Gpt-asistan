@@ -26,21 +26,13 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Set up Gradle
+      - name: Set up pinned Gradle
         uses: gradle/actions/setup-gradle@v4
-
-      - name: Generate Gradle Wrapper if missing
-        shell: bash
-        run: |
-          if [ ! -f gradlew ]; then
-            curl -fsSL https://services.gradle.org/distributions/gradle-8.7-bin.zip -o gradle.zip
-            unzip -q gradle.zip -d gradle-8.7
-            printf '#!/usr/bin/env sh\nexec "$(pwd)/gradle-8.7/gradle-8.7/bin/gradle" "$@"\n' > gradlew
-            chmod +x gradlew
-          fi
+        with:
+          gradle-version: '8.7'
 
       - name: Build Debug APK
-        run: ./gradlew :app:assembleDebug
+        run: gradle :app:assembleDebug
 
       - name: Generate APK evidence
         shell: bash
