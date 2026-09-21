@@ -1,29 +1,76 @@
 name: Build APK
 on: [push]
+
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - name: Checkout exact revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Verify exact checkout
+        shell: bash
+        run: |
+          ACTUAL_SHA="$(git rev-parse HEAD)"
+          EXPECTED_SHA="${GITHUB_SHA}"
+          test "${ACTUAL_SHA}" = "${EXPECTED_SHA}"
+          printf 'expected_sha=%s\nactual_sha=%s\n' "${EXPECTED_SHA}" "${ACTUAL_SHA}" > /tmp/android-exact-head.txt
+
+      - uses: actions/setup-java@v5
         with:
           distribution: 'temurin'
           java-version: '17'
+
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v3
-      - name: Generate Gradle Wrapper (if missing)
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Generate Gradle Wrapper if missing
+        shell: bash
         run: |
           if [ ! -f gradlew ]; then
-            curl -sL https://services.gradle.org/distributions/gradle-8.7-bin.zip -o gradle.zip
+            curl -fsSL https://services.gradle.org/distributions/gradle-8.7-bin.zip -o gradle.zip
             unzip -q gradle.zip -d gradle-8.7
-            echo '#!/usr/bin/env sh' > gradlew
-            echo 'exec "$(pwd)/gradle-8.7/gradle-8.7/bin/gradle" "$@"' >> gradlew
+            printf '#!/usr/bin/env sh\nexec "$(pwd)/gradle-8.7/gradle-8.7/bin/gradle" "$@"\n' > gradlew
             chmod +x gradlew
           fi
+
       - name: Build Debug APK
         run: ./gradlew :app:assembleDebug
+
+      - name: Generate APK evidence
+        shell: bash
+        run: |
+          APK="$(find app/build/outputs/apk/debug -maxdepth 1 -type f -name '*.apk' -print -quit)"
+          test -n "${APK}"
+          mkdir -p android-evidence
+          cp /tmp/android-exact-head.txt android-evidence/exact-head.txt
+          (cd "$(dirname "${APK}")" && sha256sum "$(basename "${APK}")") > android-evidence/APK_SHA256
+          {
+            echo "artifact_path=${APK}"
+            echo "artifact_size=$(stat -c '%s' "${APK}")"
+            echo "run_id=${GITHUB_RUN_ID}"
+            echo "repository=${GITHUB_REPOSITORY}"
+          } > android-evidence/build-metadata.txt
+          EXPECTED_HASH="$(awk '{print $1}' android-evidence/APK_SHA256)"
+          ACTUAL_HASH="$(sha256sum "${APK}" | awk '{print $1}')"
+          test "${EXPECTED_HASH}" = "${ACTUAL_HASH}"
+          printf 'apk_sha256=%s\n' "${ACTUAL_HASH}" >> android-evidence/build-metadata.txt
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: app-debug
           path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+
+      - name: Upload Android build evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-build-evidence
+          path: android-evidence/
+          if-no-files-found: error
