@@ -35,19 +35,39 @@ jobs:
         run: |
           python3 control-plane/validate.py | tee /tmp/control-plane-validation.json
 
+      - name: Verify connector permission enforcement
+        run: |
+          python3 control-plane/connectors/authorize.py github write --expect allow | tee /tmp/connector-github-write.json
+          python3 control-plane/connectors/authorize.py google_drive write --expect allow | tee /tmp/connector-drive-write.json
+          python3 control-plane/connectors/authorize.py hugging_face write --expect deny | tee /tmp/connector-hf-write.json
+
+      - name: Verify agent execution boundary
+        run: |
+          python3 control-plane/agents/enforce.py repository-read --expect allow | tee /tmp/agent-allow.json
+          python3 control-plane/agents/enforce.py production-deploy --expect deny | tee /tmp/agent-deny.json
+          python3 control-plane/agents/enforce.py merge-main --expect user_gate | tee /tmp/agent-user-gate.json
+
+      - name: Verify model router gates
+        run: |
+          python3 control-plane/models/route.py open-source-model-discovery --mode discovery --expect route | tee /tmp/model-discovery.json
+          python3 control-plane/models/route.py reasoning --mode execution --expect deny | tee /tmp/model-execution-denied.json
+
       - name: Generate evidence
         shell: bash
         run: |
           mkdir -p evidence
           cp /tmp/control-plane-validation.json evidence/control-plane-validation.json
           cp /tmp/exact-head.txt evidence/exact-head.txt
+          cp /tmp/connector-*.json evidence/
+          cp /tmp/agent-*.json evidence/
+          cp /tmp/model-*.json evidence/
           {
             echo "event=${GITHUB_EVENT_NAME}"
             echo "github_sha=${GITHUB_SHA}"
             echo "run_id=${GITHUB_RUN_ID}"
             echo "repository=${GITHUB_REPOSITORY}"
           } > evidence/run-metadata.txt
-          (cd evidence && sha256sum control-plane-validation.json exact-head.txt run-metadata.txt > SHA256SUMS)
+          (cd evidence && sha256sum *.json exact-head.txt run-metadata.txt > SHA256SUMS)
 
       - name: Verify evidence checksums
         run: |

@@ -4,5 +4,32 @@
   "fallback": "none",
   "require_provider_authorization": true,
   "require_task_classification": true,
-  "providers": []
+  "providers": [
+    {
+      "name": "openai_platform",
+      "discovery": "VERIFIED",
+      "execution": "NOT_VERIFIED",
+      "task_classes": [
+        "reasoning",
+        "coding",
+        "general"
+      ]
+    },
+    {
+      "name": "hugging_face",
+      "discovery": "VERIFIED",
+      "execution": "DENIED_BY_SCOPE",
+      "task_classes": [
+        "open-source-model-discovery"
+      ]
+    },
+    {
+      "name": "replit",
+      "discovery": "VERIFIED",
+      "execution": "NOT_APPLICABLE",
+      "task_classes": [
+        "compute"
+      ]
+    }
+  ]
 }

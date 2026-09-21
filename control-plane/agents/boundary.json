@@ -6,13 +6,23 @@
   "deny": [
     "production-deploy",
     "production-secret-read",
-    "credential-export"
+    "credential-export",
+    "disable-security-controls"
+  ],
+  "user_gate": [
+    "merge-main",
+    "delete-repository",
+    "force-push-protected",
+    "external-account-admin"
   ],
   "allow_platform": [
     "repository-read",
     "branch-create",
     "pull-request-create",
     "ci-observe",
-    "evidence-readback"
+    "evidence-readback",
+    "connector-read",
+    "connector-write-approved",
+    "model-route-discovery"
   ]
 }
