@@ -3,6 +3,8 @@ plugins {
   kotlin("android")
 }
 
+val gitSha = System.getenv("GITHUB_SHA") ?: "LOCAL"
+
 android {
   namespace = "com.example.gptasistan"
   compileSdk = 34
@@ -13,6 +15,11 @@ android {
     targetSdk = 34
     versionCode = 1
     versionName = "1.0.0"
+    buildConfigField("String", "BUILD_GIT_SHA", "\"$gitSha\"")
+  }
+
+  buildFeatures {
+    buildConfig = true
   }
 
   compileOptions {
