@@ -49,17 +49,36 @@ jobs:
           test -n "${APK}"
           mkdir -p android-evidence
           cp /tmp/android-exact-head.txt android-evidence/exact-head.txt
-          (cd "$(dirname "${APK}")" && sha256sum "$(basename "${APK}")") > android-evidence/APK_SHA256
+          APK_HASH="$(sha256sum "${APK}" | awk '{print $1}')"
+          printf '%s  %s\n' "${APK_HASH}" "$(basename "${APK}")" > android-evidence/APK_SHA256
+          BUILD_TOOLS_VERSION="$(ls "${ANDROID_HOME}/build-tools" | sort -V | tail -1)"
+          AAPT="${ANDROID_HOME}/build-tools/${BUILD_TOOLS_VERSION}/aapt"
+          APKSIGNER="${ANDROID_HOME}/build-tools/${BUILD_TOOLS_VERSION}/apksigner"
+          test -x "${AAPT}"
+          test -x "${APKSIGNER}"
+          "${AAPT}" dump badging "${APK}" > android-evidence/apk-badging.txt
+          "${APKSIGNER}" verify --print-certs "${APK}" > android-evidence/apksigner.txt
+          grep -q "package: name='com.example.gptasistan' versionCode='1' versionName='1.0.0'" android-evidence/apk-badging.txt
+          grep -q 'Signer #1 certificate SHA-256 digest:' android-evidence/apksigner.txt
           {
             echo "artifact_path=${APK}"
             echo "artifact_size=$(stat -c '%s' "${APK}")"
             echo "run_id=${GITHUB_RUN_ID}"
             echo "repository=${GITHUB_REPOSITORY}"
+            echo "git_head=${GITHUB_SHA}"
+            echo "apk_sha256=${APK_HASH}"
+            echo "build_tools_version=${BUILD_TOOLS_VERSION}"
           } > android-evidence/build-metadata.txt
-          EXPECTED_HASH="$(awk '{print $1}' android-evidence/APK_SHA256)"
-          ACTUAL_HASH="$(sha256sum "${APK}" | awk '{print $1}')"
-          test "${EXPECTED_HASH}" = "${ACTUAL_HASH}"
-          printf 'apk_sha256=%s\n' "${ACTUAL_HASH}" >> android-evidence/build-metadata.txt
+          cat > android-evidence/device-expected.json <<EOF
+          {
+            "git_head": "${GITHUB_SHA}",
+            "package_name": "com.example.gptasistan",
+            "version_name": "1.0.0",
+            "version_code": "1",
+            "artifact_sha256": "${APK_HASH}"
+          }
+          EOF
+          test "${APK_HASH}" = "$(sha256sum "${APK}" | awk '{print $1}')"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
