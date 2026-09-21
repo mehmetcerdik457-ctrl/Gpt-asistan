@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "scope": "platform-hardening",
+  "production_source": false,
+  "production_credentials": false,
+  "production_deployment": false,
+  "require_pull_request": true,
+  "require_ci": true,
+  "require_evidence": true
+}

@@ -1,0 +1,143 @@
+{
+  "version": 1,
+  "default_access": "deny",
+  "require_explicit_authorization": true,
+  "prohibit_secret_export": true,
+  "semantics": {
+    "connected_is_authorized": false,
+    "authorized_is_owner": false,
+    "owner_is_production_access": false
+  },
+  "connectors": {
+    "github": {
+      "name": "GitHub",
+      "provider": "GitHub",
+      "access_level": "repository-admin",
+      "read": "VERIFIED",
+      "write": "VERIFIED",
+      "admin": "VERIFIED",
+      "owner": "VERIFIED_REPOSITORY_OWNER",
+      "project_write_authorized": true,
+      "risk": "HIGH",
+      "purpose": "repository-control-plane",
+      "evidence_location": "live-connector:get_repo+get_user_login"
+    },
+    "google_drive": {
+      "name": "Google Drive",
+      "provider": "Google",
+      "access_level": "connected-account",
+      "read": "VERIFIED",
+      "write": "VERIFIED",
+      "admin": "NOT_VERIFIED",
+      "owner": "VERIFIED_ARCHIVE_OWNER",
+      "project_write_authorized": true,
+      "risk": "HIGH",
+      "purpose": "evidence-archive",
+      "evidence_location": "external-archive:master-evidence"
+    },
+    "gmail": {
+      "name": "Gmail",
+      "provider": "Google",
+      "access_level": "connected-mailbox",
+      "read": "VERIFIED",
+      "write": "CAPABILITY_VISIBLE_NOT_EXERCISED",
+      "admin": "NOT_VERIFIED",
+      "owner": "NOT_VERIFIED",
+      "project_write_authorized": false,
+      "risk": "HIGH",
+      "purpose": "notification-only",
+      "evidence_location": "live-connector:get_profile"
+    },
+    "outlook": {
+      "name": "Microsoft Outlook Email",
+      "provider": "Microsoft",
+      "access_level": "connected-mailbox",
+      "read": "VERIFIED",
+      "write": "CAPABILITY_VISIBLE_NOT_EXERCISED",
+      "admin": "NOT_VERIFIED",
+      "owner": "NOT_VERIFIED",
+      "project_write_authorized": false,
+      "risk": "HIGH",
+      "purpose": "notification-only",
+      "evidence_location": "live-connector:get_profile"
+    },
+    "notion": {
+      "name": "Notion",
+      "provider": "Notion",
+      "access_level": "workspace-connector",
+      "read": "VERIFIED",
+      "write": "CAPABILITY_VISIBLE_NOT_EXERCISED",
+      "admin": "NOT_VERIFIED",
+      "owner": "NOT_VERIFIED",
+      "project_write_authorized": false,
+      "risk": "MEDIUM",
+      "purpose": "knowledge-optional",
+      "evidence_location": "live-connector:get_users:self"
+    },
+    "clickup": {
+      "name": "ClickUp",
+      "provider": "ClickUp",
+      "access_level": "workspace-connector",
+      "read": "VERIFIED",
+      "write": "CAPABILITY_VISIBLE_NOT_EXERCISED",
+      "admin": "NOT_VERIFIED",
+      "owner": "NOT_VERIFIED",
+      "project_write_authorized": false,
+      "risk": "MEDIUM",
+      "purpose": "task-orchestration-optional",
+      "evidence_location": "live-connector:get_workspace_members"
+    },
+    "slack": {
+      "name": "Slack",
+      "provider": "Slack",
+      "access_level": "workspace-connector",
+      "read": "VERIFIED",
+      "write": "CAPABILITY_VISIBLE_NOT_EXERCISED",
+      "admin": "NOT_VERIFIED",
+      "owner": "NOT_VERIFIED",
+      "project_write_authorized": false,
+      "risk": "HIGH",
+      "purpose": "notification-optional",
+      "evidence_location": "live-connector:list_user_conversations"
+    },
+    "hugging_face": {
+      "name": "Hugging Face",
+      "provider": "Hugging Face",
+      "access_level": "oauth-read",
+      "read": "VERIFIED",
+      "write": "DENIED_BY_SCOPE",
+      "admin": "NOT_VERIFIED",
+      "owner": "NOT_VERIFIED",
+      "project_write_authorized": false,
+      "risk": "MEDIUM",
+      "purpose": "open-source-model-discovery",
+      "evidence_location": "live-connector:hf_whoami"
+    },
+    "replit": {
+      "name": "Replit",
+      "provider": "Replit",
+      "access_level": "editable-app-discovery",
+      "read": "VERIFIED",
+      "write": "CAPABILITY_VISIBLE_NOT_EXERCISED",
+      "admin": "NOT_VERIFIED",
+      "owner": "NOT_VERIFIED",
+      "project_write_authorized": false,
+      "risk": "HIGH",
+      "purpose": "optional-compute",
+      "evidence_location": "live-connector:list_apps"
+    },
+    "openai_platform": {
+      "name": "OpenAI Platform",
+      "provider": "OpenAI",
+      "access_level": "organization-project-discovery",
+      "read": "VERIFIED",
+      "write": "CAPABILITY_VISIBLE_NOT_EXERCISED",
+      "admin": "NOT_VERIFIED",
+      "owner": "NOT_VERIFIED",
+      "project_write_authorized": false,
+      "risk": "HIGH",
+      "purpose": "model-provider-control",
+      "evidence_location": "live-connector:list_api_key_targets"
+    }
+  }
+}

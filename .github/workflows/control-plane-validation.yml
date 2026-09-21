@@ -1,0 +1,129 @@
+name: Control Plane Validation
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  control-plane-validation:
+    name: Validate Control Plane Structure
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact target revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Verify exact checkout
+        shell: bash
+        run: |
+          ACTUAL_SHA="$(git rev-parse HEAD)"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            EXPECTED_SHA="${{ github.event.pull_request.head.sha }}"
+          else
+            EXPECTED_SHA="${GITHUB_SHA}"
+          fi
+          test "${ACTUAL_SHA}" = "${EXPECTED_SHA}"
+          printf 'expected_sha=%s\nactual_sha=%s\n' "${EXPECTED_SHA}" "${ACTUAL_SHA}" > /tmp/exact-head.txt
+
+      - name: Validate control plane
+        run: |
+          python3 control-plane/validate.py | tee /tmp/control-plane-validation.json
+
+      - name: Verify connector permission enforcement
+        run: |
+          python3 control-plane/connectors/authorize.py github write --expect allow | tee /tmp/connector-github-write.json
+          python3 control-plane/connectors/authorize.py google_drive write --expect allow | tee /tmp/connector-drive-write.json
+          python3 control-plane/connectors/authorize.py hugging_face write --expect deny | tee /tmp/connector-hf-write.json
+
+      - name: Verify agent execution boundary
+        run: |
+          python3 control-plane/agents/enforce.py repository-read --expect allow | tee /tmp/agent-allow.json
+          python3 control-plane/agents/enforce.py production-deploy --expect deny | tee /tmp/agent-deny.json
+          python3 control-plane/agents/enforce.py merge-main --expect user_gate | tee /tmp/agent-user-gate.json
+
+      - name: Verify model router gates
+        run: |
+          python3 control-plane/models/route.py open-source-model-discovery --mode discovery --expect route | tee /tmp/model-discovery.json
+          python3 control-plane/models/route.py classification-smoke --mode execution --provider github_actions_sklearn --expect route | tee /tmp/model-execution-route.json
+          python3 control-plane/models/route.py reasoning --mode execution --expect deny | tee /tmp/model-execution-denied.json
+
+      - name: Verify runtime security gates
+        shell: bash
+        run: |
+          python3 control-plane/runtime/check_policy.py verify-hash | tee /tmp/runtime-allow.json
+          grep -q '"decision": "ALLOW"' /tmp/runtime-allow.json
+          python3 control-plane/runtime/check_policy.py privilege-escalation | tee /tmp/runtime-deny.json
+          grep -q '"decision": "DENY"' /tmp/runtime-deny.json
+          python3 control-plane/runtime/check_policy.py real-device-install | tee /tmp/runtime-user-gate.json
+          grep -q '"decision": "USER_GATE"' /tmp/runtime-user-gate.json
+
+      - name: Verify phone-agent policy
+        shell: bash
+        run: |
+          python3 control-plane/runtime/phone_agent.py verify_artifact_hash ALLOW | tee /tmp/phone-allow.json
+          python3 control-plane/runtime/phone_agent.py install_on_real_device USER_GATE | tee /tmp/phone-user-gate.json
+          python3 control-plane/runtime/phone_agent.py alter_baseline_artifact DENY | tee /tmp/phone-deny.json
+
+      - name: Verify real-device evidence gate
+        shell: bash
+        run: |
+          python3 control-plane/runtime/device_evidence.py template --output /tmp/device-evidence.json | tee /tmp/device-template.json
+          set +e
+          python3 control-plane/runtime/device_evidence.py validate --input /tmp/device-evidence.json > /tmp/device-gate.json
+          CODE=$?
+          set -e
+          test "${CODE}" -eq 3
+          grep -q '"status": "USER_GATE"' /tmp/device-gate.json
+
+      - name: Create and verify frozen-head readiness manifest
+        shell: bash
+        run: |
+          HEAD_SHA="$(grep '^actual_sha=' /tmp/exact-head.txt | cut -d= -f2)"
+          python3 control-plane/evidence/frozen_head.py create --head-sha "${HEAD_SHA}" --output /tmp/frozen-head.json | tee /tmp/frozen-create.json
+          python3 control-plane/evidence/frozen_head.py verify --manifest /tmp/frozen-head.json --expected-head "${HEAD_SHA}" | tee /tmp/frozen-verify.json
+
+      - name: Create and verify recovery checkpoint
+        shell: bash
+        run: |
+          HEAD_SHA="$(grep '^actual_sha=' /tmp/exact-head.txt | cut -d= -f2)"
+          python3 control-plane/recovery/checkpoint.py create --head-sha "${HEAD_SHA}" --output /tmp/recovery-checkpoint.json | tee /tmp/recovery-create.json
+          python3 control-plane/recovery/checkpoint.py verify --manifest /tmp/recovery-checkpoint.json | tee /tmp/recovery-verify.json
+
+      - name: Generate evidence
+        shell: bash
+        run: |
+          mkdir -p evidence
+          cp /tmp/control-plane-validation.json evidence/
+          cp /tmp/exact-head.txt evidence/
+          cp /tmp/connector-*.json evidence/
+          cp /tmp/agent-*.json evidence/
+          cp /tmp/model-*.json evidence/
+          cp /tmp/runtime-*.json evidence/
+          cp /tmp/phone-*.json evidence/
+          cp /tmp/device-*.json evidence/
+          cp /tmp/frozen-*.json evidence/
+          cp /tmp/recovery-*.json evidence/
+          {
+            echo "event=${GITHUB_EVENT_NAME}"
+            echo "github_sha=${GITHUB_SHA}"
+            echo "run_id=${GITHUB_RUN_ID}"
+            echo "repository=${GITHUB_REPOSITORY}"
+          } > evidence/run-metadata.txt
+          (cd evidence && sha256sum *.json exact-head.txt run-metadata.txt > SHA256SUMS)
+
+      - name: Verify evidence checksums
+        run: |
+          (cd evidence && sha256sum -c SHA256SUMS)
+
+      - name: Upload evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: control-plane-validation-evidence
+          path: evidence/
+          if-no-files-found: error

@@ -1,0 +1,59 @@
+name: Model Runtime Validation
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  model-runtime:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact target revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Verify exact checkout
+        shell: bash
+        run: |
+          ACTUAL_SHA="$(git rev-parse HEAD)"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            EXPECTED_SHA="${{ github.event.pull_request.head.sha }}"
+          else
+            EXPECTED_SHA="${GITHUB_SHA}"
+          fi
+          test "${ACTUAL_SHA}" = "${EXPECTED_SHA}"
+          printf 'expected_sha=%s\nactual_sha=%s\n' "${EXPECTED_SHA}" "${ACTUAL_SHA}" > /tmp/model-exact-head.txt
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install pinned open-source model runtime
+        run: python -m pip install --disable-pip-version-check --no-input scikit-learn==1.5.2
+
+      - name: Execute model
+        run: |
+          mkdir -p model-evidence
+          python control-plane/models/runtime_smoke.py | tee model-evidence/model-runtime.json
+          cp /tmp/model-exact-head.txt model-evidence/exact-head.txt
+          grep -q '"status": "MODEL_EXECUTION_PASS"' model-evidence/model-runtime.json
+          {
+            echo "event=${GITHUB_EVENT_NAME}"
+            echo "github_sha=${GITHUB_SHA}"
+            echo "run_id=${GITHUB_RUN_ID}"
+            echo "repository=${GITHUB_REPOSITORY}"
+          } > model-evidence/run-metadata.txt
+          (cd model-evidence && sha256sum model-runtime.json exact-head.txt run-metadata.txt > SHA256SUMS)
+          (cd model-evidence && sha256sum -c SHA256SUMS)
+
+      - name: Upload model evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: model-runtime-evidence
+          path: model-evidence/
+          if-no-files-found: error

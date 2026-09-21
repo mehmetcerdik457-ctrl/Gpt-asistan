@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "mode": "deny-by-default",
+  "require_evidence": true,
+  "require_postcondition": true,
+  "actions": {
+    "observe_runtime": "ALLOW",
+    "verify_artifact_hash": "ALLOW",
+    "collect_device_metadata": "ALLOW",
+    "install_on_real_device": "USER_GATE",
+    "enroll_privileged_bridge": "USER_GATE",
+    "merge_repository": "USER_GATE",
+    "alter_baseline_artifact": "DENY",
+    "export_credentials": "DENY"
+  }
+}

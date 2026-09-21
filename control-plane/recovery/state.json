@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "rollback_strategy": "branch-and-pr",
+  "preserve_evidence": true,
+  "external_archive": "VERIFIED",
+  "destructive_actions_require_explicit_approval": true,
+  "merge_requires_explicit_approval": true,
+  "required_sources": [
+    "git-head",
+    "ci-artifact-hash",
+    "drive-readback-hash"
+  ],
+  "allow": [
+    "create-recovery-branch",
+    "verify-checkpoint",
+    "restore-to-new-branch"
+  ],
+  "user_gate": [
+    "merge-recovery",
+    "delete-archive",
+    "overwrite-evidence"
+  ],
+  "deny": [
+    "force-reset-protected",
+    "delete-evidence-without-copy"
+  ]
+}
