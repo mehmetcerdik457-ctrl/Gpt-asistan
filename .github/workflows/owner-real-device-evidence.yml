@@ -1,0 +1,104 @@
+name: Owner Real Device Evidence Gate
+
+on:
+  push:
+    branches:
+      - owner/evidence-intake-v1
+    paths:
+      - 'tools/verify_owner_real_device.py'
+      - '.github/workflows/owner-real-device-evidence.yml'
+  pull_request:
+    paths:
+      - 'tools/verify_owner_real_device.py'
+      - '.github/workflows/owner-real-device-evidence.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate-owner-real-device-gate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Exact checkout proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          ACTUAL="$(git rev-parse HEAD)"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            EXPECTED="${{ github.event.pull_request.head.sha }}"
+          else
+            EXPECTED="${GITHUB_SHA}"
+          fi
+          test "${ACTUAL}" = "${EXPECTED}"
+          mkdir -p owner-evidence
+          printf 'expected_sha=%s\nactual_sha=%s\n' "${EXPECTED}" "${ACTUAL}" > owner-evidence/exact-head.txt
+
+      - name: Verifier self-test
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/verify_owner_real_device.py --self-test | tee owner-evidence/self-test.txt
+          grep -q 'OWNER_REAL_DEVICE_VERIFIER_SELF_TEST_PASS' owner-evidence/self-test.txt
+
+      - name: Freeze current production contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/verify_owner_real_device.py --print-contract > owner-evidence/owner-real-device-contract.json
+          grep -q '"target_head": "c8b52661921f82d9e832a0dcf7eed514e970bf49"' owner-evidence/owner-real-device-contract.json
+          grep -q '"package_name": "com.mehmetcerdik.ownerai"' owner-evidence/owner-real-device-contract.json
+          grep -q '"version_name": "1.2.0"' owner-evidence/owner-real-device-contract.json
+          grep -q '"version_code": "4"' owner-evidence/owner-real-device-contract.json
+          grep -q '"unsigned_artifact_sha256": "f2066559876b71ae935b2515a81300c197d7308fcc29cbcdff4972f6eae86e44"' owner-evidence/owner-real-device-contract.json
+          grep -q '"expected_signer_cert_sha256": "279084a36b7c17a1663bfba5fe1c5bdac974f8ef4ce56b21000d882493e39448"' owner-evidence/owner-real-device-contract.json
+          grep -q '"signed_artifact_sha256": null' owner-evidence/owner-real-device-contract.json
+
+      - name: Prove production gate fails closed before Gen2 signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, pathlib, sys
+          sys.path.insert(0, "tools")
+          import verify_owner_real_device as v
+          pathlib.Path("owner-evidence/ci-capture-fixture.json").write_text(
+              json.dumps(v.fixture("a" * 64), sort_keys=True, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          PY
+          set +e
+          python3 tools/verify_owner_real_device.py \
+            --input owner-evidence/ci-capture-fixture.json \
+            > owner-evidence/production-gate-result.json
+          CODE=$?
+          set -e
+          test "${CODE}" -ne 0
+          grep -q 'OWNER_SIGNED_RELEASE_NOT_FROZEN' owner-evidence/production-gate-result.json
+
+      - name: Evidence package integrity
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha256sum tools/verify_owner_real_device.py > owner-evidence/verifier-source.sha256
+          (
+            cd owner-evidence
+            sha256sum exact-head.txt self-test.txt owner-real-device-contract.json \
+              ci-capture-fixture.json production-gate-result.json verifier-source.sha256 \
+              > SHA256SUMS
+            sha256sum -c SHA256SUMS
+          )
+
+      - name: Upload Owner gate evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4.6.2
+        with:
+          retention-days: 30
+          name: owner-real-device-evidence-gate
+          path: owner-evidence/
+          if-no-files-found: error
