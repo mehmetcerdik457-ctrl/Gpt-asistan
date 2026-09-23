@@ -58,9 +58,9 @@ jobs:
           grep -q '"version_code": "4"' owner-evidence/owner-real-device-contract.json
           grep -q '"unsigned_artifact_sha256": "f2066559876b71ae935b2515a81300c197d7308fcc29cbcdff4972f6eae86e44"' owner-evidence/owner-real-device-contract.json
           grep -q '"expected_signer_cert_sha256": "279084a36b7c17a1663bfba5fe1c5bdac974f8ef4ce56b21000d882493e39448"' owner-evidence/owner-real-device-contract.json
-          grep -q '"signed_artifact_sha256": null' owner-evidence/owner-real-device-contract.json
+          grep -q '"signed_artifact_sha256": "55a179f96811671430556c99ee747280d648ead6833eaf7419009b4214be5394"' owner-evidence/owner-real-device-contract.json
 
-      - name: Prove production gate fails closed before Gen2 signing
+      - name: Prove frozen production gate rejects wrong signed artifact
         shell: bash
         run: |
           set -euo pipefail
@@ -80,7 +80,7 @@ jobs:
           CODE=$?
           set -e
           test "${CODE}" -ne 0
-          grep -q 'OWNER_SIGNED_RELEASE_NOT_FROZEN' owner-evidence/production-gate-result.json
+          grep -q 'OWNER_REAL_DEVICE_IDENTITY_MISMATCH' owner-evidence/production-gate-result.json
 
       - name: Evidence package integrity
         shell: bash
