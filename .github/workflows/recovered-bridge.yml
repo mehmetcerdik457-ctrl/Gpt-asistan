@@ -1,0 +1,76 @@
+name: Recover V4.1 Bridge Build
+on:
+  push:
+    branches: [recovery/bridge-v4-1-20260924]
+permissions:
+  contents: read
+jobs:
+  recovered-bridge:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Verify recovered source and exact head
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          mkdir -p recovered-evidence
+          printf 'exact_head=%s\nsource_zip_sha256=7df6d150b9159affe69e529fdf1ada3ce8f957ffb1c99ba7c55f8fe3eefd7628\n' "$GITHUB_SHA" > recovered-evidence/identity.txt
+          cd recovered-v4-1
+          sha256sum -c SOURCE_TREE_MANIFEST.sha256 | tee ../recovered-evidence/source-integrity.txt
+      - name: Source tests and Java security tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          export JAVA_HOME="$JAVA_HOME_17_X64"
+          export PATH="$JAVA_HOME/bin:$PATH"
+          python3 recovered-v4-1/tests/source_lexical_test.py | tee recovered-evidence/lexical.txt
+          python3 recovered-v4-1/tests/source_security_invariant_test.py | tee recovered-evidence/invariants.txt
+          bash recovered-v4-1/tests/run_pure_java_tests.sh | tee recovered-evidence/java-tests.txt
+      - name: Restore pinned wrapper and Android build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 2 https://raw.githubusercontent.com/gradle/gradle/v8.9.0/gradle/wrapper/gradle-wrapper.jar -o recovered-v4-1/gradle/wrapper/gradle-wrapper.jar
+          echo '498495120a03b9a6ab5d155f5de3c8f0d986a449153702fb80fc80e134484f17  recovered-v4-1/gradle/wrapper/gradle-wrapper.jar' | sha256sum -c -
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Build recovered Bridge only
+        shell: bash
+        run: |
+          set -euo pipefail
+          export JAVA_HOME="$JAVA_HOME_17_X64"
+          export PATH="$JAVA_HOME/bin:$PATH"
+          cd recovered-v4-1
+          bash gradlew --no-daemon --console plain :bridge:assembleRelease 2>&1 | tee ../recovered-evidence/build.txt
+      - name: Inspect unsigned candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=recovered-v4-1/bridge/build/outputs/apk/release/bridge-release-unsigned.apk
+          test -s "$APK"
+          cp "$APK" recovered-evidence/MEHMET_BRIDGE_V4_1_1.1.0_VC2_UNSIGNED.apk
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" > recovered-evidence/apk-badging.txt
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions "$APK" > recovered-evidence/apk-permissions.txt
+          grep -q "package: name='com.mehmetcerdik.ownerbridge' versionCode='2' versionName='1.1.0'" recovered-evidence/apk-badging.txt
+          ! grep -q android.permission.INTERNET recovered-evidence/apk-permissions.txt
+          "$ANDROID_HOME/build-tools/35.0.0/zipalign" -c -P 16 4 "$APK"
+          printf 'BUILD=VERIFIED_STATIC_ONLY\nSIGNING=NOT_VERIFIED\nEMULATOR=NOT_VERIFIED\nPHYSICAL=NOT_VERIFIED\nCOMPANION_INTEGRATION=BLOCKED_PENDING_OWNER_SECURITY_UI_PARITY\n' > recovered-evidence/scope.txt
+      - name: Seal evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd recovered-evidence
+          find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS
+          sha256sum -c SHA256SUMS
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: recovered-v4-1-bridge-build
+          path: recovered-evidence/
+          if-no-files-found: error
+          retention-days: 30
