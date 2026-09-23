@@ -45,6 +45,21 @@ jobs:
           test -f "$ROOT/bridge/src/main/java/com/mehmetcerdik/ownerbridge/BridgeAccessibilityService.java"
           printf 'source_zip_sha256=%s\nsource_root=%s\n' "$ACTUAL" "$ROOT" > bridge-evidence/source-lock.txt
 
+      - name: Apply Bridge-only final evidence exporter delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/v41/MEHMET_OWNER_V4_1_CONTROL_PLANE_SOURCE"
+          cp bridge-v41/overrides/bridge/src/main/AndroidManifest.xml "$ROOT/bridge/src/main/AndroidManifest.xml"
+          cp bridge-v41/overrides/bridge/src/main/java/com/mehmetcerdik/ownerbridge/BridgeEvidenceActivity.java \
+             "$ROOT/bridge/src/main/java/com/mehmetcerdik/ownerbridge/BridgeEvidenceActivity.java"
+          sha256sum \
+            bridge-v41/overrides/bridge/src/main/AndroidManifest.xml \
+            bridge-v41/overrides/bridge/src/main/java/com/mehmetcerdik/ownerbridge/BridgeEvidenceActivity.java \
+            > bridge-evidence/finalization-overrides.sha256
+          grep -Fq 'FULL_BRIDGE_EVIDENCE_CAPTURED' "$ROOT/bridge/src/main/java/com/mehmetcerdik/ownerbridge/BridgeEvidenceActivity.java"
+          grep -Fq 'android.permission.INTERNET' "$ROOT/bridge/src/main/java/com/mehmetcerdik/ownerbridge/BridgeEvidenceActivity.java" || true
+
       - name: Run preserved V4.1 source/security tests
         shell: bash
         run: |
@@ -177,9 +192,10 @@ jobs:
           "$AAPT2" dump xmltree --file AndroidManifest.xml "$APK" > bridge-evidence/manifest-xmltree.txt
           grep -q 'com.mehmetcerdik.ownerbridge.control' bridge-evidence/manifest-xmltree.txt
           grep -q 'android.permission.BIND_ACCESSIBILITY_SERVICE' bridge-evidence/manifest-xmltree.txt
+          grep -q 'com.mehmetcerdik.ownerbridge.BridgeEvidenceActivity' bridge-evidence/manifest-xmltree.txt
 
           unzip -p "$APK" classes.dex | strings > bridge-evidence/classes-dex-strings.txt
-          for marker in dispatchGesture performGlobalAction typeText swipe launchApp verifyPostcondition screenRead; do
+          for marker in dispatchGesture performGlobalAction typeText swipe launchApp verifyPostcondition screenRead FULL_BRIDGE_EVIDENCE_CAPTURED BridgeEvidenceActivity; do
             grep -Fq "$marker" bridge-evidence/classes-dex-strings.txt
           done
 
@@ -201,6 +217,8 @@ jobs:
             echo 'BRIDGE_LAUNCH_APP=PASS_COMPILED'
             echo 'BRIDGE_POSTCONDITION=PASS_COMPILED'
             echo 'BRIDGE_AUDIT_SURFACE=PASS_SOURCE_TESTED'
+            echo 'BRIDGE_LOCAL_EVIDENCE_EXPORTER=PASS_COMPILED'
+            echo 'BRIDGE_EVIDENCE_EXPORTER_PRIVILEGED_ACTIONS=NONE'
           } > bridge-evidence/static-capabilities.txt
 
       - name: Evidence integrity
@@ -218,7 +236,10 @@ jobs:
           } > bridge-evidence/build-contract.txt
           (
             cd bridge-evidence
-            sha256sum exact-head.txt source-lock.txt source-tests.txt owner-bridge-compatibility.txt gradle-version.txt gradle-build.txt               MEHMET_OWNER_PRIVILEGED_BRIDGE_1.1.0_VC2_UNSIGNED_ALIGNED.apk unsigned-apk.sha256               aapt2-badging.txt aapt2-permissions.txt manifest-xmltree.txt classes-dex-strings.txt               static-capabilities.txt build-contract.txt > SHA256SUMS
+            sha256sum exact-head.txt source-lock.txt finalization-overrides.sha256 source-tests.txt owner-bridge-compatibility.txt gradle-version.txt gradle-build.txt \
+              MEHMET_OWNER_PRIVILEGED_BRIDGE_1.1.0_VC2_UNSIGNED_ALIGNED.apk unsigned-apk.sha256 \
+              aapt2-badging.txt aapt2-permissions.txt manifest-xmltree.txt classes-dex-strings.txt \
+              static-capabilities.txt build-contract.txt > SHA256SUMS
             sha256sum -c SHA256SUMS
           )
 
