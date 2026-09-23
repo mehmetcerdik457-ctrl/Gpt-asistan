@@ -14,24 +14,31 @@ FILES=[
  'control-plane/runtime/device_schema.json',
  'control-plane/runtime/device_evidence.py',
  'control-plane/runtime/phone_agent.json',
+ 'control-plane/runtime/phone_agent.py',
  'control-plane/recovery/state.json',
  '.github/workflows/control-plane-validation.yml',
  '.github/workflows/model-runtime.yml',
  '.github/workflows/android.yml',
+ '.github/workflows/phone-agent-emulator.yml',
+ 'tools/phone_agent_emulator_verify.sh',
  'settings.gradle.kts',
  'build.gradle.kts',
  'app/build.gradle.kts',
  'app/src/main/AndroidManifest.xml',
  'app/src/main/java/com/example/gptasistan/MainActivity.kt',
+ 'app/src/main/java/com/example/gptasistan/PhoneActionPolicy.kt',
+ 'app/src/main/java/com/example/gptasistan/PhoneAgentAccessibilityService.kt',
+ 'app/src/main/res/xml/accessibility_service_config.xml',
  'app/src/main/res/values/strings.xml',
- 'app/src/main/res/values/themes.xml'
+ 'app/src/main/res/values/themes.xml',
+ 'app/src/test/java/com/example/gptasistan/PhoneActionPolicyTest.kt'
 ]
 
 def sha(path): return hashlib.sha256(path.read_bytes()).hexdigest()
 
 def create(head,output):
     files={rel:sha(ROOT/rel) for rel in FILES}
-    data={'version':1,'head_sha':head,'status':'READY_FOR_REAL_DEVICE_EVIDENCE','files':files}
+    data={'version':2,'head_sha':head,'status':'READY_FOR_PHONE_AGENT_REAL_DEVICE_EVIDENCE','files':files}
     pathlib.Path(output).write_text(json.dumps(data,sort_keys=True,indent=2)+'\n',encoding='utf-8')
     print(json.dumps({'status':data['status'],'head_sha':head,'files':len(files)},sort_keys=True))
 

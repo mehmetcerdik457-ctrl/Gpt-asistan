@@ -1,16 +1,27 @@
 {
-  "version": 1,
+  "version": 2,
   "mode": "deny-by-default",
+  "implementation": "android-accessibility-local-explicit-user-control",
   "require_evidence": true,
   "require_postcondition": true,
+  "network_permission": false,
   "actions": {
     "observe_runtime": "ALLOW",
     "verify_artifact_hash": "ALLOW",
     "collect_device_metadata": "ALLOW",
+    "accessibility_enablement": "USER_GATE",
+    "back": "ALLOW_AFTER_SERVICE_ENABLEMENT",
+    "home": "ALLOW_AFTER_SERVICE_ENABLEMENT",
+    "recents": "ALLOW_AFTER_SERVICE_ENABLEMENT",
+    "tap": "ALLOW_AFTER_SERVICE_ENABLEMENT",
+    "click_visible_text": "ALLOW_AFTER_SERVICE_ENABLEMENT",
+    "scroll": "ALLOW_AFTER_SERVICE_ENABLEMENT",
     "install_on_real_device": "USER_GATE",
     "enroll_privileged_bridge": "USER_GATE",
     "merge_repository": "USER_GATE",
     "alter_baseline_artifact": "DENY",
-    "export_credentials": "DENY"
+    "export_credentials": "DENY",
+    "root_device": "DENY",
+    "unlock_bootloader": "DENY"
   }
 }

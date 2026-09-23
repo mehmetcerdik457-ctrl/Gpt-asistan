@@ -1,0 +1,73 @@
+name: Phone Agent Emulator Validation
+
+on:
+  push:
+    branches:
+      - phone-agent/runtime-v1
+
+permissions:
+  contents: read
+
+jobs:
+  phone-agent-emulator:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Verify exact checkout
+        shell: bash
+        run: |
+          ACTUAL="$(git rev-parse HEAD)"
+          test "${ACTUAL}" = "${GITHUB_SHA}"
+          printf "expected_sha=%s\nactual_sha=%s\n" "${GITHUB_SHA}" "${ACTUAL}"
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up pinned Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.7"
+
+      - name: Unit test and build exact-head APK
+        run: |
+          gradle :app:testDebugUnitTest
+          gradle :app:assembleDebug
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Execute phone-agent runtime in Android emulator
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: pixel_7_pro
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: bash tools/phone_agent_emulator_verify.sh
+
+      - name: Verify emulator evidence
+        shell: bash
+        run: |
+          test -s emulator-evidence/phone-agent-emulator-evidence.json
+          grep -q '"status": "EMULATOR_PHONE_AGENT_RUNTIME_PASS"' emulator-evidence/phone-agent-emulator-evidence.json
+          grep -q "\"git_head\": \"${GITHUB_SHA}\"" emulator-evidence/phone-agent-emulator-evidence.json
+          (cd emulator-evidence && sha256sum -c SHA256SUMS)
+
+      - name: Upload emulator runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phone-agent-emulator-evidence
+          path: emulator-evidence/
+          if-no-files-found: warn

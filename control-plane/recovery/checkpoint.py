@@ -21,12 +21,26 @@ CRITICAL=[
  'runtime/phone_agent.py',
  'recovery/state.json'
 ]
+ROOT_REPO=ROOT.parent
+ANDROID_CRITICAL=[
+ 'app/build.gradle.kts',
+ 'app/src/main/AndroidManifest.xml',
+ 'app/src/main/java/com/example/gptasistan/MainActivity.kt',
+ 'app/src/main/java/com/example/gptasistan/PhoneActionPolicy.kt',
+ 'app/src/main/java/com/example/gptasistan/PhoneAgentAccessibilityService.kt',
+ 'app/src/main/res/xml/accessibility_service_config.xml',
+ 'app/src/test/java/com/example/gptasistan/PhoneActionPolicyTest.kt',
+ '.github/workflows/android.yml',
+ '.github/workflows/phone-agent-emulator.yml',
+ 'tools/phone_agent_emulator_verify.sh'
+]
 
 def digest(path): return hashlib.sha256(path.read_bytes()).hexdigest()
 
 def create(head_sha, output):
     files={rel:digest(ROOT/rel) for rel in CRITICAL}
-    data={'version':1,'head_sha':head_sha,'restore_strategy':'branch-and-pr','files':files}
+    files.update({rel:digest(ROOT_REPO/rel) for rel in ANDROID_CRITICAL})
+    data={'version':2,'head_sha':head_sha,'restore_strategy':'branch-and-pr','files':files}
     pathlib.Path(output).write_text(json.dumps(data,sort_keys=True,indent=2)+'\n',encoding='utf-8')
     print(json.dumps({'status':'RECOVERY_CHECKPOINT_CREATED','head_sha':head_sha,'files':len(files)},sort_keys=True))
 
@@ -34,7 +48,8 @@ def verify(manifest):
     data=json.loads(pathlib.Path(manifest).read_text(encoding='utf-8'))
     if data.get('restore_strategy')!='branch-and-pr': raise SystemExit('invalid restore strategy')
     for rel,expected in data.get('files',{}).items():
-        if digest(ROOT/rel)!=expected: raise SystemExit('hash mismatch: '+rel)
+        path=(ROOT_REPO/rel) if rel.startswith(('app/','.github/','tools/')) else (ROOT/rel)
+        if digest(path)!=expected: raise SystemExit('hash mismatch: '+rel)
     print(json.dumps({'status':'RECOVERY_CHECKPOINT_VERIFIED','head_sha':data.get('head_sha'),'files':len(data.get('files',{}))},sort_keys=True))
 
 def main():
