@@ -49,15 +49,31 @@ tap_text_once() {
 import re, sys, xml.etree.ElementTree as ET
 path, needle = sys.argv[1], sys.argv[2].lower()
 root = ET.parse(path).getroot()
+candidates = []
 for node in root.iter("node"):
-    label = ((node.attrib.get("text") or "") + " " + (node.attrib.get("content-desc") or "")).lower()
-    if needle in label:
-        m = re.fullmatch(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", node.attrib.get("bounds",""))
-        if m:
-            x1,y1,x2,y2 = map(int,m.groups())
-            print(f"{(x1+x2)//2} {(y1+y2)//2}")
-            raise SystemExit(0)
-raise SystemExit(1)
+    text = (node.attrib.get("text") or "").strip()
+    desc = (node.attrib.get("content-desc") or "").strip()
+    label = (text + " " + desc).strip()
+    if needle not in label.lower():
+        continue
+    m = re.fullmatch(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", node.attrib.get("bounds",""))
+    if not m:
+        continue
+    score = 0
+    if text.lower() == needle or desc.lower() == needle:
+        score += 100
+    if node.attrib.get("clickable") == "true":
+        score += 50
+    cls = node.attrib.get("class","")
+    if cls.endswith("Button") or cls.endswith("Switch"):
+        score += 20
+    x1,y1,x2,y2 = map(int,m.groups())
+    candidates.append((score, (x1+x2)//2, (y1+y2)//2, label))
+if not candidates:
+    raise SystemExit(1)
+candidates.sort(reverse=True)
+_, x, y, _ = candidates[0]
+print(f"{x} {y}")
 PY
 )" || true
   [[ -n "${coords}" ]] || return 1
