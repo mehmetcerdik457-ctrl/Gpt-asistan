@@ -8,16 +8,20 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout exact revision
+      - name: Checkout exact target revision
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Verify exact checkout
         shell: bash
         run: |
           ACTUAL_SHA="$(git rev-parse HEAD)"
-          EXPECTED_SHA="${GITHUB_SHA}"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            EXPECTED_SHA="${{ github.event.pull_request.head.sha }}"
+          else
+            EXPECTED_SHA="${GITHUB_SHA}"
+          fi
           test "${ACTUAL_SHA}" = "${EXPECTED_SHA}"
           printf 'expected_sha=%s\nactual_sha=%s\n' "${EXPECTED_SHA}" "${ACTUAL_SHA}" > /tmp/android-exact-head.txt
 
@@ -45,11 +49,12 @@ jobs:
           test -n "${APK}"
           mkdir -p android-evidence signing-toolkit
           cp /tmp/android-exact-head.txt android-evidence/exact-head.txt
+          HEAD_SHA="$(sed -n 's/^actual_sha=//p' /tmp/android-exact-head.txt)"
+          test -n "${HEAD_SHA}"
 
           BUILD_TOOLS_VERSION="$(ls "${ANDROID_HOME}/build-tools" | sort -V | tail -1)"
           BUILD_TOOLS="${ANDROID_HOME}/build-tools/${BUILD_TOOLS_VERSION}"
           AAPT="${BUILD_TOOLS}/aapt"
-          APKSIGNER="${BUILD_TOOLS}/apksigner"
           ZIPALIGN="${BUILD_TOOLS}/zipalign"
 
           ALIGNED="android-evidence/MEHMET_OWNER_COMPANION_1.2.0_VC4_UNSIGNED_ALIGNED.apk"
@@ -76,7 +81,7 @@ jobs:
             echo "artifact_size=$(stat -c '%s' "${ALIGNED}")"
             echo "run_id=${GITHUB_RUN_ID}"
             echo "repository=${GITHUB_REPOSITORY}"
-            echo "git_head=${GITHUB_SHA}"
+            echo "git_head=${HEAD_SHA}"
             echo "unsigned_apk_sha256=${APK_HASH}"
             echo "build_tools_version=${BUILD_TOOLS_VERSION}"
             echo "application_id=com.mehmetcerdik.ownerai"
@@ -90,7 +95,7 @@ jobs:
 
           cat > android-evidence/device-expected-pre-sign.json <<EOF
           {
-            "git_head": "${GITHUB_SHA}",
+            "git_head": "${HEAD_SHA}",
             "package_name": "com.mehmetcerdik.ownerai",
             "version_name": "1.2.0",
             "version_code": "4",
@@ -101,7 +106,7 @@ jobs:
           }
           EOF
 
-          cp "${APKSIGNER}" signing-toolkit/
+          cp "${BUILD_TOOLS}/apksigner" signing-toolkit/
           cp "${ZIPALIGN}" signing-toolkit/
           cp "${BUILD_TOOLS}/aapt2" signing-toolkit/
           cp -a "${BUILD_TOOLS}/lib" signing-toolkit/
