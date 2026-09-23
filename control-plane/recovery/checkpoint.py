@@ -48,7 +48,7 @@ def verify(manifest):
     data=json.loads(pathlib.Path(manifest).read_text(encoding='utf-8'))
     if data.get('restore_strategy')!='branch-and-pr': raise SystemExit('invalid restore strategy')
     for rel,expected in data.get('files',{}).items():
-        path=(ROOT/rel) if not rel.startswith(('app/','.github/')) else (ROOT_REPO/rel)
+        path=(ROOT_REPO/rel) if rel.startswith(('app/','.github/','tools/')) else (ROOT/rel)
         if digest(path)!=expected: raise SystemExit('hash mismatch: '+rel)
     print(json.dumps({'status':'RECOVERY_CHECKPOINT_VERIFIED','head_sha':data.get('head_sha'),'files':len(data.get('files',{}))},sort_keys=True))
 
