@@ -28,11 +28,14 @@ jobs:
         run: |
           set -euo pipefail
           python3 tools/verify_final_bridge_source.py | tee bridge-evidence/source-contract.txt
+      - name: Set up pinned Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
       - name: Build release
         run: |
           set -euo pipefail
-          chmod +x ./gradlew
-          ./gradlew :bridge:assembleRelease --no-daemon
+          gradle :bridge:assembleRelease --no-daemon
           APK="$(find bridge/build/outputs/apk/release -name '*.apk' -type f | head -1)"
           test -n "$APK"
           cp "$APK" bridge-evidence/MEHMET_PRIVILEGED_BRIDGE_1.1.0_VC2_UNSIGNED.apk
