@@ -12,7 +12,7 @@ VERSION_NAME = "1.2.0"
 VERSION_CODE = "4"
 UNSIGNED_ARTIFACT_SHA256 = "f2066559876b71ae935b2515a81300c197d7308fcc29cbcdff4972f6eae86e44"
 EXPECTED_SIGNER_CERT_SHA256 = "279084a36b7c17a1663bfba5fe1c5bdac974f8ef4ce56b21000d882493e39448"
-SIGNED_ARTIFACT_SHA256 = None
+SIGNED_ARTIFACT_SHA256 = "55a179f96811671430556c99ee747280d648ead6833eaf7419009b4214be5394"
 RUNTIME_IMPLEMENTATION = "v1_accessibility"
 REQUIRED_EVENT_ACTIONS = ("TAP", "CLICK_TEXT", "SCROLL_FORWARD")
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
@@ -196,7 +196,7 @@ def self_test():
     except SystemExit:
         pass
     else:
-        raise AssertionError("production contract unexpectedly accepted without signed artifact hash")
+        raise AssertionError("production contract unexpectedly accepted mismatched signed artifact hash")
 
     print(json.dumps({"status": "OWNER_REAL_DEVICE_VERIFIER_SELF_TEST_PASS", "target_head": TARGET_HEAD}, sort_keys=True))
 
