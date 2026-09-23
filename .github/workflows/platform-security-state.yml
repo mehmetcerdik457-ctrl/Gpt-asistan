@@ -54,6 +54,7 @@ jobs:
           probe dependabot_security_updates "$api/automated-security-fixes"
           probe dependabot_alerts "$api/dependabot/alerts?per_page=1"
           probe secret_scanning_alerts "$api/secret-scanning/alerts?state=open&per_page=1"
+          probe branch_main "$api/branches/main"
           probe branch_protection "$api/branches/main/protection"
           probe rulesets "$api/rulesets"
           probe actions_workflow_permissions "$api/actions/permissions/workflow"
@@ -91,6 +92,44 @@ jobs:
 
           # Never publish alert bodies. Keep only status codes and non-sensitive repository settings.
           rm -f platform-evidence/dependabot_alerts.json platform-evidence/secret_scanning_alerts.json
+
+      - name: Enforce main required-check policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path("platform-evidence/branch_main.json")
+          try:
+              branch = json.loads(path.read_text())
+          except Exception as exc:
+              raise SystemExit(f"MAIN_BRANCH_POLICY=FAIL unreadable_branch_probe: {exc}")
+
+          if branch.get("name") != "main":
+              raise SystemExit("MAIN_BRANCH_POLICY=FAIL wrong_branch_probe")
+          if branch.get("protected") is not True:
+              raise SystemExit("MAIN_BRANCH_POLICY=FAIL main_not_protected")
+
+          protection = branch.get("protection") or {}
+          required = protection.get("required_status_checks") or {}
+          enforcement = required.get("enforcement_level")
+          contexts = required.get("contexts") or []
+          checks = required.get("checks") or []
+
+          print(f"MAIN_PROTECTED={branch.get('protected')}")
+          print(f"REQUIRED_STATUS_CHECKS_ENFORCEMENT={enforcement}")
+          print(f"REQUIRED_STATUS_CONTEXTS={len(contexts)}")
+          print(f"REQUIRED_STATUS_CHECKS={len(checks)}")
+
+          if enforcement in (None, "", "off"):
+              raise SystemExit("MAIN_BRANCH_POLICY=FAIL required_status_checks_not_enforced")
+          if not contexts and not checks:
+              raise SystemExit("MAIN_BRANCH_POLICY=FAIL no_required_status_checks_configured")
+
+          print("MAIN_BRANCH_POLICY=PASS")
+          PY
       - name: Upload non-sensitive feature-state evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
