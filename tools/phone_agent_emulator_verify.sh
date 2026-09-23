@@ -20,15 +20,31 @@ adb shell cmd appops get "${PACKAGE}" ACCESS_RESTRICTED_SETTINGS | tee "${EVIDEN
 
 dump_ui() {
   local out="$1"
-  adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1 || true
-  adb pull /sdcard/window.xml "${out}" >/dev/null
+  local attempt
+  rm -f "${out}"
+  for attempt in 1 2 3 4 5; do
+    adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1 || true
+    if adb pull /sdcard/window.xml "${out}" >/dev/null 2>&1 && [[ -s "${out}" ]]; then
+      return 0
+    fi
+    sleep 1
+  done
+  return 1
 }
+
+capture_debug() {
+  adb shell settings --user 0 get secure enabled_accessibility_services 2>/dev/null | tr -d "\r" > "${EVIDENCE_DIR}/debug-enabled-accessibility.txt" || true
+  adb shell dumpsys accessibility > "${EVIDENCE_DIR}/debug-dumpsys-accessibility.txt" 2>/dev/null || true
+  adb exec-out screencap -p > "${EVIDENCE_DIR}/debug-screen.png" 2>/dev/null || true
+  dump_ui "${EVIDENCE_DIR}/debug-window.xml" || true
+}
+trap capture_debug EXIT
 
 tap_text_once() {
   local needle="$1"
   local xml="${EVIDENCE_DIR}/ui-tap.xml"
   local coords
-  dump_ui "${xml}"
+  dump_ui "${xml}" || return 1
   coords="$(python3 - "${xml}" "${needle}" <<'PY'
 import re, sys, xml.etree.ElementTree as ET
 path, needle = sys.argv[1], sys.argv[2].lower()
@@ -64,7 +80,7 @@ scroll_find_and_tap() {
 tap_first_switch() {
   local xml="${EVIDENCE_DIR}/ui-switch.xml"
   local coords
-  dump_ui "${xml}"
+  dump_ui "${xml}" || return 1
   coords="$(python3 - "${xml}" <<'PY'
 import re, sys, xml.etree.ElementTree as ET
 root = ET.parse(sys.argv[1]).getroot()
@@ -88,27 +104,39 @@ PY
 
 ENABLED="$(adb shell settings --user 0 get secure enabled_accessibility_services | tr -d "\r")"
 if [[ ":${ENABLED}:" != *":${SERVICE}:"* && ":${ENABLED}:" != *":${SERVICE_FULL}:"* ]]; then
-  adb shell am start -a android.settings.ACCESSIBILITY_SETTINGS | tee "${EVIDENCE_DIR}/accessibility-settings-start.txt"
-  sleep 2
+  adb shell am start -W     -a android.settings.ACCESSIBILITY_DETAILS_SETTINGS     --ecn android.provider.extra.ACCESSIBILITY_SERVICE_COMPONENT_NAME "${SERVICE}"     | tee "${EVIDENCE_DIR}/accessibility-details-start.txt" || true
+  sleep 3
 
-  if ! scroll_find_and_tap "GPT Asistan"; then
-    for group in "Downloaded apps" "Installed apps" "Downloaded services" "Installed services"; do
-      if scroll_find_and_tap "${group}"; then
-        sleep 2
-        break
-      fi
-    done
-    scroll_find_and_tap "GPT Asistan"
-  fi
-
-  sleep 2
   if ! tap_first_switch; then
-    tap_text_once "Use GPT Asistan" || tap_text_once "Use service"
+    tap_text_once "Use GPT Asistan" || tap_text_once "Use service" || true
   fi
-
   sleep 1
   tap_text_once "Allow" || tap_text_once "OK" || true
   sleep 3
+
+  ENABLED="$(adb shell settings --user 0 get secure enabled_accessibility_services | tr -d "\r")"
+  if [[ ":${ENABLED}:" != *":${SERVICE}:"* && ":${ENABLED}:" != *":${SERVICE_FULL}:"* ]]; then
+    adb shell am start -W -a android.settings.ACCESSIBILITY_SETTINGS       | tee "${EVIDENCE_DIR}/accessibility-settings-start.txt" || true
+    sleep 3
+
+    if ! scroll_find_and_tap "GPT Asistan"; then
+      for group in "Downloaded apps" "Installed apps" "Downloaded services" "Installed services"; do
+        if scroll_find_and_tap "${group}"; then
+          sleep 2
+          break
+        fi
+      done
+      scroll_find_and_tap "GPT Asistan" || true
+    fi
+
+    sleep 2
+    if ! tap_first_switch; then
+      tap_text_once "Use GPT Asistan" || tap_text_once "Use service" || true
+    fi
+    sleep 1
+    tap_text_once "Allow" || tap_text_once "OK" || true
+    sleep 3
+  fi
 fi
 
 ENABLED="$(adb shell settings --user 0 get secure enabled_accessibility_services | tr -d "\r")"

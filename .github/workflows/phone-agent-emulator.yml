@@ -65,8 +65,9 @@ jobs:
           (cd emulator-evidence && sha256sum -c SHA256SUMS)
 
       - name: Upload emulator runtime evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: phone-agent-emulator-evidence
           path: emulator-evidence/
-          if-no-files-found: error
+          if-no-files-found: warn
