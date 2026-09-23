@@ -26,7 +26,7 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Set up pinned Gradle
+      - name: Install Android SDK 35\n        run: sdkmanager \"platforms;android-35\" \"build-tools;35.0.0\" >/dev/null\n\n      - name: Set up pinned Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.7'
@@ -40,7 +40,7 @@ jobs:
       - name: Generate APK evidence
         shell: bash
         run: |
-          APK="$(find app/build/outputs/apk/debug -maxdepth 1 -type f -name '*.apk' -print -quit)"
+          APK="$(find app/build/outputs/apk/release -maxdepth 1 -type f -name '*.apk' -print -quit)"
           test -n "${APK}"
           mkdir -p android-evidence
           cp /tmp/android-exact-head.txt android-evidence/exact-head.txt
@@ -53,9 +53,9 @@ jobs:
           "${AAPT}" dump permissions "${APK}" > android-evidence/apk-permissions.txt
           "${AAPT}" dump xmltree "${APK}" AndroidManifest.xml > android-evidence/manifest-tree.txt
           "${APKSIGNER}" verify --print-certs "${APK}" > android-evidence/apksigner.txt
-          grep -q "package: name='com.example.gptasistan'" android-evidence/apk-badging.txt
-          grep -q "versionCode='3'" android-evidence/apk-badging.txt
-          grep -q "versionName='1.1.1'" android-evidence/apk-badging.txt
+          grep -q "package: name='com.mehmetcerdik.ownerai'" android-evidence/apk-badging.txt
+          grep -q "versionCode='4'" android-evidence/apk-badging.txt
+          grep -q "versionName='1.2.0'" android-evidence/apk-badging.txt
           grep -q 'PhoneAgentAccessibilityService' android-evidence/manifest-tree.txt
           grep -q 'android.permission.BIND_ACCESSIBILITY_SERVICE' android-evidence/manifest-tree.txt
           if grep -q 'android.permission.INTERNET' android-evidence/apk-permissions.txt; then echo "Unexpected INTERNET permission"; exit 1; fi
@@ -68,15 +68,15 @@ jobs:
             echo "apk_sha256=${APK_HASH}"
             echo "build_tools_version=${BUILD_TOOLS_VERSION}"
             echo "phone_agent_runtime=v1_accessibility_dynamic_evidence"
-            echo "network_permission=NONE"
+            echo "network_permission=NONE"\n            echo "release_signing=EXTERNAL_GEN2_STABLE"\n            echo "expected_signer_sha256=279084a36b7c17a1663bfba5fe1c5bdac974f8ef4ce56b21000d882493e39448"
           } > android-evidence/build-metadata.txt
           cat > android-evidence/device-expected.json <<EOF
           {
             "git_head": "${GITHUB_SHA}",
-            "package_name": "com.example.gptasistan",
-            "version_name": "1.1.1",
-            "version_code": "3",
-            "artifact_sha256": "${APK_HASH}",
+            "package_name": "com.mehmetcerdik.ownerai",
+            "version_name": "1.2.0",
+            "version_code": "4",
+            "artifact_sha256": "${APK_HASH}",\n            "expected_signer_sha256": "279084a36b7c17a1663bfba5fe1c5bdac974f8ef4ce56b21000d882493e39448",
             "phone_agent_runtime": "v1_accessibility_dynamic_evidence"
           }
           EOF
@@ -85,13 +85,13 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: phone-agent-runtime-v1-apk
-          path: app/build/outputs/apk/debug/*.apk
+          name: owner-stable-phone-agent-unsigned-release
+          path: app/build/outputs/apk/release/*.apk
           if-no-files-found: error
 
       - name: Upload Android build evidence
         uses: actions/upload-artifact@v4
         with:
-          name: phone-agent-runtime-v1-evidence
+          name: owner-stable-phone-agent-build-evidence
           path: android-evidence/
           if-no-files-found: error
