@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "target_head": "f3fc3977999640309df4574e97810fd1ea8f5240",
+  "package_name": "com.example.gptasistan",
+  "version_name": "1.1.1",
+  "version_code": "3",
+  "artifact_sha256": "3306ecfd76ce9a271fda8490ea00a62f48ca49ea8f58e51bb87123f0d6655e09",
+  "phone_agent_runtime": "v1_accessibility_dynamic_evidence",
+  "runtime_implementation": "v1_accessibility",
+  "required_event_actions": [
+    "TAP",
+    "CLICK_TEXT",
+    "SCROLL_FORWARD"
+  ]
+}
