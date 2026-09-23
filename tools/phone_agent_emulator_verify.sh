@@ -19,8 +19,8 @@ adb shell cmd appops get "${PACKAGE}" ACCESS_RESTRICTED_SETTINGS | tee "${EVIDEN
 adb shell settings --user 0 put secure enabled_accessibility_services "${SERVICE}"
 adb shell settings --user 0 put secure accessibility_enabled 1
 adb shell am force-stop "${PACKAGE}"
-adb shell am start -W -n "${PACKAGE}/.MainActivity" | tee "${EVIDENCE_DIR}/am-start.txt"
-sleep 3
+adb shell am start -W -n "${PACKAGE}/.MainActivity" --ez emulator_self_test true | tee "${EVIDENCE_DIR}/am-start.txt"
+sleep 7
 
 ENABLED="$(adb shell settings --user 0 get secure enabled_accessibility_services | tr -d "\r")"
 printf "%s\n" "${ENABLED}" > "${EVIDENCE_DIR}/enabled_accessibility_services.txt"
@@ -32,45 +32,6 @@ esac
 adb shell dumpsys accessibility > "${EVIDENCE_DIR}/dumpsys-accessibility.txt"
 adb shell dumpsys package "${PACKAGE}" > "${EVIDENCE_DIR}/dumpsys-package.txt"
 grep -q "PhoneAgentAccessibilityService" "${EVIDENCE_DIR}/dumpsys-accessibility.txt"
-
-find_and_tap() {
-  local text="$1"
-  local attempt xml coords x y
-  for attempt in 1 2 3 4 5 6; do
-    adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1 || true
-    xml="${EVIDENCE_DIR}/window-${attempt}.xml"
-    adb pull /sdcard/window.xml "${xml}" >/dev/null
-    coords="$(python3 - "${xml}" "${text}" <<'PY'
-import re, sys, xml.etree.ElementTree as ET
-path, needle = sys.argv[1], sys.argv[2]
-root = ET.parse(path).getroot()
-for node in root.iter("node"):
-    label = (node.attrib.get("text") or "") + " " + (node.attrib.get("content-desc") or "")
-    if needle in label:
-        m = re.fullmatch(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", node.attrib.get("bounds",""))
-        if not m:
-            continue
-        x1,y1,x2,y2 = map(int,m.groups())
-        print(f"{(x1+x2)//2} {(y1+y2)//2}")
-        raise SystemExit(0)
-raise SystemExit(1)
-PY
-)" || true
-    if [[ -n "${coords}" ]]; then
-      read -r x y <<<"${coords}"
-      echo "${text} => ${x},${y}" | tee "${EVIDENCE_DIR}/self-test-button.txt"
-      adb shell input tap "${x}" "${y}"
-      return 0
-    fi
-    adb shell input swipe 540 1600 540 500 350
-    sleep 1
-  done
-  echo "Unable to locate UI text: ${text}" >&2
-  return 1
-}
-
-find_and_tap "Yerel Self-Test"
-sleep 4
 
 adb shell run-as "${PACKAGE}" cat shared_prefs/phone_agent_events.xml > "${EVIDENCE_DIR}/phone_agent_events.xml"
 adb shell run-as "${PACKAGE}" cat shared_prefs/phone_agent_self_test.xml > "${EVIDENCE_DIR}/phone_agent_self_test.xml"

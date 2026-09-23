@@ -130,6 +130,9 @@ class MainActivity : AppCompatActivity() {
 
         setContentView(ScrollView(this).apply { addView(container) })
         refreshRuntime()
+        if (BuildConfig.DEBUG && intent.getBooleanExtra("emulator_self_test", false)) {
+            handler.postDelayed({ runLocalSelfTest() }, 2500)
+        }
     }
 
     override fun onResume() {
