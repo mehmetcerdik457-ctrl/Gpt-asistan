@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PACKAGE="com.example.gptasistan"
-SERVICE="${PACKAGE}/.PhoneAgentAccessibilityService"
-SERVICE_FULL="${PACKAGE}/${PACKAGE}.PhoneAgentAccessibilityService"
+PACKAGE="com.mehmetcerdik.ownerai"
+SERVICE="com.mehmetcerdik.ownerai/com.example.gptasistan.PhoneAgentAccessibilityService"
+SERVICE_FULL="${SERVICE}"
 APK="${APK_PATH:-app/build/outputs/apk/debug/app-debug.apk}"
 EVIDENCE_DIR="${EVIDENCE_DIR:-emulator-evidence}"
 mkdir -p "${EVIDENCE_DIR}"
