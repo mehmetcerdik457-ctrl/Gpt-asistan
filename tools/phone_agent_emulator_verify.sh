@@ -14,13 +14,15 @@ printf "%s  %s\n" "${APK_SHA256}" "$(basename "${APK}")" > "${EVIDENCE_DIR}/APK_
 adb wait-for-device
 adb install -r "${APK}" | tee "${EVIDENCE_DIR}/adb-install.txt"
 
-adb shell settings put secure enabled_accessibility_services "${SERVICE}"
-adb shell settings put secure accessibility_enabled 1
+adb shell cmd appops set "${PACKAGE}" ACCESS_RESTRICTED_SETTINGS allow || true
+adb shell cmd appops get "${PACKAGE}" ACCESS_RESTRICTED_SETTINGS | tee "${EVIDENCE_DIR}/restricted-settings-appop.txt" || true
+adb shell settings --user 0 put secure enabled_accessibility_services "${SERVICE}"
+adb shell settings --user 0 put secure accessibility_enabled 1
 adb shell am force-stop "${PACKAGE}"
 adb shell am start -W -n "${PACKAGE}/.MainActivity" | tee "${EVIDENCE_DIR}/am-start.txt"
 sleep 3
 
-ENABLED="$(adb shell settings get secure enabled_accessibility_services | tr -d "\r")"
+ENABLED="$(adb shell settings --user 0 get secure enabled_accessibility_services | tr -d "\r")"
 printf "%s\n" "${ENABLED}" > "${EVIDENCE_DIR}/enabled_accessibility_services.txt"
 case ":${ENABLED}:" in
   *":${SERVICE}:"*) ;;
