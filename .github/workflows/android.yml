@@ -107,6 +107,27 @@ jobs:
           path: app/build/outputs/apk/release/*.apk
           if-no-files-found: error
 
+      - name: Stage Android signing verification tools
+        shell: bash
+        run: |
+          BUILD_TOOLS_VERSION="$(ls "${ANDROID_HOME}/build-tools" | sort -V | tail -1)"
+          BT="${ANDROID_HOME}/build-tools/${BUILD_TOOLS_VERSION}"
+          mkdir -p android-toolkit/lib
+          cp "${BT}/apksigner" android-toolkit/apksigner
+          cp "${BT}/lib/apksigner.jar" android-toolkit/lib/apksigner.jar
+          cp "${BT}/zipalign" android-toolkit/zipalign
+          cp "${BT}/aapt" android-toolkit/aapt
+          chmod 755 android-toolkit/apksigner android-toolkit/zipalign android-toolkit/aapt
+          printf 'build_tools_version=%s\nsource_head=%s\n' "${BUILD_TOOLS_VERSION}" "$(git rev-parse HEAD)" > android-toolkit/TOOLKIT_SOURCE.txt
+          (cd android-toolkit && sha256sum apksigner lib/apksigner.jar zipalign aapt TOOLKIT_SOURCE.txt > SHA256SUMS)
+
+      - name: Upload Android signing verification tools
+        uses: actions/upload-artifact@v4
+        with:
+          name: owner-android-signing-toolkit
+          path: android-toolkit/
+          if-no-files-found: error
+
       - name: Upload Android build evidence
         uses: actions/upload-artifact@v4
         with:
