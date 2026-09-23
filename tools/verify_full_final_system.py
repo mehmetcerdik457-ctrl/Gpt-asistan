@@ -57,6 +57,7 @@ def contract(verifier_head):
         },
         "bridge": {
             "source_zip_sha256": BRIDGE_SOURCE_ZIP_SHA256,
+            "build_head": BRIDGE_BUILD_HEAD,
             "package_name": BRIDGE_PACKAGE,
             "version_name": BRIDGE_VERSION_NAME,
             "version_code": BRIDGE_VERSION_CODE,
@@ -197,6 +198,7 @@ def validate(owner_data, bridge_data, verifier_head):
         "owner_signed_artifact_sha256": c["owner"]["signed_artifact_sha256"],
         "owner_signer_cert_sha256": c["owner"]["signer_cert_sha256"],
         "bridge_source_zip_sha256": c["bridge"]["source_zip_sha256"],
+        "bridge_build_head": c["bridge"]["build_head"],
         "bridge_unsigned_artifact_sha256": c["bridge"]["unsigned_artifact_sha256"],
         "bridge_signed_artifact_sha256": c["bridge"]["signed_artifact_sha256"],
         "bridge_signer_cert_sha256": c["bridge"]["signer_cert_sha256"],
