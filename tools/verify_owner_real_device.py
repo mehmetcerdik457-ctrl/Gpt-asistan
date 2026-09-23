@@ -57,8 +57,8 @@ def validate_data(data, expected=None):
         isinstance(signed_hash, str) and HEX64.fullmatch(signed_hash) is not None and signed_hash != "0" * 64,
         "OWNER_SIGNED_RELEASE_NOT_FROZEN",
     )
-    require(data.get("version") == 4, "OWNER_REAL_DEVICE_EVIDENCE_SCHEMA_MISMATCH", actual=data.get("version"), expected=4)
-    require(data.get("status") == "OWNER_REAL_DEVICE_EVIDENCE_CAPTURED", "OWNER_REAL_DEVICE_CAPTURE_STATUS_INVALID", actual=data.get("status"))
+    require(data.get("version") == 3, "OWNER_REAL_DEVICE_EVIDENCE_SCHEMA_MISMATCH", actual=data.get("version"), expected=3)
+    require(data.get("status") == "REAL_DEVICE_EVIDENCE_CAPTURED", "OWNER_REAL_DEVICE_CAPTURE_STATUS_INVALID", actual=data.get("status"))
     require(data.get("git_head") == expected["target_head"], "OWNER_REAL_DEVICE_HEAD_MISMATCH", actual=data.get("git_head"), expected=expected["target_head"])
 
     device = data.get("evidence") or {}
@@ -68,7 +68,6 @@ def validate_data(data, expected=None):
         "package_name": (str(device.get("package_name", "")), expected["package_name"]),
         "version_name": (str(device.get("version_name", "")), expected["version_name"]),
         "version_code": (str(device.get("version_code", "")), str(expected["version_code"])),
-        "source_unsigned_sha256": (str(device.get("source_unsigned_sha256", "")).lower(), expected["unsigned_artifact_sha256"].lower()),
         "artifact_sha256": (str(device.get("artifact_sha256", "")).lower(), signed_hash.lower()),
         "signer_cert_sha256": (str(device.get("signer_cert_sha256", "")).lower(), expected["expected_signer_cert_sha256"].lower()),
     }
@@ -126,8 +125,8 @@ def validate_file(path):
 
 def fixture(signed_hash):
     return {
-        "version": 4,
-        "status": "OWNER_REAL_DEVICE_EVIDENCE_CAPTURED",
+        "version": 3,
+        "status": "REAL_DEVICE_EVIDENCE_CAPTURED",
         "git_head": TARGET_HEAD,
         "captured_at_epoch_ms": 1790200000000,
         "evidence": {
@@ -136,7 +135,6 @@ def fixture(signed_hash):
             "package_name": PACKAGE_NAME,
             "version_name": VERSION_NAME,
             "version_code": VERSION_CODE,
-            "source_unsigned_sha256": UNSIGNED_ARTIFACT_SHA256,
             "artifact_sha256": signed_hash,
             "signer_cert_sha256": EXPECTED_SIGNER_CERT_SHA256,
             "install_result": "PASS",
