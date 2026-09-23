@@ -9,6 +9,9 @@ EVIDENCE_DIR="${EVIDENCE_DIR:-emulator-evidence}"
 mkdir -p "${EVIDENCE_DIR}"
 
 test -f "${APK}"
+cp "${APK}" "${EVIDENCE_DIR}/MEHMET_OWNER_EXACT_HEAD_DEBUG.apk"
+
+test -f "${APK}"
 APK_SHA256="$(sha256sum "${APK}" | awk '{print $1}')"
 printf "%s  %s\n" "${APK_SHA256}" "$(basename "${APK}")" > "${EVIDENCE_DIR}/APK_SHA256"
 
