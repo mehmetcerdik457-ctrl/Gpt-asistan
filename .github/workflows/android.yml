@@ -71,6 +71,8 @@ jobs:
           grep -q "versionName='1.2.0'" android-evidence/apk-badging.txt
           grep -q 'PhoneAgentAccessibilityService' android-evidence/manifest-tree.txt
           grep -q 'android.permission.BIND_ACCESSIBILITY_SERVICE' android-evidence/manifest-tree.txt
+          grep -q 'com.mehmetcerdik.ownerai.permission.BRIDGE' android-evidence/manifest-tree.txt
+          grep -q 'com.mehmetcerdik.ownerai.OwnerControlPlaneActivity' android-evidence/manifest-tree.txt
           if grep -q 'android.permission.INTERNET' android-evidence/apk-permissions.txt; then
             echo "Unexpected INTERNET permission"
             exit 1
