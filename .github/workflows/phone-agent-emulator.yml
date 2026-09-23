@@ -3,7 +3,7 @@ name: Phone Agent Emulator Validation
 on:
   push:
     branches:
-      - phone-agent/runtime-v1
+      - owner/stable-phone-agent-v1
 
 permissions:
   contents: read
@@ -48,7 +48,7 @@ jobs:
       - name: Execute phone-agent runtime in Android emulator
         uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
         with:
-          api-level: 34
+          api-level: 35
           target: google_apis
           arch: x86_64
           profile: pixel_7_pro
