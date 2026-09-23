@@ -16,6 +16,8 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import com.mehmetcerdik.ownerai.BridgeClient
+import com.mehmetcerdik.ownerai.OwnerControlPlaneActivity
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -44,6 +46,11 @@ class MainActivity : AppCompatActivity() {
         container.addView(Button(this).apply {
             text = "Erişilebilirlik Ayarlarını Aç"
             setOnClickListener { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
+        })
+
+        container.addView(Button(this).apply {
+            text = "OWNER Control Plane"
+            setOnClickListener { startActivity(Intent(this@MainActivity, OwnerControlPlaneActivity::class.java)) }
         })
 
         selfTestTarget = Button(this).apply {
@@ -229,6 +236,8 @@ class MainActivity : AppCompatActivity() {
             .put("package_match", packageMatch)
             .put("version_match", versionMatch)
             .put("installer_package", installerPackageName())
+            .put("bridge_signer_cert_sha256", BridgeClient.getBridgeSigner(this) ?: "")
+            .put("bridge_signer_match", BridgeClient.verifyBridge(this))
             .put("install_result", "PASS")
             .put("launch_result", "PASS")
             .put("postcondition_result", devicePostcondition)
