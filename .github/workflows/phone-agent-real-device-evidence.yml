@@ -1,0 +1,83 @@
+name: Phone Agent Real Device Evidence Intake
+
+on:
+  push:
+    branches:
+      - phone-agent/evidence-intake-v1
+  pull_request:
+    paths:
+      - 'tools/verify_phone_agent_real_device.py'
+      - 'control-plane/runtime/phone_agent_real_device_expected.json'
+      - 'tests/test_phone_agent_real_device_verifier.py'
+      - 'tests/fixtures/phone_agent_real_device_*.json'
+      - '.github/workflows/phone-agent-real-device-evidence.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate-intake:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Exact checkout proof
+        shell: bash
+        run: |
+          ACTUAL="$(git rev-parse HEAD)"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            EXPECTED="${{ github.event.pull_request.head.sha }}"
+          else
+            EXPECTED="${GITHUB_SHA}"
+          fi
+          test "${ACTUAL}" = "${EXPECTED}"
+          printf 'expected_sha=%s\nactual_sha=%s\n' "${EXPECTED}" "${ACTUAL}" > /tmp/exact-head.txt
+
+      - name: Unit tests
+        run: python3 -m unittest tests/test_phone_agent_real_device_verifier.py -v
+
+      - name: Validate positive fixture
+        run: |
+          mkdir -p intake-evidence
+          python3 tools/verify_phone_agent_real_device.py \
+            --input tests/fixtures/phone_agent_real_device_valid.json \
+            --expected control-plane/runtime/phone_agent_real_device_expected.json \
+            --output intake-evidence/positive-result.json | tee intake-evidence/positive-stdout.json
+          grep -q '"status": "PHONE_AGENT_REAL_DEVICE_EVIDENCE_VERIFIED"' intake-evidence/positive-result.json
+
+      - name: Prove negative fixtures are rejected
+        shell: bash
+        run: |
+          set +e
+          python3 tools/verify_phone_agent_real_device.py \
+            --input tests/fixtures/phone_agent_real_device_bad_hash.json \
+            --expected control-plane/runtime/phone_agent_real_device_expected.json \
+            > intake-evidence/bad-hash-result.json
+          HASH_CODE=$?
+          python3 tools/verify_phone_agent_real_device.py \
+            --input tests/fixtures/phone_agent_real_device_bad_runtime.json \
+            --expected control-plane/runtime/phone_agent_real_device_expected.json \
+            > intake-evidence/bad-runtime-result.json
+          RUNTIME_CODE=$?
+          set -e
+          test "${HASH_CODE}" -ne 0
+          test "${RUNTIME_CODE}" -ne 0
+          grep -q 'REAL_DEVICE_IDENTITY_MISMATCH' intake-evidence/bad-hash-result.json
+          grep -Eq 'PHONE_AGENT_SCROLL_NOT_VERIFIED|PHONE_AGENT_RUNTIME_POSTCONDITION_FAIL' intake-evidence/bad-runtime-result.json
+
+      - name: Evidence package
+        run: |
+          cp /tmp/exact-head.txt intake-evidence/
+          cp control-plane/runtime/phone_agent_real_device_expected.json intake-evidence/
+          (cd intake-evidence && sha256sum *.json exact-head.txt > SHA256SUMS)
+          (cd intake-evidence && sha256sum -c SHA256SUMS)
+
+      - name: Upload intake verifier evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: phone-agent-real-device-intake-validation
+          path: intake-evidence/
+          if-no-files-found: error

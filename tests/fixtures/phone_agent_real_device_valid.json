@@ -1,0 +1,54 @@
+{
+  "version": 3,
+  "status": "REAL_DEVICE_EVIDENCE_CAPTURED",
+  "git_head": "f3fc3977999640309df4574e97810fd1ea8f5240",
+  "captured_at_epoch_ms": 1790130000000,
+  "evidence": {
+    "device_model": "CI FIXTURE DEVICE",
+    "android_version": "16 (SDK 36)",
+    "package_name": "com.example.gptasistan",
+    "version_name": "1.1.1",
+    "version_code": "3",
+    "artifact_sha256": "3306ecfd76ce9a271fda8490ea00a62f48ca49ea8f58e51bb87123f0d6655e09",
+    "install_result": "PASS",
+    "launch_result": "PASS",
+    "postcondition_result": "PASS"
+  },
+  "phone_agent": {
+    "implementation": "v1_accessibility",
+    "accessibility_enabled": true,
+    "service_connected": true,
+    "network_permission": "NONE",
+    "self_test_target_hits": 2,
+    "tap_pass": true,
+    "click_text_pass": true,
+    "scroll_forward_pass": true,
+    "runtime_postcondition_result": "PASS",
+    "events": [
+      {
+        "timestamp_ms": 1,
+        "action": "SERVICE",
+        "status": "READY",
+        "detail": "fixture"
+      },
+      {
+        "timestamp_ms": 2,
+        "action": "TAP",
+        "status": "PASS",
+        "detail": "fixture"
+      },
+      {
+        "timestamp_ms": 3,
+        "action": "CLICK_TEXT",
+        "status": "PASS",
+        "detail": "fixture"
+      },
+      {
+        "timestamp_ms": 4,
+        "action": "SCROLL_FORWARD",
+        "status": "PASS",
+        "detail": "fixture"
+      }
+    ]
+  }
+}
