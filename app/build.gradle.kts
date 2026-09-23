@@ -6,15 +6,16 @@ plugins {
 val gitSha = System.getenv("GITHUB_SHA") ?: "LOCAL"
 
 android {
-  namespace = "com.example.gptasistan"
-  compileSdk = 34
+  namespace = "com.mehmetcerdik.ownerai"
+  compileSdk = 35
   defaultConfig {
-    applicationId = "com.example.gptasistan"
-    minSdk = 24
-    targetSdk = 34
-    versionCode = 3
-    versionName = "1.1.1"
+    applicationId = "com.mehmetcerdik.ownerai"
+    minSdk = 26
+    targetSdk = 35
+    versionCode = 4
+    versionName = "1.2.0"
     buildConfigField("String", "BUILD_GIT_SHA", "\"$gitSha\"")
+    buildConfigField("String", "OWNER_SIGNER_SHA256", "\"279084a36b7c17a1663bfba5fe1c5bdac974f8ef4ce56b21000d882493e39448\"")
   }
   buildFeatures { buildConfig = true }
   compileOptions {
