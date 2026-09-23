@@ -2,7 +2,8 @@
 set -euo pipefail
 
 PACKAGE="com.example.gptasistan"
-SERVICE="${PACKAGE}/${PACKAGE}.PhoneAgentAccessibilityService"
+SERVICE="${PACKAGE}/.PhoneAgentAccessibilityService"
+SERVICE_FULL="${PACKAGE}/${PACKAGE}.PhoneAgentAccessibilityService"
 APK="${APK_PATH:-app/build/outputs/apk/debug/app-debug.apk}"
 EVIDENCE_DIR="${EVIDENCE_DIR:-emulator-evidence}"
 mkdir -p "${EVIDENCE_DIR}"
@@ -25,7 +26,7 @@ sleep 7
 ENABLED="$(adb shell settings --user 0 get secure enabled_accessibility_services | tr -d "\r")"
 printf "%s\n" "${ENABLED}" > "${EVIDENCE_DIR}/enabled_accessibility_services.txt"
 case ":${ENABLED}:" in
-  *":${SERVICE}:"*) ;;
+  *":${SERVICE}:"*|*":${SERVICE_FULL}:"*) ;;
   *) echo "Expected accessibility service is not enabled: ${ENABLED}" >&2; exit 20 ;;
 esac
 
@@ -85,7 +86,7 @@ data = {
         "android_sdk": (root/"android-sdk.txt").read_text().strip(),
     },
     "accessibility": {
-        "service_component": "com.example.gptasistan/com.example.gptasistan.PhoneAgentAccessibilityService",
+        "service_component": "com.example.gptasistan/.PhoneAgentAccessibilityService",
         "enabled": True,
         "service_ready": service_ready,
     },

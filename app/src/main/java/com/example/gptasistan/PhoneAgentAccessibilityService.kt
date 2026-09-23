@@ -2,6 +2,7 @@ package com.example.gptasistan
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
+import android.content.ComponentName
 import android.content.Context
 import android.graphics.Path
 import android.provider.Settings
@@ -20,11 +21,14 @@ class PhoneAgentAccessibilityService : AccessibilityService() {
         private const val MAX_EVENTS = 50
 
         fun isEnabled(context: Context): Boolean {
-            val expected = context.packageName + "/" + PhoneAgentAccessibilityService::class.java.name
+            val expectedPackage = context.packageName
+            val expectedClass = PhoneAgentAccessibilityService::class.java.name
             val enabled = Settings.Secure.getString(
                 context.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
             ) ?: return false
-            return enabled.split(':').any { it.equals(expected, ignoreCase = true) }
+            return enabled.split(':').mapNotNull(ComponentName::unflattenFromString).any {
+                it.packageName == expectedPackage && it.className == expectedClass
+            }
         }
 
         fun readEvents(context: Context): JSONArray {
