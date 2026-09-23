@@ -30,7 +30,9 @@ ANDROID_CRITICAL=[
  'app/src/main/java/com/example/gptasistan/PhoneAgentAccessibilityService.kt',
  'app/src/main/res/xml/accessibility_service_config.xml',
  'app/src/test/java/com/example/gptasistan/PhoneActionPolicyTest.kt',
- '.github/workflows/android.yml'
+ '.github/workflows/android.yml',
+ '.github/workflows/phone-agent-emulator.yml',
+ 'tools/phone_agent_emulator_verify.sh'
 ]
 
 def digest(path): return hashlib.sha256(path.read_bytes()).hexdigest()

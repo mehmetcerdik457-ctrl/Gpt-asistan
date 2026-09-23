@@ -19,6 +19,8 @@ FILES=[
  '.github/workflows/control-plane-validation.yml',
  '.github/workflows/model-runtime.yml',
  '.github/workflows/android.yml',
+ '.github/workflows/phone-agent-emulator.yml',
+ 'tools/phone_agent_emulator_verify.sh',
  'settings.gradle.kts',
  'build.gradle.kts',
  'app/build.gradle.kts',
