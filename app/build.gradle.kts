@@ -6,7 +6,7 @@ plugins {
 val gitSha = System.getenv("GITHUB_SHA") ?: "LOCAL"
 
 android {
-  namespace = "com.mehmetcerdik.ownerai"
+  namespace = "com.example.gptasistan"
   compileSdk = 35
   defaultConfig {
     applicationId = "com.mehmetcerdik.ownerai"
