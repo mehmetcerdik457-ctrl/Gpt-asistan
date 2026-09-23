@@ -3,7 +3,7 @@ name: Phone Agent Emulator Validation
 on:
   push:
     branches:
-      - phone-agent/runtime-v1
+      - owner-companion/stable-v1
 
 permissions:
   contents: read
@@ -34,7 +34,7 @@ jobs:
         with:
           gradle-version: "8.7"
 
-      - name: Unit test and build exact-head APK
+      - name: Unit test and build exact-head debug APK for emulator only
         run: |
           gradle :app:testDebugUnitTest
           gradle :app:assembleDebug
@@ -68,6 +68,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: phone-agent-emulator-evidence
+          name: owner-companion-phone-agent-emulator-evidence
           path: emulator-evidence/
           if-no-files-found: warn
