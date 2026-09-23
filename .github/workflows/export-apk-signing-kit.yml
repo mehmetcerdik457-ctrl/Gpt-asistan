@@ -24,6 +24,7 @@ jobs:
           test -x "$BT_DIR/apksigner"
           test -f "$BT_DIR/lib/apksigner.jar"
           test -x "$BT_DIR/zipalign"
+          test -f "$BT_DIR/lib64/libc++.so"
           echo "build_tools_dir=$BT_DIR" >> "$GITHUB_OUTPUT"
           echo "build_tools_version=$(basename "$BT_DIR")" >> "$GITHUB_OUTPUT"
 
@@ -32,13 +33,14 @@ jobs:
         run: |
           set -euo pipefail
           BT_DIR="${{ steps.locate.outputs.build_tools_dir }}"
-          mkdir -p out/lib
+          mkdir -p out/lib out/lib64
           cp "$BT_DIR/apksigner" out/apksigner
           cp "$BT_DIR/lib/apksigner.jar" out/lib/apksigner.jar
           cp "$BT_DIR/zipalign" out/zipalign
+          cp "$BT_DIR/lib64/libc++.so" out/lib64/libc++.so
           cp "$BT_DIR/source.properties" out/source.properties || true
           chmod +x out/apksigner out/zipalign
-          sha256sum out/apksigner out/lib/apksigner.jar out/zipalign > out/SHA256SUMS.txt
+          sha256sum out/apksigner out/lib/apksigner.jar out/zipalign out/lib64/libc++.so > out/SHA256SUMS.txt
           {
             echo "exact_head=${GITHUB_SHA}"
             echo "build_tools_version=${{ steps.locate.outputs.build_tools_version }}"
