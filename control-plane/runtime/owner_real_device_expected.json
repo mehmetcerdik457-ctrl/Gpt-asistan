@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "status": "AWAITING_SIGNED_ARTIFACT_IDENTITY",
+  "target_head": "c8b52661921f82d9e832a0dcf7eed514e970bf49",
+  "package_name": "com.mehmetcerdik.ownerai",
+  "version_name": "1.2.0",
+  "version_code": "4",
+  "artifact_sha256": null,
+  "expected_signer_cert_sha256": "279084a36b7c17a1663bfba5fe1c5bdac974f8ef4ce56b21000d882493e39448",
+  "runtime_implementation": "v1_accessibility",
+  "required_event_actions": [
+    "TAP",
+    "CLICK_TEXT",
+    "SCROLL_FORWARD"
+  ]
+}
