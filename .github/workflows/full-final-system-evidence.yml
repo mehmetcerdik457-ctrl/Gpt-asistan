@@ -56,8 +56,9 @@ jobs:
           grep -q '"source_head": "c8b52661921f82d9e832a0dcf7eed514e970bf49"' full-final-evidence/full-final-contract.json
           grep -q '"signed_artifact_sha256": "55a179f96811671430556c99ee747280d648ead6833eaf7419009b4214be5394"' full-final-evidence/full-final-contract.json
           grep -q '"source_zip_sha256": "7df6d150b9159affe69e529fdf1ada3ce8f957ffb1c99ba7c55f8fe3eefd7628"' full-final-evidence/full-final-contract.json
-          grep -q '"unsigned_artifact_sha256": "75045bdbfc065aab02e8f34d7328384cda6fd581f5fc073f3594e7af03d88e9e"' full-final-evidence/full-final-contract.json
-          grep -q '"signed_artifact_sha256": "8997b394c7df2e097d7568b657cf9e8ba44005dc1db6c7f23afe1096f726600a"' full-final-evidence/full-final-contract.json
+          grep -q '"build_head": "2f8331d4b2864cd0224cb33ff33841cd27c811c7"' full-final-evidence/full-final-contract.json
+          grep -q '"unsigned_artifact_sha256": "1f096c7fdfd0d02a823e99b86a5dda10f281c08cd31a077400c771c81516a4d8"' full-final-evidence/full-final-contract.json
+          grep -q '"signed_artifact_sha256": "525987419b4bda071794833b12c7423df7584a30c1b609d00ed324d85d2a883a"' full-final-evidence/full-final-contract.json
           grep -q '"accept_status": "FULL_REAL_DEVICE_EVIDENCE_VERIFIED"' full-final-evidence/full-final-contract.json
 
       - name: Fail-closed source inspection
