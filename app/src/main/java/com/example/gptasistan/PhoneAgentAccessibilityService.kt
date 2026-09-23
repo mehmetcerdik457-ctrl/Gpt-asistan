@@ -33,6 +33,11 @@ class PhoneAgentAccessibilityService : AccessibilityService() {
             return runCatching { JSONArray(raw) }.getOrElse { JSONArray() }
         }
 
+        fun clearEvents(context: Context) {
+            context.getSharedPreferences(PREFS, MODE_PRIVATE)
+                .edit().putString(KEY_EVENTS, "[]").apply()
+        }
+
         private fun appendEvent(context: Context, event: JSONObject) {
             val existing = readEvents(context)
             val trimmed = JSONArray()

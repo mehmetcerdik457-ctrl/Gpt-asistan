@@ -54,8 +54,8 @@ jobs:
           "${AAPT}" dump xmltree "${APK}" AndroidManifest.xml > android-evidence/manifest-tree.txt
           "${APKSIGNER}" verify --print-certs "${APK}" > android-evidence/apksigner.txt
           grep -q "package: name='com.example.gptasistan'" android-evidence/apk-badging.txt
-          grep -q "versionCode='2'" android-evidence/apk-badging.txt
-          grep -q "versionName='1.1.0'" android-evidence/apk-badging.txt
+          grep -q "versionCode='3'" android-evidence/apk-badging.txt
+          grep -q "versionName='1.1.1'" android-evidence/apk-badging.txt
           grep -q 'PhoneAgentAccessibilityService' android-evidence/manifest-tree.txt
           grep -q 'android.permission.BIND_ACCESSIBILITY_SERVICE' android-evidence/manifest-tree.txt
           if grep -q 'android.permission.INTERNET' android-evidence/apk-permissions.txt; then echo "Unexpected INTERNET permission"; exit 1; fi
@@ -67,17 +67,17 @@ jobs:
             echo "git_head=${GITHUB_SHA}"
             echo "apk_sha256=${APK_HASH}"
             echo "build_tools_version=${BUILD_TOOLS_VERSION}"
-            echo "phone_agent_runtime=v1_accessibility"
+            echo "phone_agent_runtime=v1_accessibility_dynamic_evidence"
             echo "network_permission=NONE"
           } > android-evidence/build-metadata.txt
           cat > android-evidence/device-expected.json <<EOF
           {
             "git_head": "${GITHUB_SHA}",
             "package_name": "com.example.gptasistan",
-            "version_name": "1.1.0",
-            "version_code": "2",
+            "version_name": "1.1.1",
+            "version_code": "3",
             "artifact_sha256": "${APK_HASH}",
-            "phone_agent_runtime": "v1_accessibility"
+            "phone_agent_runtime": "v1_accessibility_dynamic_evidence"
           }
           EOF
           test "${APK_HASH}" = "$(sha256sum "${APK}" | awk '{print $1}')"

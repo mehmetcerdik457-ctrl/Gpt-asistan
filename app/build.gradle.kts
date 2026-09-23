@@ -12,8 +12,8 @@ android {
     applicationId = "com.example.gptasistan"
     minSdk = 24
     targetSdk = 34
-    versionCode = 2
-    versionName = "1.1.0"
+    versionCode = 3
+    versionName = "1.1.1"
     buildConfigField("String", "BUILD_GIT_SHA", "\"$gitSha\"")
   }
   buildFeatures { buildConfig = true }
