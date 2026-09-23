@@ -162,7 +162,16 @@ case ":${ENABLED}:" in
   *) echo "Expected accessibility service is not enabled after Settings UI flow: ${ENABLED}" >&2; exit 20 ;;
 esac
 
-adb shell am force-stop "${PACKAGE}"
+for attempt in 1 2 3 4 5; do
+  adb shell dumpsys accessibility > "${EVIDENCE_DIR}/prelaunch-dumpsys-accessibility.txt"
+  if grep -q "PhoneAgentAccessibilityService" "${EVIDENCE_DIR}/prelaunch-dumpsys-accessibility.txt"; then
+    break
+  fi
+  sleep 1
+done
+
+# Do not force-stop here: on Android 14 the force-stop can tear down the
+# freshly consented accessibility service and clear the enabled-service state.
 adb shell am start -W -n "${PACKAGE}/.MainActivity" --ez emulator_self_test true | tee "${EVIDENCE_DIR}/am-start.txt"
 sleep 7
 
