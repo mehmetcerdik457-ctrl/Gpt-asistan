@@ -8,11 +8,11 @@ val expectedSignerSha256 = "279084a36b7c17a1663bfba5fe1c5bdac974f8ef4ce56b21000d
 
 android {
   namespace = "com.example.gptasistan"
-  compileSdk = 34
+  compileSdk = 35
   defaultConfig {
     applicationId = "com.mehmetcerdik.ownerai"
     minSdk = 24
-    targetSdk = 34
+    targetSdk = 35
     versionCode = 4
     versionName = "1.2.0"
     buildConfigField("String", "BUILD_GIT_SHA", "\"$gitSha\"")
