@@ -1,0 +1,231 @@
+name: Finalize V4.1 Privileged Bridge
+
+on:
+  push:
+    branches:
+      - owner/bridge-v41-finalization
+    paths:
+      - 'bridge-v41/**'
+      - '.github/workflows/finalize-v41-bridge.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build-verify-bridge:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Exact HEAD proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          mkdir -p bridge-evidence
+          printf 'expected_sha=%s\nactual_sha=%s\n' "$GITHUB_SHA" "$(git rev-parse HEAD)" > bridge-evidence/exact-head.txt
+
+      - name: Recover exact V4.1 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC_ZIP="bridge-v41/MEHMET_OWNER_V4_1_CONTROL_PLANE_SOURCE_CANDIDATE.zip"
+          EXPECTED="7df6d150b9159affe69e529fdf1ada3ce8f957ffb1c99ba7c55f8fe3eefd7628"
+          ACTUAL="$(sha256sum "$SRC_ZIP" | awk '{print $1}')"
+          test "$ACTUAL" = "$EXPECTED"
+          unzip -t "$SRC_ZIP" | tee bridge-evidence/source-zip-integrity.txt
+          rm -rf "$RUNNER_TEMP/v41"
+          mkdir -p "$RUNNER_TEMP/v41"
+          unzip -q "$SRC_ZIP" -d "$RUNNER_TEMP/v41"
+          ROOT="$RUNNER_TEMP/v41/MEHMET_OWNER_V4_1_CONTROL_PLANE_SOURCE"
+          test -f "$ROOT/bridge/src/main/java/com/mehmetcerdik/ownerbridge/BridgeAccessibilityService.java"
+          printf 'source_zip_sha256=%s\nsource_root=%s\n' "$ACTUAL" "$ROOT" > bridge-evidence/source-lock.txt
+
+      - name: Run preserved V4.1 source/security tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/v41/MEHMET_OWNER_V4_1_CONTROL_PLANE_SOURCE"
+          (
+            cd "$ROOT"
+            python3 tests/source_lexical_test.py
+            python3 tests/source_security_invariant_test.py
+            bash tests/run_pure_java_tests.sh
+            python3 tests/static_security_test.py
+          ) | tee bridge-evidence/source-tests.txt
+          grep -q 'SOURCE_LEXICAL_TEST=PASS' bridge-evidence/source-tests.txt
+          grep -q 'SOURCE_SECURITY_INVARIANT_TEST=PASS' bridge-evidence/source-tests.txt
+          grep -q 'PURE_JAVA_SECURITY_TEST=PASS' bridge-evidence/source-tests.txt
+
+      - name: Verify PR21 Owner BridgeClient compatibility contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' | tee bridge-evidence/owner-bridge-compatibility.txt
+          from pathlib import Path
+          import re
+          owner = Path("app/src/main/java/com/mehmetcerdik/ownerai/BridgeClient.java").read_text()
+          root = Path(__import__("os").environ["RUNNER_TEMP"]) / "v41" / "MEHMET_OWNER_V4_1_CONTROL_PLANE_SOURCE"
+          provider = (root / "bridge/src/main/java/com/mehmetcerdik/ownerbridge/BridgeControlProvider.java").read_text()
+          sec = (root / "bridge/src/main/java/com/mehmetcerdik/ownerbridge/BridgeSecurity.java").read_text()
+          manifest = (root / "bridge/src/main/AndroidManifest.xml").read_text()
+          config = (root / "bridge/src/main/res/xml/accessibility_service_config.xml").read_text()
+
+          expected_signer = "279084a36b7c17a1663bfba5fe1c5bdac974f8ef4ce56b21000d882493e39448"
+          assert 'BRIDGE_PACKAGE = "com.mehmetcerdik.ownerbridge"' in owner
+          assert 'BRIDGE_AUTHORITY = "com.mehmetcerdik.ownerbridge.control"' in owner
+          assert expected_signer in owner
+          assert 'CORE_PACKAGE = "com.mehmetcerdik.ownerai"' in sec
+          assert expected_signer in sec
+          assert 'Binder.getCallingUid()' in provider
+          assert 'BridgeSecurity.verifyCore(c)' in provider
+          assert 'android:permission="com.mehmetcerdik.ownerai.permission.BRIDGE"' in manifest
+          assert 'android.permission.INTERNET' not in manifest
+          assert 'android:canPerformGestures="true"' in config
+          assert 'android:canRetrieveWindowContent="true"' in config
+
+          methods = {
+            "status": [],
+            "arm": ["ttl_ms"],
+            "stop": [],
+            "approvePackage": ["package"],
+            "screenRead": [],
+            "clickText": ["text"],
+            "typeText": ["selector","text"],
+            "scroll": ["forward"],
+            "swipe": ["sx","sy","ex","ey","duration_ms"],
+            "globalAction": ["action"],
+            "launchApp": ["package"],
+          }
+          for method, keys in methods.items():
+              assert f'call(c, "{method}"' in owner or f'call(c,"{method}"' in owner, method
+              assert f'case "{method}"' in provider, method
+              for key in keys:
+                  assert f'"{key}"' in owner, (method,key)
+                  assert f'"{key}"' in provider, (method,key)
+
+          # Provider accepts missing optional secret=false, so current immutable PR21 two-arg typeText remains compatible.
+          assert 'extras.getBoolean("secret", false)' in provider
+          print("OWNER_BRIDGECLIENT_COMPATIBILITY=PASS")
+          print("OWNER_SOURCE_HEAD=c8b52661921f82d9e832a0dcf7eed514e970bf49")
+          print("BRIDGE_TARGET_PACKAGE=com.mehmetcerdik.ownerbridge")
+          print("BRIDGE_TARGET_VERSION=1.1.0/2")
+          print("REQUIRED_SURFACE=LAUNCH,TAP_VIA_OWNER_LOCAL,SWIPE,TYPE,GLOBAL_ACTION,POSTCONDITION,AUDIT")
+          PY
+          grep -q 'OWNER_BRIDGECLIENT_COMPATIBILITY=PASS' bridge-evidence/owner-bridge-compatibility.txt
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Ensure Android SDK 35/build-tools 35.0.0
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          test -n "$SDK_ROOT"
+          SDKMANAGER="$(command -v sdkmanager || true)"
+          if [ -n "$SDKMANAGER" ]; then
+            yes | "$SDKMANAGER" --licenses >/dev/null || true
+            "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0" >/dev/null
+          fi
+          test -f "$SDK_ROOT/platforms/android-35/android.jar"
+          test -x "$SDK_ROOT/build-tools/35.0.0/aapt2"
+          test -x "$SDK_ROOT/build-tools/35.0.0/zipalign"
+          gradle --version | tee bridge-evidence/gradle-version.txt
+          grep -q 'Gradle 8.9' bridge-evidence/gradle-version.txt
+
+      - name: Build exact V4.1 Bridge release
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/v41/MEHMET_OWNER_V4_1_CONTROL_PLANE_SOURCE"
+          gradle -p "$ROOT" :bridge:clean :bridge:assembleRelease --no-daemon --stacktrace | tee bridge-evidence/gradle-build.txt
+          IN="$ROOT/bridge/build/outputs/apk/release/bridge-release-unsigned.apk"
+          test -f "$IN"
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          OUT="$PWD/bridge-evidence/MEHMET_OWNER_PRIVILEGED_BRIDGE_1.1.0_VC2_UNSIGNED_ALIGNED.apk"
+          "$SDK_ROOT/build-tools/35.0.0/zipalign" -p -f 4 "$IN" "$OUT"
+          "$SDK_ROOT/build-tools/35.0.0/zipalign" -c -p 4 "$OUT"
+          sha256sum "$OUT" > bridge-evidence/unsigned-apk.sha256
+
+      - name: Static APK capability verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          AAPT2="$SDK_ROOT/build-tools/35.0.0/aapt2"
+          APK="bridge-evidence/MEHMET_OWNER_PRIVILEGED_BRIDGE_1.1.0_VC2_UNSIGNED_ALIGNED.apk"
+          "$AAPT2" dump badging "$APK" > bridge-evidence/aapt2-badging.txt
+          grep -q "package: name='com.mehmetcerdik.ownerbridge' versionCode='2' versionName='1.1.0'" bridge-evidence/aapt2-badging.txt
+          "$AAPT2" dump permissions "$APK" > bridge-evidence/aapt2-permissions.txt
+          if grep -q 'android.permission.INTERNET' bridge-evidence/aapt2-permissions.txt; then
+            echo 'UNEXPECTED_INTERNET_PERMISSION' >&2
+            exit 41
+          fi
+          "$AAPT2" dump xmltree --file AndroidManifest.xml "$APK" > bridge-evidence/manifest-xmltree.txt
+          grep -q 'com.mehmetcerdik.ownerbridge.control' bridge-evidence/manifest-xmltree.txt
+          grep -q 'android.permission.BIND_ACCESSIBILITY_SERVICE' bridge-evidence/manifest-xmltree.txt
+
+          unzip -p "$APK" classes.dex | strings > bridge-evidence/classes-dex-strings.txt
+          for marker in dispatchGesture performGlobalAction typeText swipe launchApp verifyPostcondition screenRead; do
+            grep -Fq "$marker" bridge-evidence/classes-dex-strings.txt
+          done
+
+          ROOT="$RUNNER_TEMP/v41/MEHMET_OWNER_V4_1_CONTROL_PLANE_SOURCE"
+          grep -Fq 'android:canPerformGestures="true"' "$ROOT/bridge/src/main/res/xml/accessibility_service_config.xml"
+          grep -Fq 'android:canRetrieveWindowContent="true"' "$ROOT/bridge/src/main/res/xml/accessibility_service_config.xml"
+          grep -Fq 'AccessibilityNodeInfo.ACTION_SET_TEXT' "$ROOT/bridge/src/main/java/com/mehmetcerdik/ownerbridge/BridgeAccessibilityService.java"
+          grep -Fq 'dispatchGesture(' "$ROOT/bridge/src/main/java/com/mehmetcerdik/ownerbridge/BridgeAccessibilityService.java"
+          grep -Fq 'performGlobalAction(' "$ROOT/bridge/src/main/java/com/mehmetcerdik/ownerbridge/BridgeAccessibilityService.java"
+
+          {
+            echo 'BRIDGE_PACKAGE_VERSION=PASS'
+            echo 'BRIDGE_NO_INTERNET_PERMISSION=PASS'
+            echo 'BRIDGE_ACCESSIBILITY_BINDING=PASS'
+            echo 'BRIDGE_CAN_PERFORM_GESTURES=PASS_SOURCE_AND_COMPILED_SERVICE_PRESENT'
+            echo 'BRIDGE_TYPE_ACTION_SET_TEXT=PASS_SOURCE_AND_COMPILED_TYPE_TEXT_PRESENT'
+            echo 'BRIDGE_SWIPE_DISPATCH_GESTURE=PASS_COMPILED'
+            echo 'BRIDGE_GLOBAL_ACTION=PASS_COMPILED'
+            echo 'BRIDGE_LAUNCH_APP=PASS_COMPILED'
+            echo 'BRIDGE_POSTCONDITION=PASS_COMPILED'
+            echo 'BRIDGE_AUDIT_SURFACE=PASS_SOURCE_TESTED'
+          } > bridge-evidence/static-capabilities.txt
+
+      - name: Evidence integrity
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "verifier_head=$GITHUB_SHA"
+            echo "source_zip_sha256=7df6d150b9159affe69e529fdf1ada3ce8f957ffb1c99ba7c55f8fe3eefd7628"
+            echo "owner_source_head=c8b52661921f82d9e832a0dcf7eed514e970bf49"
+            echo "owner_signed_sha256=55a179f96811671430556c99ee747280d648ead6833eaf7419009b4214be5394"
+            echo "expected_gen2_signer=279084a36b7c17a1663bfba5fe1c5bdac974f8ef4ce56b21000d882493e39448"
+            echo "bridge_package=com.mehmetcerdik.ownerbridge"
+            echo "bridge_version=1.1.0/2"
+          } > bridge-evidence/build-contract.txt
+          (
+            cd bridge-evidence
+            sha256sum exact-head.txt source-lock.txt source-tests.txt owner-bridge-compatibility.txt gradle-version.txt gradle-build.txt               MEHMET_OWNER_PRIVILEGED_BRIDGE_1.1.0_VC2_UNSIGNED_ALIGNED.apk unsigned-apk.sha256               aapt2-badging.txt aapt2-permissions.txt manifest-xmltree.txt classes-dex-strings.txt               static-capabilities.txt build-contract.txt > SHA256SUMS
+            sha256sum -c SHA256SUMS
+          )
+
+      - name: Upload exact Bridge build evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: owner-bridge-v41-unsigned-build-evidence
+          path: bridge-evidence/
+          if-no-files-found: error
+          retention-days: 90
