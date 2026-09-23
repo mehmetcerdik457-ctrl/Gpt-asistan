@@ -9,11 +9,11 @@ android {
   namespace = "com.example.gptasistan"
   compileSdk = 34
   defaultConfig {
-    applicationId = "com.example.gptasistan"
+    applicationId = "com.mehmetcerdik.ownercompanion"
     minSdk = 24
     targetSdk = 34
-    versionCode = 3
-    versionName = "1.1.1"
+    versionCode = 1
+    versionName = "1.0.0"
     buildConfigField("String", "BUILD_GIT_SHA", "\"$gitSha\"")
   }
   buildFeatures { buildConfig = true }
