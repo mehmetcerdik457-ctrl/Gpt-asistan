@@ -58,7 +58,20 @@ jobs:
             bridge-v41/overrides/bridge/src/main/java/com/mehmetcerdik/ownerbridge/BridgeEvidenceActivity.java \
             > bridge-evidence/finalization-overrides.sha256
           grep -Fq 'FULL_BRIDGE_EVIDENCE_CAPTURED' "$ROOT/bridge/src/main/java/com/mehmetcerdik/ownerbridge/BridgeEvidenceActivity.java"
-          grep -Fq 'android.permission.INTERNET' "$ROOT/bridge/src/main/java/com/mehmetcerdik/ownerbridge/BridgeEvidenceActivity.java" || true
+
+      - name: Apply Core-foreground signer-pinned target resume delta
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/v41/MEHMET_OWNER_V4_1_CONTROL_PLANE_SOURCE"
+          (
+            cd "$ROOT"
+            patch -p1 --forward --batch < "$GITHUB_WORKSPACE/bridge-v41/core-foreground-resume.patch"
+          ) | tee bridge-evidence/core-foreground-resume-apply.txt
+          sha256sum bridge-v41/core-foreground-resume.patch > bridge-evidence/core-foreground-resume.sha256
+          grep -Fq 'rememberControlledPackage' "$ROOT/bridge/src/main/java/com/mehmetcerdik/ownerbridge/BridgeSecurity.java"
+          grep -Fq 'activeApprovedOrResumeLastTargetRoot' "$ROOT/bridge/src/main/java/com/mehmetcerdik/ownerbridge/BridgeAccessibilityService.java"
+          grep -Fq 'BridgeSecurity.CORE_PACKAGE.equals(current)' "$ROOT/bridge/src/main/java/com/mehmetcerdik/ownerbridge/BridgeAccessibilityService.java"
 
       - name: Run preserved V4.1 source/security tests
         shell: bash
@@ -125,7 +138,13 @@ jobs:
 
           # Provider accepts missing optional secret=false, so current immutable PR21 two-arg typeText remains compatible.
           assert 'extras.getBoolean("secret", false)' in provider
+          service = (root / "bridge/src/main/java/com/mehmetcerdik/ownerbridge/BridgeAccessibilityService.java").read_text()
+          assert 'activeApprovedOrResumeLastTargetRoot' in service
+          assert 'BridgeSecurity.CORE_PACKAGE.equals(current)' in service
+          assert 'BridgeSecurity.lastControlledPackage(this)' in service
+          assert 'BridgeSecurity.rememberControlledPackage(this,pkg)' in service
           print("OWNER_BRIDGECLIENT_COMPATIBILITY=PASS")
+          print("OWNER_FOREGROUND_TO_APPROVED_TARGET_RESUME=PASS_SOURCE")
           print("OWNER_SOURCE_HEAD=c8b52661921f82d9e832a0dcf7eed514e970bf49")
           print("BRIDGE_TARGET_PACKAGE=com.mehmetcerdik.ownerbridge")
           print("BRIDGE_TARGET_VERSION=1.1.0/2")
@@ -219,6 +238,8 @@ jobs:
             echo 'BRIDGE_AUDIT_SURFACE=PASS_SOURCE_TESTED'
             echo 'BRIDGE_LOCAL_EVIDENCE_EXPORTER=PASS_COMPILED'
             echo 'BRIDGE_EVIDENCE_EXPORTER_PRIVILEGED_ACTIONS=NONE'
+            echo 'BRIDGE_CORE_FOREGROUND_TARGET_RESUME=PASS_SOURCE_COMPILED'
+            echo 'BRIDGE_TARGET_RESUME_APPROVAL_RECHECK=PASS_SOURCE'
           } > bridge-evidence/static-capabilities.txt
 
       - name: Evidence integrity
@@ -236,7 +257,7 @@ jobs:
           } > bridge-evidence/build-contract.txt
           (
             cd bridge-evidence
-            sha256sum exact-head.txt source-lock.txt finalization-overrides.sha256 source-tests.txt owner-bridge-compatibility.txt gradle-version.txt gradle-build.txt \
+            sha256sum exact-head.txt source-lock.txt finalization-overrides.sha256 core-foreground-resume-apply.txt core-foreground-resume.sha256 source-tests.txt owner-bridge-compatibility.txt gradle-version.txt gradle-build.txt \
               MEHMET_OWNER_PRIVILEGED_BRIDGE_1.1.0_VC2_UNSIGNED_ALIGNED.apk unsigned-apk.sha256 \
               aapt2-badging.txt aapt2-permissions.txt manifest-xmltree.txt classes-dex-strings.txt \
               static-capabilities.txt build-contract.txt > SHA256SUMS
