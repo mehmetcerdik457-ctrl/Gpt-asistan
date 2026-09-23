@@ -1,0 +1,91 @@
+name: Full Final System Evidence Gate
+
+on:
+  push:
+    branches:
+      - owner/bridge-v41-finalization
+    paths:
+      - 'tools/verify_full_final_system.py'
+      - '.github/workflows/full-final-system-evidence.yml'
+  pull_request:
+    paths:
+      - 'tools/verify_full_final_system.py'
+      - '.github/workflows/full-final-system-evidence.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  full-final-verifier:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Exact verifier HEAD proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          ACTUAL="$(git rev-parse HEAD)"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            EXPECTED="${{ github.event.pull_request.head.sha }}"
+          else
+            EXPECTED="$GITHUB_SHA"
+          fi
+          test "$ACTUAL" = "$EXPECTED"
+          mkdir -p full-final-evidence
+          printf 'expected_sha=%s\nactual_sha=%s\n' "$EXPECTED" "$ACTUAL" > full-final-evidence/exact-head.txt
+
+      - name: Full verifier self-test
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/verify_full_final_system.py --self-test | tee full-final-evidence/self-test.txt
+          grep -q 'FULL_FINAL_VERIFIER_SELF_TEST_PASS' full-final-evidence/self-test.txt
+
+      - name: Freeze exact full-system contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          HEAD="$(git rev-parse HEAD)"
+          python3 tools/verify_full_final_system.py --print-contract --verifier-head "$HEAD"             > full-final-evidence/full-final-contract.json
+          grep -q '"source_head": "c8b52661921f82d9e832a0dcf7eed514e970bf49"' full-final-evidence/full-final-contract.json
+          grep -q '"signed_artifact_sha256": "55a179f96811671430556c99ee747280d648ead6833eaf7419009b4214be5394"' full-final-evidence/full-final-contract.json
+          grep -q '"source_zip_sha256": "7df6d150b9159affe69e529fdf1ada3ce8f957ffb1c99ba7c55f8fe3eefd7628"' full-final-evidence/full-final-contract.json
+          grep -q '"unsigned_artifact_sha256": "75045bdbfc065aab02e8f34d7328384cda6fd581f5fc073f3594e7af03d88e9e"' full-final-evidence/full-final-contract.json
+          grep -q '"signed_artifact_sha256": "8997b394c7df2e097d7568b657cf9e8ba44005dc1db6c7f23afe1096f726600a"' full-final-evidence/full-final-contract.json
+          grep -q '"accept_status": "FULL_REAL_DEVICE_EVIDENCE_VERIFIED"' full-final-evidence/full-final-contract.json
+
+      - name: Fail-closed source inspection
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'FULL_OWNER_TAP_NOT_VERIFIED' tools/verify_full_final_system.py
+          grep -q 'FULL_BRIDGE_LAUNCH_EVENT_MISSING' tools/verify_full_final_system.py
+          grep -q 'FULL_BRIDGE_SWIPE_EVENT_MISSING' tools/verify_full_final_system.py
+          grep -q 'FULL_BRIDGE_TYPE_EVENT_MISSING' tools/verify_full_final_system.py
+          grep -q 'FULL_BRIDGE_POSTCONDITION_NOT_VERIFIED' tools/verify_full_final_system.py
+          grep -q 'FULL_BRIDGE_AUDIT_INTEGRITY_FAIL' tools/verify_full_final_system.py
+          sha256sum tools/verify_full_final_system.py > full-final-evidence/verifier-source.sha256
+
+      - name: Evidence package integrity
+        shell: bash
+        run: |
+          set -euo pipefail
+          (
+            cd full-final-evidence
+            sha256sum exact-head.txt self-test.txt full-final-contract.json verifier-source.sha256 > SHA256SUMS
+            sha256sum -c SHA256SUMS
+          )
+
+      - name: Upload full final verifier evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-final-system-evidence-gate
+          path: full-final-evidence/
+          if-no-files-found: error
+          retention-days: 90
