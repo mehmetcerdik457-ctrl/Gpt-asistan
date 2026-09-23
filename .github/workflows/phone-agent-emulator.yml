@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - phone-agent/runtime-v1
+      - owner/stable-companion-v1
 
 permissions:
   contents: read

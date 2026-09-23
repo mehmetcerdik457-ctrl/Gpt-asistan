@@ -28,6 +28,8 @@ FILES=[
  'app/src/main/java/com/example/gptasistan/MainActivity.kt',
  'app/src/main/java/com/example/gptasistan/PhoneActionPolicy.kt',
  'app/src/main/java/com/example/gptasistan/PhoneAgentAccessibilityService.kt',
+ 'app/src/main/java/com/mehmetcerdik/ownerai/BridgeClient.java',
+ 'app/src/main/java/com/mehmetcerdik/ownerai/OwnerControlPlaneActivity.java',
  'app/src/main/res/xml/accessibility_service_config.xml',
  'app/src/main/res/values/strings.xml',
  'app/src/main/res/values/themes.xml',
