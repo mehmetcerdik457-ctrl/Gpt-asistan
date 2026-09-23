@@ -110,6 +110,7 @@ jobs:
           cp "${ZIPALIGN}" signing-toolkit/
           cp "${BUILD_TOOLS}/aapt2" signing-toolkit/
           cp -a "${BUILD_TOOLS}/lib" signing-toolkit/
+          if [ -d "${BUILD_TOOLS}/lib64" ]; then cp -a "${BUILD_TOOLS}/lib64" signing-toolkit/; fi
           tar -czf android-evidence/android-signing-toolkit.tar.gz -C signing-toolkit .
 
           test "${APK_HASH}" = "$(sha256sum "${ALIGNED}" | awk '{print $1}')"
