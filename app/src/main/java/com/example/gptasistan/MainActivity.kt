@@ -36,7 +36,7 @@ class MainActivity : AppCompatActivity() {
             setPadding(32, 48, 32, 48)
         }
         container.addView(TextView(this).apply {
-            text = "GPT Asistan · Phone Agent Runtime v1.1"
+            text = "MEHMET Owner Companion · Phone Agent Runtime v1.2"
             textSize = 20f
         })
         statusView = TextView(this).apply { textSize = 16f; setPadding(0, 20, 0, 20) }
@@ -199,7 +199,14 @@ class MainActivity : AppCompatActivity() {
             @Suppress("DEPRECATION") info.versionCode.toLong()
         }
         val apkHash = sha256(File(applicationInfo.sourceDir))
-        val devicePostcondition = if (apkHash.matches(Regex("^[0-9a-f]{64}$")) && !info.versionName.isNullOrBlank()) "PASS" else "FAIL"
+        val signerHash = signerSha256()
+        val signerMatch = signerHash.equals(BuildConfig.EXPECTED_SIGNER_SHA256, ignoreCase = true)
+        val packageMatch = packageName == "com.mehmetcerdik.ownerai"
+        val versionMatch = versionCode == 4L && info.versionName == "1.2.0"
+        val devicePostcondition = if (
+            apkHash.matches(Regex("^[0-9a-f]{64}$")) &&
+            signerMatch && packageMatch && versionMatch
+        ) "PASS" else "FAIL"
         val enabled = PhoneAgentAccessibilityService.isEnabled(this)
         val connected = PhoneAgentAccessibilityService.instance != null
         val events = PhoneAgentAccessibilityService.readEvents(this)
@@ -216,6 +223,12 @@ class MainActivity : AppCompatActivity() {
             .put("version_name", info.versionName ?: "")
             .put("version_code", versionCode.toString())
             .put("artifact_sha256", apkHash)
+            .put("signer_cert_sha256", signerHash)
+            .put("expected_signer_cert_sha256", BuildConfig.EXPECTED_SIGNER_SHA256)
+            .put("signer_match", signerMatch)
+            .put("package_match", packageMatch)
+            .put("version_match", versionMatch)
+            .put("installer_package", installerPackageName())
             .put("install_result", "PASS")
             .put("launch_result", "PASS")
             .put("postcondition_result", devicePostcondition)
@@ -239,6 +252,34 @@ class MainActivity : AppCompatActivity() {
             .put("captured_at_epoch_ms", System.currentTimeMillis())
             .put("evidence", device)
             .put("phone_agent", runtime)
+    }
+
+    @Suppress("DEPRECATION")
+    private fun signerSha256(): String = runCatching {
+        val signatures = if (Build.VERSION.SDK_INT >= 28) {
+            packageManager.getPackageInfo(
+                packageName,
+                PackageManager.GET_SIGNING_CERTIFICATES
+            ).signingInfo?.apkContentsSigners
+        } else {
+            packageManager.getPackageInfo(packageName, PackageManager.GET_SIGNATURES).signatures
+        }
+        val first = signatures?.firstOrNull() ?: return@runCatching ""
+        sha256Bytes(first.toByteArray())
+    }.getOrDefault("")
+
+    @Suppress("DEPRECATION")
+    private fun installerPackageName(): String = runCatching {
+        if (Build.VERSION.SDK_INT >= 30) {
+            packageManager.getInstallSourceInfo(packageName).installingPackageName ?: ""
+        } else {
+            packageManager.getInstallerPackageName(packageName) ?: ""
+        }
+    }.getOrDefault("")
+
+    private fun sha256Bytes(bytes: ByteArray): String {
+        val digest = MessageDigest.getInstance("SHA-256").digest(bytes)
+        return digest.joinToString("") { "%02x".format(it) }
     }
 
     private fun sha256(file: File): String {
