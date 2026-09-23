@@ -1,0 +1,57 @@
+name: Build Final Privileged Bridge
+on:
+  push:
+    branches: [bridge/final-v1-20260924]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Exact head proof
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          mkdir -p bridge-evidence
+          printf 'expected_sha=%s\nactual_sha=%s\n' "$GITHUB_SHA" "$(git rev-parse HEAD)" > bridge-evidence/exact-head.txt
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Source contract
+        run: |
+          set -euo pipefail
+          python3 tools/verify_final_bridge_source.py | tee bridge-evidence/source-contract.txt
+      - name: Build release
+        run: |
+          set -euo pipefail
+          chmod +x ./gradlew
+          ./gradlew :bridge:assembleRelease --no-daemon
+          APK="$(find bridge/build/outputs/apk/release -name '*.apk' -type f | head -1)"
+          test -n "$APK"
+          cp "$APK" bridge-evidence/MEHMET_PRIVILEGED_BRIDGE_1.1.0_VC2_UNSIGNED.apk
+          sha256sum bridge-evidence/MEHMET_PRIVILEGED_BRIDGE_1.1.0_VC2_UNSIGNED.apk > bridge-evidence/unsigned.sha256
+      - name: APK static identity
+        run: |
+          set -euo pipefail
+          SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          BT="$(find "$SDK/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
+          "$BT/aapt2" dump badging bridge-evidence/MEHMET_PRIVILEGED_BRIDGE_1.1.0_VC2_UNSIGNED.apk | tee bridge-evidence/badging.txt
+          grep -Fq "package: name='com.mehmetcerdik.ownerbridge' versionCode='2' versionName='1.1.0'" bridge-evidence/badging.txt
+          "$BT/zipalign" -c -p 4 bridge-evidence/MEHMET_PRIVILEGED_BRIDGE_1.1.0_VC2_UNSIGNED.apk
+          unzip -p bridge-evidence/MEHMET_PRIVILEGED_BRIDGE_1.1.0_VC2_UNSIGNED.apk AndroidManifest.xml >/dev/null
+          strings bridge-evidence/MEHMET_PRIVILEGED_BRIDGE_1.1.0_VC2_UNSIGNED.apk | grep -q 'com.mehmetcerdik.ownerbridge'
+          { echo "git_head=$GITHUB_SHA"; echo "package=com.mehmetcerdik.ownerbridge"; echo "version=1.1.0/2"; echo "internet_permission=NONE_SOURCE_VERIFIED"; echo "required_surface=launchApp,clickText,typeText,scroll,swipe,globalAction,screenRead"; } > bridge-evidence/MANIFEST.txt
+          (cd bridge-evidence && sha256sum exact-head.txt source-contract.txt unsigned.sha256 badging.txt MANIFEST.txt > SHA256SUMS && sha256sum -c SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: final-privileged-bridge-unsigned
+          path: bridge-evidence/
+          if-no-files-found: error
+          retention-days: 90
