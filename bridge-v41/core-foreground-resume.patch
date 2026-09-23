@@ -1,0 +1,128 @@
+--- a/bridge/src/main/java/com/mehmetcerdik/ownerbridge/BridgeSecurity.java
++++ b/bridge/src/main/java/com/mehmetcerdik/ownerbridge/BridgeSecurity.java
+@@ -41,6 +41,7 @@
+     private static final String PREFS = "mehm_owner_bridge_state";
+     private static final String KEY_APPROVED = "approved_package_signers";
+     private static final String KEY_EMERGENCY = "emergency_stop";
++    private static final String KEY_LAST_CONTROLLED_PACKAGE = "last_controlled_package";
+     private static final String KEY_AUDIT_SEQ = "audit_seq";
+     private static final String KEY_AUDIT_HEAD = "audit_head_hash";
+     private static final String KEY_AUDIT_SEGMENT = "audit_segment";
+@@ -212,6 +213,16 @@
+         return set.contains(pkg + "|" + signer.toLowerCase(Locale.ROOT));
+     }
+ 
++    static synchronized boolean rememberControlledPackage(Context c, String pkg) {
++        if (!isPackageApproved(c, pkg)) return false;
++        return prefs(c).edit().putString(KEY_LAST_CONTROLLED_PACKAGE, pkg).commit();
++    }
++
++    static String lastControlledPackage(Context c) {
++        String pkg = prefs(c).getString(KEY_LAST_CONTROLLED_PACKAGE, "");
++        return isPackageApproved(c, pkg) ? pkg : "";
++    }
++
+     static synchronized boolean revokePackage(Context c, String pkg) {
+         if (!validPackageName(pkg) || WORKER_PACKAGE.equals(pkg)) return false;
+         HashSet<String> set = new HashSet<>(prefs(c).getStringSet(KEY_APPROVED, new HashSet<>()));
+--- a/bridge/src/main/java/com/mehmetcerdik/ownerbridge/BridgeAccessibilityService.java
++++ b/bridge/src/main/java/com/mehmetcerdik/ownerbridge/BridgeAccessibilityService.java
+@@ -46,14 +46,14 @@
+     Bundle status(){ Bundle b=ok(); b.putString("active_package",activePackage()); b.putBoolean("service_connected",true); return b; }
+ 
+     Bundle screenRead(){
+-        AccessibilityNodeInfo root=getRootInActiveWindow(); if(root==null) return fail("NO_ACTIVE_ROOT");
++        AccessibilityNodeInfo root=activeApprovedOrResumeLastTargetRoot(); if(root==null) return fail("NO_ACTIVE_ROOT_OR_RESUMABLE_TARGET");
+         String pkg=packageName(root); if(!BridgeSecurity.isPackageApproved(this,pkg)) return fail("ACTIVE_PACKAGE_NOT_APPROVED");
+         String snapshot=snapshot(root); Bundle b=ok(); b.putString("status","OBSERVED"); b.putString("package",pkg); b.putString("snapshot",snapshot); b.putString("snapshot_hash",BridgeSecurity.sha256String(snapshot)); return b;
+     }
+ 
+     Bundle clickTextExact(String wanted){
+         if(wanted==null || wanted.trim().isEmpty()) return fail("EMPTY_SELECTOR");
+-        String selector=wanted.trim(); AccessibilityNodeInfo initial=getRootInActiveWindow(); if(initial==null) return fail("NO_ACTIVE_ROOT");
++        String selector=wanted.trim(); AccessibilityNodeInfo initial=activeApprovedOrResumeLastTargetRoot(); if(initial==null) return fail("NO_ACTIVE_ROOT_OR_RESUMABLE_TARGET");
+         String expectedPkg=packageName(initial); if(!BridgeSecurity.isPackageApproved(this,expectedPkg)) return fail("ACTIVE_PACKAGE_NOT_APPROVED");
+         String before=BridgeSecurity.sha256String(snapshot(initial));
+         AccessibilityNodeInfo fresh=getRootInActiveWindow(); if(fresh==null || !expectedPkg.equals(packageName(fresh))) return fail("ACTIVE_PACKAGE_CHANGED_BEFORE_CLICK");
+@@ -76,7 +76,7 @@
+ 
+     Bundle typeText(String selector, String value, boolean secret){
+         if(value==null) return fail("NULL_TEXT"); if(value.length()>4000) return fail("TEXT_TOO_LONG");
+-        AccessibilityNodeInfo initial=getRootInActiveWindow(); if(initial==null) return fail("NO_ACTIVE_ROOT");
++        AccessibilityNodeInfo initial=activeApprovedOrResumeLastTargetRoot(); if(initial==null) return fail("NO_ACTIVE_ROOT_OR_RESUMABLE_TARGET");
+         String expectedPkg=packageName(initial); if(!BridgeSecurity.isPackageApproved(this,expectedPkg)) return fail("ACTIVE_PACKAGE_NOT_APPROVED");
+         AccessibilityNodeInfo fresh=getRootInActiveWindow(); if(fresh==null || !expectedPkg.equals(packageName(fresh))) return fail("ACTIVE_PACKAGE_CHANGED_BEFORE_TYPE");
+         AccessibilityNodeInfo preliminaryTarget=resolveEditable(fresh,selector); if(preliminaryTarget==null) return fail(lastResolveFailure);
+@@ -106,7 +106,7 @@
+     }
+ 
+     Bundle scroll(boolean forward){
+-        AccessibilityNodeInfo initial=getRootInActiveWindow(); if(initial==null) return fail("NO_ACTIVE_ROOT"); String expectedPkg=packageName(initial);
++        AccessibilityNodeInfo initial=activeApprovedOrResumeLastTargetRoot(); if(initial==null) return fail("NO_ACTIVE_ROOT_OR_RESUMABLE_TARGET"); String expectedPkg=packageName(initial);
+         if(!BridgeSecurity.isPackageApproved(this,expectedPkg)) return fail("ACTIVE_PACKAGE_NOT_APPROVED"); String before=BridgeSecurity.sha256String(snapshot(initial));
+         AccessibilityNodeInfo fresh=getRootInActiveWindow(); if(fresh==null || !expectedPkg.equals(packageName(fresh))) return fail("ACTIVE_PACKAGE_CHANGED_BEFORE_SCROLL");
+         List<AccessibilityNodeInfo> nodes=new ArrayList<>(); collectScrollable(fresh,nodes); if(nodes.isEmpty()) return fail("SCROLLABLE_NOT_FOUND"); if(nodes.size()!=1) return fail("SCROLLABLE_AMBIGUOUS");
+@@ -122,7 +122,7 @@
+     }
+ 
+     Bundle swipe(float sx,float sy,float ex,float ey,long durationMs){
+-        AccessibilityNodeInfo initial=getRootInActiveWindow(); if(initial==null) return fail("NO_ACTIVE_ROOT"); String expectedPkg=packageName(initial);
++        AccessibilityNodeInfo initial=activeApprovedOrResumeLastTargetRoot(); if(initial==null) return fail("NO_ACTIVE_ROOT_OR_RESUMABLE_TARGET"); String expectedPkg=packageName(initial);
+         if(!BridgeSecurity.isPackageApproved(this,expectedPkg)) return fail("ACTIVE_PACKAGE_NOT_APPROVED");
+         if(!norm(sx)||!norm(sy)||!norm(ex)||!norm(ey)) return fail("SWIPE_COORDINATE_OUT_OF_RANGE");
+         long d=Math.max(100L,Math.min(durationMs<=0?350L:durationMs,2000L)); android.util.DisplayMetrics dm=getResources().getDisplayMetrics();
+@@ -144,7 +144,7 @@
+     Bundle globalAction(String actionName){
+         int action; String n=actionName==null?"":actionName.trim().toUpperCase(Locale.ROOT);
+         switch(n){case "BACK":action=GLOBAL_ACTION_BACK;break;case "HOME":action=GLOBAL_ACTION_HOME;break;case "RECENTS":action=GLOBAL_ACTION_RECENTS;break;case "NOTIFICATIONS":action=GLOBAL_ACTION_NOTIFICATIONS;break;default:return fail("UNKNOWN_GLOBAL_ACTION");}
+-        AccessibilityNodeInfo initial=getRootInActiveWindow(); if(initial==null) return fail("NO_ACTIVE_ROOT"); String expectedPkg=packageName(initial);
++        AccessibilityNodeInfo initial=activeApprovedOrResumeLastTargetRoot(); if(initial==null) return fail("NO_ACTIVE_ROOT_OR_RESUMABLE_TARGET"); String expectedPkg=packageName(initial);
+         if(!BridgeSecurity.isPackageApproved(this,expectedPkg)) return fail("ACTIVE_PACKAGE_NOT_APPROVED_FOR_GLOBAL_ACTION"); String before=BridgeSecurity.sha256String(snapshot(initial));
+         AccessibilityNodeInfo pre=getRootInActiveWindow(); if(pre==null || !expectedPkg.equals(packageName(pre))) return fail("ACTIVE_PACKAGE_CHANGED_BEFORE_GLOBAL_ACTION");
+         if(!BridgeSecurity.isPackageApproved(this,expectedPkg)) return fail("ACTIVE_PACKAGE_APPROVAL_LOST");
+@@ -156,12 +156,12 @@
+     Bundle launchApp(String pkg){
+         if(!BridgeSecurity.isPackageApproved(this,pkg)) return fail("PACKAGE_NOT_APPROVED"); Intent i=getPackageManager().getLaunchIntentForPackage(pkg); if(i==null) return fail("NO_LAUNCH_INTENT");
+         i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); try{startActivity(i);}catch(Throwable t){return fail("LAUNCH_FAILED");}
+-        long end=SystemClock.uptimeMillis()+3000L; while(SystemClock.uptimeMillis()<end){if(pkg.equals(activePackage())){if(!BridgeSecurity.isPackageApproved(this,pkg)) return fail("PACKAGE_APPROVAL_LOST_AFTER_LAUNCH");Bundle b=state("TARGET_POSTCONDITION_CONFIRMED",pkg);b.putBoolean("target_postcondition_confirmed",true);return b;}SystemClock.sleep(100);}
++        long end=SystemClock.uptimeMillis()+3000L; while(SystemClock.uptimeMillis()<end){if(pkg.equals(activePackage())){if(!BridgeSecurity.isPackageApproved(this,pkg)) return fail("PACKAGE_APPROVAL_LOST_AFTER_LAUNCH");if(!BridgeSecurity.rememberControlledPackage(this,pkg)) return fail("CONTROLLED_TARGET_PERSIST_FAILED");Bundle b=state("TARGET_POSTCONDITION_CONFIRMED",pkg);b.putBoolean("target_postcondition_confirmed",true);return b;}SystemClock.sleep(100);}
+         return state("DISPATCHED",activePackage());
+     }
+ 
+     Bundle verifyPostcondition(String kind,String expected){
+-        String k=kind==null?"":kind.trim(); String e=expected==null?"":expected.trim(); AccessibilityNodeInfo root=getRootInActiveWindow(); if(root==null) return fail("NO_ACTIVE_ROOT");
++        String k=kind==null?"":kind.trim(); String e=expected==null?"":expected.trim(); AccessibilityNodeInfo root=activeApprovedOrResumeLastTargetRoot(); if(root==null) return fail("NO_ACTIVE_ROOT_OR_RESUMABLE_TARGET");
+         String pkg=packageName(root); if(!BridgeSecurity.isPackageApproved(this,pkg)) return fail("ACTIVE_PACKAGE_NOT_APPROVED"); boolean matched;
+         if("activePackageEquals".equals(k)) matched=pkg.equals(e);
+         else if("textPresent".equals(k)){List<AccessibilityNodeInfo> x=new ArrayList<>();collectExactLabel(root,e,x);matched=!x.isEmpty();}
+@@ -170,6 +170,30 @@
+         if(!matched) return fail("TARGET_POSTCONDITION_NOT_MET"); Bundle b=state("TARGET_POSTCONDITION_CONFIRMED",pkg); b.putBoolean("target_postcondition_confirmed",true); return b;
+     }
+ 
++    private AccessibilityNodeInfo activeApprovedOrResumeLastTargetRoot(){
++        AccessibilityNodeInfo root=getRootInActiveWindow();
++        if(root!=null){
++            String current=packageName(root);
++            if(BridgeSecurity.isPackageApproved(this,current)) return root;
++            if(!BridgeSecurity.CORE_PACKAGE.equals(current)) return root;
++        }
++        String target=BridgeSecurity.lastControlledPackage(this);
++        if(target==null || target.isEmpty() || !BridgeSecurity.isPackageApproved(this,target)) return root;
++        Intent i=getPackageManager().getLaunchIntentForPackage(target);
++        if(i==null) return root;
++        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
++        try{startActivity(i);}catch(Throwable t){return root;}
++        long end=SystemClock.uptimeMillis()+3000L;
++        while(SystemClock.uptimeMillis()<end){
++            if(target.equals(activePackage())){
++                AccessibilityNodeInfo resumed=getRootInActiveWindow();
++                if(resumed!=null && target.equals(packageName(resumed)) && BridgeSecurity.isPackageApproved(this,target)) return resumed;
++            }
++            SystemClock.sleep(100L);
++        }
++        return root;
++    }
++
+     private String activePackage(){AccessibilityNodeInfo root=getRootInActiveWindow();return root==null?"":packageName(root);} private String currentSnapshotHash(){AccessibilityNodeInfo root=getRootInActiveWindow();return root==null?"":BridgeSecurity.sha256String(snapshot(root));}
+     private String packageName(AccessibilityNodeInfo root){CharSequence p=root.getPackageName();return p==null?"":p.toString();} private static boolean norm(float v){return v>=0f&&v<=1f;}
+     private AccessibilityNodeInfo nearestClickable(AccessibilityNodeInfo n){AccessibilityNodeInfo cur=n;for(int i=0;i<5&&cur!=null;i++){if(cur.isClickable()&&cur.isEnabled())return cur;cur=cur.getParent();}return null;}
