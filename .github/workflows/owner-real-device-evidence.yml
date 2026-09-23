@@ -1,0 +1,68 @@
+name: Owner Real Device Evidence Contract
+
+on:
+  push:
+    branches:
+      - owner/real-device-evidence-v1
+  pull_request:
+    paths:
+      - 'tools/verify_owner_real_device.py'
+      - 'control-plane/runtime/owner_real_device_expected.json'
+      - 'tests/test_owner_real_device_verifier.py'
+      - '.github/workflows/owner-real-device-evidence.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate-owner-evidence-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Exact checkout proof
+        shell: bash
+        run: |
+          ACTUAL="$(git rev-parse HEAD)"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            EXPECTED="${{ github.event.pull_request.head.sha }}"
+          else
+            EXPECTED="${GITHUB_SHA}"
+          fi
+          test "${ACTUAL}" = "${EXPECTED}"
+          printf 'expected_sha=%s\nactual_sha=%s\n' "${EXPECTED}" "${ACTUAL}" > /tmp/owner-real-device-exact-head.txt
+
+      - name: Unit tests
+        run: python3 -m unittest tests/test_owner_real_device_verifier.py -v
+
+      - name: Prove repository contract is fail-closed
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, pathlib, subprocess, tempfile
+          expected = json.loads(pathlib.Path("control-plane/runtime/owner_real_device_expected.json").read_text())
+          assert expected["status"] == "AWAITING_SIGNED_ARTIFACT_IDENTITY"
+          assert expected["artifact_sha256"] is None
+          print("repository contract is intentionally pending signed artifact identity")
+          PY
+
+      - name: Evidence package
+        shell: bash
+        run: |
+          mkdir -p owner-evidence-contract
+          cp /tmp/owner-real-device-exact-head.txt owner-evidence-contract/
+          cp control-plane/runtime/owner_real_device_expected.json owner-evidence-contract/
+          cp tools/verify_owner_real_device.py owner-evidence-contract/
+          cp tests/test_owner_real_device_verifier.py owner-evidence-contract/
+          (cd owner-evidence-contract && sha256sum * > SHA256SUMS)
+          (cd owner-evidence-contract && sha256sum -c SHA256SUMS)
+
+      - name: Upload contract evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: owner-real-device-evidence-contract
+          path: owner-evidence-contract/
+          if-no-files-found: error
