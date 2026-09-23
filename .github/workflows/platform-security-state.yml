@@ -97,7 +97,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 - <<'PY'
+          python3 - <<'PY' | tee -a platform-evidence/state.txt
           import json
           from pathlib import Path
 
@@ -131,6 +131,7 @@ jobs:
           print("MAIN_BRANCH_POLICY=PASS")
           PY
       - name: Upload non-sensitive feature-state evidence
+        if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: platform-security-state-${{ github.sha }}
