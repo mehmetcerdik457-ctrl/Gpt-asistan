@@ -36,7 +36,7 @@ class MainActivity : AppCompatActivity() {
             setPadding(32, 48, 32, 48)
         }
         container.addView(TextView(this).apply {
-            text = "GPT Asistan · Phone Agent Runtime v1.1"
+            text = "MEHMET Owner Companion · Phone Agent v1"
             textSize = 20f
         })
         statusView = TextView(this).apply { textSize = 16f; setPadding(0, 20, 0, 20) }
@@ -111,7 +111,7 @@ class MainActivity : AppCompatActivity() {
             setOnClickListener {
                 val evidence = buildEvidence().toString(2)
                 val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
-                clipboard.setPrimaryClip(ClipData.newPlainText("GPT Asistan phone-agent evidence", evidence))
+                clipboard.setPrimaryClip(ClipData.newPlainText("MEHMET Owner Companion evidence", evidence))
                 Toast.makeText(this@MainActivity, "Güncel kanıt panoya kopyalandı", Toast.LENGTH_SHORT).show()
             }
         })
@@ -124,7 +124,7 @@ class MainActivity : AppCompatActivity() {
                     type = "application/json"
                     putExtra(Intent.EXTRA_TEXT, evidence)
                 }
-                startActivity(Intent.createChooser(intent, "Phone Agent evidence paylaş"))
+                startActivity(Intent.createChooser(intent, "Owner Companion evidence paylaş"))
             }
         })
 
@@ -233,9 +233,10 @@ class MainActivity : AppCompatActivity() {
             .put("events", events)
 
         return JSONObject()
-            .put("version", 3)
+            .put("version", 4)
             .put("status", if (devicePostcondition == "PASS") "REAL_DEVICE_EVIDENCE_CAPTURED" else "REAL_DEVICE_EVIDENCE_FAIL")
             .put("git_head", BuildConfig.BUILD_GIT_SHA)
+            .put("owner_plane", "OWNER_COMPANION")
             .put("captured_at_epoch_ms", System.currentTimeMillis())
             .put("evidence", device)
             .put("phone_agent", runtime)
