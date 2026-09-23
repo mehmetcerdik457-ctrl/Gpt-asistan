@@ -17,18 +17,110 @@ adb install -r "${APK}" | tee "${EVIDENCE_DIR}/adb-install.txt"
 
 adb shell cmd appops set "${PACKAGE}" ACCESS_RESTRICTED_SETTINGS allow || true
 adb shell cmd appops get "${PACKAGE}" ACCESS_RESTRICTED_SETTINGS | tee "${EVIDENCE_DIR}/restricted-settings-appop.txt" || true
-adb shell settings --user 0 put secure enabled_accessibility_services "${SERVICE}"
-adb shell settings --user 0 put secure accessibility_enabled 1
-adb shell am force-stop "${PACKAGE}"
-adb shell am start -W -n "${PACKAGE}/.MainActivity" --ez emulator_self_test true | tee "${EVIDENCE_DIR}/am-start.txt"
-sleep 7
+
+dump_ui() {
+  local out="$1"
+  adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1 || true
+  adb pull /sdcard/window.xml "${out}" >/dev/null
+}
+
+tap_text_once() {
+  local needle="$1"
+  local xml="${EVIDENCE_DIR}/ui-tap.xml"
+  local coords
+  dump_ui "${xml}"
+  coords="$(python3 - "${xml}" "${needle}" <<'PY'
+import re, sys, xml.etree.ElementTree as ET
+path, needle = sys.argv[1], sys.argv[2].lower()
+root = ET.parse(path).getroot()
+for node in root.iter("node"):
+    label = ((node.attrib.get("text") or "") + " " + (node.attrib.get("content-desc") or "")).lower()
+    if needle in label:
+        m = re.fullmatch(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", node.attrib.get("bounds",""))
+        if m:
+            x1,y1,x2,y2 = map(int,m.groups())
+            print(f"{(x1+x2)//2} {(y1+y2)//2}")
+            raise SystemExit(0)
+raise SystemExit(1)
+PY
+)" || true
+  [[ -n "${coords}" ]] || return 1
+  read -r x y <<<"${coords}"
+  adb shell input tap "${x}" "${y}"
+  sleep 1
+}
+
+scroll_find_and_tap() {
+  local needle="$1"
+  local attempt
+  for attempt in 1 2 3 4 5 6; do
+    if tap_text_once "${needle}"; then return 0; fi
+    adb shell input swipe 540 1600 540 500 350
+    sleep 1
+  done
+  return 1
+}
+
+tap_first_switch() {
+  local xml="${EVIDENCE_DIR}/ui-switch.xml"
+  local coords
+  dump_ui "${xml}"
+  coords="$(python3 - "${xml}" <<'PY'
+import re, sys, xml.etree.ElementTree as ET
+root = ET.parse(sys.argv[1]).getroot()
+for node in root.iter("node"):
+    cls=node.attrib.get("class","")
+    rid=node.attrib.get("resource-id","")
+    if "Switch" in cls or "switch_widget" in rid:
+        m=re.fullmatch(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]",node.attrib.get("bounds",""))
+        if m:
+            x1,y1,x2,y2=map(int,m.groups())
+            print(f"{(x1+x2)//2} {(y1+y2)//2}")
+            raise SystemExit(0)
+raise SystemExit(1)
+PY
+)" || true
+  [[ -n "${coords}" ]] || return 1
+  read -r x y <<<"${coords}"
+  adb shell input tap "${x}" "${y}"
+  sleep 1
+}
+
+ENABLED="$(adb shell settings --user 0 get secure enabled_accessibility_services | tr -d "\r")"
+if [[ ":${ENABLED}:" != *":${SERVICE}:"* && ":${ENABLED}:" != *":${SERVICE_FULL}:"* ]]; then
+  adb shell am start -a android.settings.ACCESSIBILITY_SETTINGS | tee "${EVIDENCE_DIR}/accessibility-settings-start.txt"
+  sleep 2
+
+  if ! scroll_find_and_tap "GPT Asistan"; then
+    for group in "Downloaded apps" "Installed apps" "Downloaded services" "Installed services"; do
+      if scroll_find_and_tap "${group}"; then
+        sleep 2
+        break
+      fi
+    done
+    scroll_find_and_tap "GPT Asistan"
+  fi
+
+  sleep 2
+  if ! tap_first_switch; then
+    tap_text_once "Use GPT Asistan" || tap_text_once "Use service"
+  fi
+
+  sleep 1
+  tap_text_once "Allow" || tap_text_once "OK" || true
+  sleep 3
+fi
 
 ENABLED="$(adb shell settings --user 0 get secure enabled_accessibility_services | tr -d "\r")"
 printf "%s\n" "${ENABLED}" > "${EVIDENCE_DIR}/enabled_accessibility_services.txt"
 case ":${ENABLED}:" in
   *":${SERVICE}:"*|*":${SERVICE_FULL}:"*) ;;
-  *) echo "Expected accessibility service is not enabled: ${ENABLED}" >&2; exit 20 ;;
+  *) echo "Expected accessibility service is not enabled after Settings UI flow: ${ENABLED}" >&2; exit 20 ;;
 esac
+
+adb shell am force-stop "${PACKAGE}"
+adb shell am start -W -n "${PACKAGE}/.MainActivity" --ez emulator_self_test true | tee "${EVIDENCE_DIR}/am-start.txt"
+sleep 7
 
 adb shell dumpsys accessibility > "${EVIDENCE_DIR}/dumpsys-accessibility.txt"
 adb shell dumpsys package "${PACKAGE}" > "${EVIDENCE_DIR}/dumpsys-package.txt"
