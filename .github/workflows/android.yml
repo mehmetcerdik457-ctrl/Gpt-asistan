@@ -1,4 +1,4 @@
-name: Build APK
+name: Build Owner Companion
 on: [push]
 
 permissions:
@@ -23,7 +23,7 @@ jobs:
 
       - uses: actions/setup-java@v5
         with:
-          distribution: 'temurin'
+          distribution: temurin
           java-version: '17'
 
       - name: Set up pinned Gradle
@@ -34,64 +34,96 @@ jobs:
       - name: Unit-test phone-agent policy
         run: gradle :app:testDebugUnitTest
 
-      - name: Build Debug APK
-        run: gradle :app:assembleDebug
+      - name: Build unsigned release APK
+        run: gradle :app:assembleRelease
 
-      - name: Generate APK evidence
+      - name: Generate Owner Companion build inputs and evidence
         shell: bash
         run: |
-          APK="$(find app/build/outputs/apk/debug -maxdepth 1 -type f -name '*.apk' -print -quit)"
-          test -n "${APK}"
-          mkdir -p android-evidence
-          cp /tmp/android-exact-head.txt android-evidence/exact-head.txt
-          APK_HASH="$(sha256sum "${APK}" | awk '{print $1}')"
-          printf '%s  %s\n' "${APK_HASH}" "$(basename "${APK}")" > android-evidence/APK_SHA256
+          set -euo pipefail
+          UNSIGNED="$(find app/build/outputs/apk/release -maxdepth 1 -type f -name '*unsigned*.apk' -print -quit)"
+          test -n "${UNSIGNED}"
           BUILD_TOOLS_VERSION="$(ls "${ANDROID_HOME}/build-tools" | sort -V | tail -1)"
           AAPT="${ANDROID_HOME}/build-tools/${BUILD_TOOLS_VERSION}/aapt"
-          APKSIGNER="${ANDROID_HOME}/build-tools/${BUILD_TOOLS_VERSION}/apksigner"
-          "${AAPT}" dump badging "${APK}" > android-evidence/apk-badging.txt
-          "${AAPT}" dump permissions "${APK}" > android-evidence/apk-permissions.txt
-          "${AAPT}" dump xmltree "${APK}" AndroidManifest.xml > android-evidence/manifest-tree.txt
-          "${APKSIGNER}" verify --print-certs "${APK}" > android-evidence/apksigner.txt
-          grep -q "package: name='com.example.gptasistan'" android-evidence/apk-badging.txt
-          grep -q "versionCode='3'" android-evidence/apk-badging.txt
-          grep -q "versionName='1.1.1'" android-evidence/apk-badging.txt
+          ZIPALIGN="${ANDROID_HOME}/build-tools/${BUILD_TOOLS_VERSION}/zipalign"
+          APKSIGNER_JAR="${ANDROID_HOME}/build-tools/${BUILD_TOOLS_VERSION}/lib/apksigner.jar"
+          test -x "${AAPT}"
+          test -x "${ZIPALIGN}"
+          test -s "${APKSIGNER_JAR}"
+
+          ALIGNED="app/build/outputs/apk/release/MEHMET_Owner_Companion_v1.0.0_1_aligned_unsigned.apk"
+          "${ZIPALIGN}" -p -f 4 "${UNSIGNED}" "${ALIGNED}"
+          "${ZIPALIGN}" -c -v 4 "${ALIGNED}"
+
+          mkdir -p android-evidence
+          cp /tmp/android-exact-head.txt android-evidence/exact-head.txt
+          cp "${APKSIGNER_JAR}" android-evidence/apksigner.jar
+
+          APK_HASH="$(sha256sum "${ALIGNED}" | awk '{print $1}')"
+          APKSIGNER_JAR_HASH="$(sha256sum "${APKSIGNER_JAR}" | awk '{print $1}')"
+          printf '%s  %s\n' "${APK_HASH}" "$(basename "${ALIGNED}")" > android-evidence/APK_SHA256
+          printf '%s  apksigner.jar\n' "${APKSIGNER_JAR_HASH}" > android-evidence/APKSIGNER_JAR_SHA256
+
+          "${AAPT}" dump badging "${ALIGNED}" > android-evidence/apk-badging.txt
+          "${AAPT}" dump permissions "${ALIGNED}" > android-evidence/apk-permissions.txt
+          "${AAPT}" dump xmltree "${ALIGNED}" AndroidManifest.xml > android-evidence/manifest-tree.txt
+
+          grep -q "package: name='com.mehmetcerdik.ownercompanion'" android-evidence/apk-badging.txt
+          grep -q "versionCode='1'" android-evidence/apk-badging.txt
+          grep -q "versionName='1.0.0'" android-evidence/apk-badging.txt
           grep -q 'PhoneAgentAccessibilityService' android-evidence/manifest-tree.txt
           grep -q 'android.permission.BIND_ACCESSIBILITY_SERVICE' android-evidence/manifest-tree.txt
-          if grep -q 'android.permission.INTERNET' android-evidence/apk-permissions.txt; then echo "Unexpected INTERNET permission"; exit 1; fi
+          if grep -q 'android.permission.INTERNET' android-evidence/apk-permissions.txt; then
+            echo "Unexpected INTERNET permission"
+            exit 1
+          fi
+
           {
-            echo "artifact_path=${APK}"
-            echo "artifact_size=$(stat -c '%s' "${APK}")"
+            echo "artifact_path=${ALIGNED}"
+            echo "artifact_size=$(stat -c '%s' "${ALIGNED}")"
             echo "run_id=${GITHUB_RUN_ID}"
             echo "repository=${GITHUB_REPOSITORY}"
             echo "git_head=${GITHUB_SHA}"
-            echo "apk_sha256=${APK_HASH}"
+            echo "package_name=com.mehmetcerdik.ownercompanion"
+            echo "version_name=1.0.0"
+            echo "version_code=1"
+            echo "aligned_unsigned_sha256=${APK_HASH}"
+            echo "expected_release_signer_sha256=93c8a51c1f3d929b55928c97dae8cfc7aa337911507649e9891f46150043b82b"
             echo "build_tools_version=${BUILD_TOOLS_VERSION}"
+            echo "apksigner_jar_sha256=${APKSIGNER_JAR_HASH}"
             echo "phone_agent_runtime=v1_accessibility_dynamic_evidence"
             echo "network_permission=NONE"
           } > android-evidence/build-metadata.txt
-          cat > android-evidence/device-expected.json <<EOF
+
+          cat > android-evidence/device-expected-template.json <<EOF
           {
             "git_head": "${GITHUB_SHA}",
-            "package_name": "com.example.gptasistan",
-            "version_name": "1.1.1",
-            "version_code": "3",
-            "artifact_sha256": "${APK_HASH}",
-            "phone_agent_runtime": "v1_accessibility_dynamic_evidence"
+            "package_name": "com.mehmetcerdik.ownercompanion",
+            "version_name": "1.0.0",
+            "version_code": "1",
+            "aligned_unsigned_sha256": "${APK_HASH}",
+            "expected_release_signer_sha256": "93c8a51c1f3d929b55928c97dae8cfc7aa337911507649e9891f46150043b82b",
+            "phone_agent_runtime": "v1_accessibility_dynamic_evidence",
+            "network_permission": "NONE"
           }
           EOF
-          test "${APK_HASH}" = "$(sha256sum "${APK}" | awk '{print $1}')"
 
-      - name: Upload APK
+          test "${APK_HASH}" = "$(sha256sum "${ALIGNED}" | awk '{print $1}')"
+
+      - name: Upload signing inputs
         uses: actions/upload-artifact@v4
         with:
-          name: phone-agent-runtime-v1-apk
-          path: app/build/outputs/apk/debug/*.apk
+          name: owner-companion-stable-v1-build-inputs
+          path: |
+            app/build/outputs/apk/release/MEHMET_Owner_Companion_v1.0.0_1_aligned_unsigned.apk
+            android-evidence/apksigner.jar
           if-no-files-found: error
 
-      - name: Upload Android build evidence
+      - name: Upload Owner Companion build evidence
         uses: actions/upload-artifact@v4
         with:
-          name: phone-agent-runtime-v1-evidence
-          path: android-evidence/
+          name: owner-companion-stable-v1-evidence
+          path: |
+            android-evidence/
+            !android-evidence/apksigner.jar
           if-no-files-found: error
