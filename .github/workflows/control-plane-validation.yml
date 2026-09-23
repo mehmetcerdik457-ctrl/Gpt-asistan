@@ -32,8 +32,12 @@ jobs:
           printf 'expected_sha=%s\nactual_sha=%s\n' "${EXPECTED_SHA}" "${ACTUAL_SHA}" > /tmp/exact-head.txt
 
       - name: Validate control plane
+        shell: bash
         run: |
+          set -o pipefail
           python3 control-plane/validate.py | tee /tmp/control-plane-validation.json
+          test -s /tmp/control-plane-validation.json
+          grep -q '"status": "CONTROL_PLANE_VALIDATION_PASS"' /tmp/control-plane-validation.json
 
       - name: Verify connector permission enforcement
         run: |
@@ -63,12 +67,16 @@ jobs:
           python3 control-plane/runtime/check_policy.py real-device-install | tee /tmp/runtime-user-gate.json
           grep -q '"decision": "USER_GATE"' /tmp/runtime-user-gate.json
 
-      - name: Verify phone-agent policy
+      - name: Verify phone-agent runtime policy
         shell: bash
         run: |
           python3 control-plane/runtime/phone_agent.py verify_artifact_hash ALLOW | tee /tmp/phone-allow.json
-          python3 control-plane/runtime/phone_agent.py install_on_real_device USER_GATE | tee /tmp/phone-user-gate.json
-          python3 control-plane/runtime/phone_agent.py alter_baseline_artifact DENY | tee /tmp/phone-deny.json
+          python3 control-plane/runtime/phone_agent.py accessibility_enablement USER_GATE | tee /tmp/phone-accessibility-gate.json
+          python3 control-plane/runtime/phone_agent.py back ALLOW_AFTER_SERVICE_ENABLEMENT | tee /tmp/phone-back.json
+          python3 control-plane/runtime/phone_agent.py tap ALLOW_AFTER_SERVICE_ENABLEMENT | tee /tmp/phone-tap.json
+          python3 control-plane/runtime/phone_agent.py click_visible_text ALLOW_AFTER_SERVICE_ENABLEMENT | tee /tmp/phone-click-text.json
+          python3 control-plane/runtime/phone_agent.py export_credentials DENY | tee /tmp/phone-secret-deny.json
+          python3 control-plane/runtime/phone_agent.py root_device DENY | tee /tmp/phone-root-deny.json
 
       - name: Verify real-device evidence gate
         shell: bash
@@ -118,8 +126,7 @@ jobs:
           (cd evidence && sha256sum *.json exact-head.txt run-metadata.txt > SHA256SUMS)
 
       - name: Verify evidence checksums
-        run: |
-          (cd evidence && sha256sum -c SHA256SUMS)
+        run: (cd evidence && sha256sum -c SHA256SUMS)
 
       - name: Upload evidence
         uses: actions/upload-artifact@v4

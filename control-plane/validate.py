@@ -2,30 +2,31 @@
 import hashlib, json, pathlib, sys
 
 ROOT = pathlib.Path(__file__).resolve().parent
-FILES = [
-    'security/baseline.json',
-    'evidence/pipeline.json',
-    'connectors/permissions.json',
-    'agents/boundary.json',
-    'models/router.json',
-    'runtime/security.json',
-    'runtime/device_schema.json',
-    'runtime/phone_agent.json',
-    'recovery/state.json',
-]
+FILE_VERSIONS = {
+    'security/baseline.json': {1},
+    'evidence/pipeline.json': {1},
+    'connectors/permissions.json': {1},
+    'agents/boundary.json': {1},
+    'models/router.json': {1},
+    'runtime/security.json': {1},
+    'runtime/device_schema.json': {1},
+    'runtime/phone_agent.json': {2},
+    'recovery/state.json': {1},
+}
 
 def fail(msg):
     print(f'CONTROL_PLANE_VALIDATION_FAIL: {msg}', file=sys.stderr)
     raise SystemExit(1)
 
 records=[]
-for rel in FILES:
+for rel, allowed_versions in FILE_VERSIONS.items():
     path=ROOT/rel
     if not path.is_file(): fail(f'missing {rel}')
     try: data=json.loads(path.read_text(encoding='utf-8'))
     except Exception as exc: fail(f'invalid JSON {rel}: {exc}')
-    if data.get('version') != 1: fail(f'unsupported version in {rel}')
-    records.append({'file':rel,'sha256':hashlib.sha256(path.read_bytes()).hexdigest()})
+    if data.get('version') not in allowed_versions:
+        fail(f'unsupported version in {rel}: {data.get("version")}')
+    records.append({'file':rel,'sha256':hashlib.sha256(path.read_bytes()).hexdigest(),'version':data.get('version')})
 
 for rel in [
     'evidence/frozen_head.py',
@@ -83,10 +84,26 @@ needed={'device_model','android_version','package_name','version_name','version_
 if not needed.issubset(set(schema.get('required_fields',[]))): fail('device evidence schema incomplete')
 
 phone=json.loads((ROOT/'runtime/phone_agent.json').read_text())
+if phone.get('implementation')!='android-accessibility-local-explicit-user-control':
+    fail('phone agent implementation marker mismatch')
+if phone.get('network_permission') is not False: fail('phone agent must not require INTERNET permission')
 actions=phone.get('actions',{})
-if actions.get('install_on_real_device')!='USER_GATE': fail('real-device install must be user gated')
-if actions.get('alter_baseline_artifact')!='DENY': fail('baseline artifact mutation must be denied')
-if actions.get('verify_artifact_hash')!='ALLOW': fail('artifact hash verification must be allowed')
+required_action_states={
+    'accessibility_enablement':'USER_GATE',
+    'back':'ALLOW_AFTER_SERVICE_ENABLEMENT',
+    'home':'ALLOW_AFTER_SERVICE_ENABLEMENT',
+    'recents':'ALLOW_AFTER_SERVICE_ENABLEMENT',
+    'tap':'ALLOW_AFTER_SERVICE_ENABLEMENT',
+    'click_visible_text':'ALLOW_AFTER_SERVICE_ENABLEMENT',
+    'scroll':'ALLOW_AFTER_SERVICE_ENABLEMENT',
+    'install_on_real_device':'USER_GATE',
+    'alter_baseline_artifact':'DENY',
+    'export_credentials':'DENY',
+    'root_device':'DENY',
+    'unlock_bootloader':'DENY'
+}
+for action, expected in required_action_states.items():
+    if actions.get(action)!=expected: fail(f'phone agent policy mismatch: {action}')
 
 recovery=json.loads((ROOT/'recovery/state.json').read_text())
 if recovery.get('rollback_strategy')!='branch-and-pr': fail('recovery must use branch-and-pr')
@@ -95,4 +112,10 @@ if not recovery.get('merge_requires_explicit_approval'): fail('recovery merge mu
 required_sources={'git-head','ci-artifact-hash','drive-readback-hash'}
 if not required_sources.issubset(set(recovery.get('required_sources',[]))): fail('recovery source set incomplete')
 
-print(json.dumps({'status':'CONTROL_PLANE_VALIDATION_PASS','files':records,'connectors':len(connectors['connectors']),'verified_model_execution_providers':[p['name'] for p in verified_execution]},sort_keys=True))
+print(json.dumps({
+    'status':'CONTROL_PLANE_VALIDATION_PASS',
+    'files':records,
+    'connectors':len(connectors['connectors']),
+    'phone_agent_runtime':'android-accessibility-local-explicit-user-control',
+    'verified_model_execution_providers':[p['name'] for p in verified_execution]
+},sort_keys=True))
