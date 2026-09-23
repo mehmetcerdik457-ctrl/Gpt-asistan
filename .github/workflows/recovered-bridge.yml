@@ -45,7 +45,7 @@ jobs:
           export JAVA_HOME="$JAVA_HOME_17_X64"
           export PATH="$JAVA_HOME/bin:$PATH"
           cd recovered-v4-1
-          bash gradlew --no-daemon --console plain :bridge:assembleRelease 2>&1 | tee ../recovered-evidence/build.txt
+          bash ./gradlew --no-daemon --console plain :bridge:assembleRelease 2>&1 | tee ../recovered-evidence/build.txt
       - name: Inspect unsigned candidate
         shell: bash
         run: |
