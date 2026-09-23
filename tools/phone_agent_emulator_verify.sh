@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PACKAGE="com.example.gptasistan"
-SERVICE="${PACKAGE}/.PhoneAgentAccessibilityService"
-SERVICE_FULL="${PACKAGE}/${PACKAGE}.PhoneAgentAccessibilityService"
+PACKAGE="com.mehmetcerdik.ownerai"
+CLASS_PACKAGE="com.example.gptasistan"
+SERVICE="${PACKAGE}/${CLASS_PACKAGE}.PhoneAgentAccessibilityService"
+SERVICE_FULL="${SERVICE}"
+MAIN_ACTIVITY="${PACKAGE}/${CLASS_PACKAGE}.MainActivity"
 APK="${APK_PATH:-app/build/outputs/apk/debug/app-debug.apk}"
 EVIDENCE_DIR="${EVIDENCE_DIR:-emulator-evidence}"
 mkdir -p "${EVIDENCE_DIR}"
@@ -124,7 +126,7 @@ if [[ ":${ENABLED}:" != *":${SERVICE}:"* && ":${ENABLED}:" != *":${SERVICE_FULL}
   sleep 3
 
   if ! tap_first_switch; then
-    tap_text_once "Use GPT Asistan" || tap_text_once "Use service" || true
+    tap_text_once "Use MEHMET Owner Companion" || tap_text_once "Use service" || true
   fi
   sleep 1
   tap_text_once "Allow" || tap_text_once "OK" || true
@@ -135,19 +137,19 @@ if [[ ":${ENABLED}:" != *":${SERVICE}:"* && ":${ENABLED}:" != *":${SERVICE_FULL}
     adb shell am start -W -a android.settings.ACCESSIBILITY_SETTINGS       | tee "${EVIDENCE_DIR}/accessibility-settings-start.txt" || true
     sleep 3
 
-    if ! scroll_find_and_tap "GPT Asistan"; then
+    if ! scroll_find_and_tap "MEHMET Owner Companion"; then
       for group in "Downloaded apps" "Installed apps" "Downloaded services" "Installed services"; do
         if scroll_find_and_tap "${group}"; then
           sleep 2
           break
         fi
       done
-      scroll_find_and_tap "GPT Asistan" || true
+      scroll_find_and_tap "MEHMET Owner Companion" || true
     fi
 
     sleep 2
     if ! tap_first_switch; then
-      tap_text_once "Use GPT Asistan" || tap_text_once "Use service" || true
+      tap_text_once "Use MEHMET Owner Companion" || tap_text_once "Use service" || true
     fi
     sleep 1
     tap_text_once "Allow" || tap_text_once "OK" || true
@@ -172,7 +174,7 @@ done
 
 # Do not force-stop here: on Android 14 the force-stop can tear down the
 # freshly consented accessibility service and clear the enabled-service state.
-adb shell am start -W -n "${PACKAGE}/.MainActivity" --ez emulator_self_test true | tee "${EVIDENCE_DIR}/am-start.txt"
+adb shell am start -W -n "${MAIN_ACTIVITY}" --ez emulator_self_test true | tee "${EVIDENCE_DIR}/am-start.txt"
 sleep 7
 
 adb shell dumpsys accessibility > "${EVIDENCE_DIR}/dumpsys-accessibility.txt"
@@ -211,18 +213,18 @@ scroll_pass = has_pass("SCROLL_FORWARD")
 status = "EMULATOR_PHONE_AGENT_RUNTIME_PASS" if all([service_ready, hits > 0, tap_pass, click_pass, scroll_pass]) else "EMULATOR_PHONE_AGENT_RUNTIME_FAIL"
 
 pkg = (root/"dumpsys-package.txt").read_text(errors="replace")
-if "versionName=1.1.1" not in pkg:
+if "versionName=1.2.0" not in pkg:
     raise SystemExit("versionName mismatch")
-if "versionCode=3" not in pkg:
+if "versionCode=4" not in pkg:
     raise SystemExit("versionCode mismatch")
 
 data = {
     "version": 1,
     "status": status,
     "git_head": head,
-    "package_name": "com.example.gptasistan",
-    "version_name": "1.1.1",
-    "version_code": "3",
+    "package_name": "com.mehmetcerdik.ownerai",
+    "version_name": "1.2.0",
+    "version_code": "4",
     "apk_sha256": apk_sha,
     "device": {
         "manufacturer": (root/"manufacturer.txt").read_text().strip(),
@@ -231,7 +233,7 @@ data = {
         "android_sdk": (root/"android-sdk.txt").read_text().strip(),
     },
     "accessibility": {
-        "service_component": "com.example.gptasistan/.PhoneAgentAccessibilityService",
+        "service_component": "com.mehmetcerdik.ownerai/com.example.gptasistan.PhoneAgentAccessibilityService",
         "enabled": True,
         "service_ready": service_ready,
     },
