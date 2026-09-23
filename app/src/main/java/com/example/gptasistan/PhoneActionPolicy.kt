@@ -1,4 +1,4 @@
-package com.mehmetcerdik.ownerai
+package com.example.gptasistan
 
 enum class PhoneActionType {
     BACK, HOME, RECENTS, TAP, CLICK_TEXT, SCROLL_FORWARD, SCROLL_BACKWARD
