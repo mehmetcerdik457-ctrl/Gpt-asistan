@@ -1,0 +1,17 @@
+name: Privacy Guard
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: privacy-guard-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    uses: mehmetcerdik457-ctrl/.github/.github/workflows/reusable-privacy-guard.yml@328c770208878e97aa0765265b6201322fa39cd2

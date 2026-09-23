@@ -1,0 +1,66 @@
+name: Account Capability Probe
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      EXPECTED_SHA: ${{ github.sha }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Exact direct-head SHA guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual="$(git rev-parse HEAD)"
+          echo "EXPECTED_SHA=${EXPECTED_SHA}"
+          echo "ACTUAL_GIT_SHA=${actual}"
+          test "${EXPECTED_SHA}" = "${actual}"
+
+      - name: Probe repository-scoped Copilot and platform capability endpoints
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p capability-evidence
+          api="https://api.github.com/repos/${GITHUB_REPOSITORY}"
+          probe() {
+            label="$1"
+            url="$2"
+            out="capability-evidence/${label}.json"
+            code="$(curl -sS -o "$out" -w '%{http_code}'               -H 'Accept: application/vnd.github+json'               -H "Authorization: Bearer ${GH_TOKEN}"               -H 'X-GitHub-Api-Version: 2026-03-10'               "$url")"
+            echo "${label}_HTTP=${code}" | tee -a capability-evidence/state.txt
+            jq -r 'if .message then "MESSAGE=" + .message else empty end' "$out"               | sed -E 's/(token|secret|credential|authorization)[^ ]*/REDACTED/Ig'               | tee -a capability-evidence/state.txt || true
+          }
+
+          probe COPILOT_CLOUD_AGENT_CONFIGURATION "$api/copilot/cloud-agent/configuration"
+          probe RULESETS "$api/rulesets"
+          probe DEPENDENCY_GRAPH_SBOM "$api/dependency-graph/sbom"
+          probe ACTIONS_WORKFLOW_PERMISSIONS "$api/actions/permissions/workflow"
+
+          {
+            echo "CODESPACES_CREATE_ATTEMPTED=NO"
+            echo "COPILOT_AGENT_ASSIGNMENT_ATTEMPTED=NO"
+            echo "ACCOUNT_BILLING_ENDPOINT_ATTEMPTED=NO"
+            echo "PRODUCTION_SECRET_USED=NO"
+          } | tee -a capability-evidence/state.txt
+
+          rm -f capability-evidence/*.json
+
+      - name: Upload non-sensitive capability evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: account-capability-${{ github.sha }}
+          path: capability-evidence/state.txt
+          if-no-files-found: error
+          retention-days: 30

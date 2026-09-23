@@ -1,0 +1,45 @@
+name: Python and Workflow Security
+
+on:
+  push:
+    branches: [main, copilot-agent-upgrade-20260917]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: python-security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  codeql-python:
+    name: CodeQL (${{ matrix.language }})
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [python, actions]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+    steps:
+      - name: Checkout without persisted credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Test Kral AI runtime
+        if: matrix.language == 'python'
+        run: python3 -m unittest kral/safe/test_assistant.py
+      - name: Initialize language analysis
+        uses: github/codeql-action/init@b96794f015dfd88f77b49b1c93e0fa7110f94c63
+        with:
+          languages: ${{ matrix.language }}
+      - name: Analyze source
+        uses: github/codeql-action/analyze@b96794f015dfd88f77b49b1c93e0fa7110f94c63
+        with:
+          category: /language:${{ matrix.language }}
