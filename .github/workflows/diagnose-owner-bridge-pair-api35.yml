@@ -1,15 +1,19 @@
 name: Diagnose Owner Bridge Pair Android 15
 
 on:
+  push:
+    branches:
+      - diagnostic/owner-bridge-pair-api35-20260924
   workflow_dispatch:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   pair:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
     steps:
       - name: Checkout exact diagnostic head
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -25,20 +29,31 @@ jobs:
           mkdir -p pair-evidence
           printf 'expected_sha=%s\nactual_sha=%s\n' "$GITHUB_SHA" "$(git rev-parse HEAD)" > pair-evidence/exact-head.txt
 
-      - name: Acquire frozen signed Owner and Bridge
+      - name: Acquire frozen signed Owner and Bridge from authenticated GitHub artifacts
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          mkdir -p pair-evidence
-          OWNER=pair-evidence/owner.apk
-          BRIDGE=pair-evidence/bridge.apk
-          OWNER_ID='1yZ-NvCQD1-gzqhmwsQkptcszuRFSxQ-2'
-          curl -L --fail --retry 2 --retry-delay 2             "https://drive.usercontent.google.com/download?id=${OWNER_ID}&export=download&confirm=t"             -o "$OWNER"
-          base64 -d diagnostics/MEHMET_PRIVILEGED_BRIDGE_1.1.0_VC2_GEN2_SIGNED.apk.b64 > "$BRIDGE"
+          mkdir -p pair-evidence downloads
+          curl -L --fail --retry 3 \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/10793362330/zip" \
+            -o downloads/owner-diagnostics.zip
+          curl -L --fail --retry 3 \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/10792715580/zip" \
+            -o downloads/bridge-diagnostics.zip
+          unzip -j downloads/owner-diagnostics.zip owner.apk -d pair-evidence
+          unzip -j downloads/bridge-diagnostics.zip bridge.apk -d pair-evidence
           echo '55a179f96811671430556c99ee747280d648ead6833eaf7419009b4214be5394  pair-evidence/owner.apk' | sha256sum -c -
           echo '8588f221bd91baf9b8a6183267dd9180ab019a94264b6dfb0d112279802d48f2  pair-evidence/bridge.apk' | sha256sum -c -
-          stat -c 'owner_size=%s' "$OWNER" | tee pair-evidence/sizes.txt
-          stat -c 'bridge_size=%s' "$BRIDGE" | tee -a pair-evidence/sizes.txt
+          stat -c 'owner_size=%s' pair-evidence/owner.apk | tee pair-evidence/sizes.txt
+          stat -c 'bridge_size=%s' pair-evidence/bridge.apk | tee -a pair-evidence/sizes.txt
 
       - name: Static pair identity and signer verification
         shell: bash
@@ -54,6 +69,33 @@ jobs:
           grep -Fq "package: name='com.mehmetcerdik.ownerbridge' versionCode='2' versionName='1.1.0'" pair-evidence/bridge-badging.txt
           grep -Fiq '279084a36b7c17a1663bfba5fe1c5bdac974f8ef4ce56b21000d882493e39448' pair-evidence/owner-apksigner.txt
           grep -Fiq '279084a36b7c17a1663bfba5fe1c5bdac974f8ef4ce56b21000d882493e39448' pair-evidence/bridge-apksigner.txt
+
+      - name: Prepare pair UI verification helpers
+        shell: bash
+        run: |
+          cat > pair-click.py <<'PY'
+          import re, subprocess, xml.etree.ElementTree as ET
+          root=ET.parse('pair-evidence/owner-ui.xml').getroot()
+          node=next((n for n in root.iter('node') if n.attrib.get('text') == 'OWNER Control Plane'), None)
+          if node is None:
+              raise SystemExit('OWNER_CONTROL_PLANE_BUTTON_NOT_FOUND')
+          m=re.match(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', node.attrib.get('bounds',''))
+          if not m:
+              raise SystemExit('OWNER_CONTROL_PLANE_BOUNDS_INVALID')
+          x1,y1,x2,y2=map(int,m.groups())
+          subprocess.check_call(['adb','shell','input','tap',str((x1+x2)//2),str((y1+y2)//2)])
+          PY
+          cat > pair-verify.py <<'PY'
+          import xml.etree.ElementTree as ET
+          texts=[n.attrib.get('text','') for n in ET.parse('pair-evidence/control-ui.xml').getroot().iter('node')]
+          joined='\n'.join(texts)
+          open('pair-evidence/control-ui.txt','w').write(joined)
+          required=['bridgeSignerMatch=true','ok=true','service=true','status=READY']
+          missing=[x for x in required if x not in joined]
+          if missing:
+              raise SystemExit('PAIR_IPC_NOT_READY missing='+','.join(missing))
+          print('OWNER_BRIDGE_PAIR_IPC_READY')
+          PY
 
       - name: Enable KVM access
         shell: bash
@@ -72,9 +114,9 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
           disable-animations: true
           script: |
-            set -e
-            adb install -r -t pair-evidence/owner.apk | tee pair-evidence/owner-install.txt
-            adb install -r -t pair-evidence/bridge.apk | tee pair-evidence/bridge-install.txt
+            adb wait-for-device
+            adb install -r pair-evidence/owner.apk | tee pair-evidence/owner-install.txt
+            adb install -r pair-evidence/bridge.apk | tee pair-evidence/bridge-install.txt
             adb shell pm path com.mehmetcerdik.ownerai | tee pair-evidence/owner-pm-path.txt
             adb shell pm path com.mehmetcerdik.ownerbridge | tee pair-evidence/bridge-pm-path.txt
             adb shell settings put secure enabled_accessibility_services 'com.mehmetcerdik.ownerai/com.example.gptasistan.PhoneAgentAccessibilityService:com.mehmetcerdik.ownerbridge/com.mehmetcerdik.ownerbridge.BridgeAccessibilityService'
@@ -82,39 +124,16 @@ jobs:
             sleep 2
             adb shell am start -W -n com.mehmetcerdik.ownerai/com.example.gptasistan.MainActivity | tee pair-evidence/owner-launch.txt
             sleep 2
-            adb shell uiautomator dump /sdcard/owner.xml >/dev/null
-            adb pull /sdcard/owner.xml pair-evidence/owner-ui.xml >/dev/null
-            python3 - <<'PY'
-            import re, subprocess, xml.etree.ElementTree as ET
-            root=ET.parse('pair-evidence/owner-ui.xml').getroot()
-            node=None
-            for n in root.iter('node'):
-                if n.attrib.get('text') == 'OWNER Control Plane':
-                    node=n; break
-            if node is None:
-                raise SystemExit('OWNER_CONTROL_PLANE_BUTTON_NOT_FOUND')
-            m=re.match(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', node.attrib['bounds'])
-            if not m:
-                raise SystemExit('OWNER_CONTROL_PLANE_BOUNDS_INVALID')
-            x1,y1,x2,y2=map(int,m.groups())
-            subprocess.check_call(['adb','shell','input','tap',str((x1+x2)//2),str((y1+y2)//2)])
-            PY
+            adb shell uiautomator dump /sdcard/owner.xml
+            adb pull /sdcard/owner.xml pair-evidence/owner-ui.xml
+            python3 pair-click.py
             sleep 2
-            adb shell uiautomator dump /sdcard/control.xml >/dev/null
-            adb pull /sdcard/control.xml pair-evidence/control-ui.xml >/dev/null
-            python3 - <<'PY'
-            import xml.etree.ElementTree as ET
-            texts=[n.attrib.get('text','') for n in ET.parse('pair-evidence/control-ui.xml').getroot().iter('node')]
-            joined='\n'.join(texts)
-            open('pair-evidence/control-ui.txt','w').write(joined)
-            required=['bridgeSignerMatch=true','ok=true','service=true','status=READY']
-            missing=[x for x in required if x not in joined]
-            if missing:
-                raise SystemExit('PAIR_IPC_NOT_READY missing='+','.join(missing))
-            print('OWNER_BRIDGE_PAIR_IPC_READY')
-            PY
+            adb shell uiautomator dump /sdcard/control.xml
+            adb pull /sdcard/control.xml pair-evidence/control-ui.xml
+            python3 pair-verify.py | tee pair-evidence/pair-ipc-result.txt
             adb shell dumpsys package com.mehmetcerdik.ownerai > pair-evidence/owner-dumpsys.txt
             adb shell dumpsys package com.mehmetcerdik.ownerbridge > pair-evidence/bridge-dumpsys.txt
+            adb logcat -d -v threadtime > pair-evidence/logcat.txt
 
       - name: Freeze pair evidence
         if: always()
@@ -127,6 +146,7 @@ jobs:
             echo "bridge_sha256=8588f221bd91baf9b8a6183267dd9180ab019a94264b6dfb0d112279802d48f2"
             echo "signer_sha256=279084a36b7c17a1663bfba5fe1c5bdac974f8ef4ce56b21000d882493e39448"
             echo "android_api=35"
+            cat pair-evidence/pair-ipc-result.txt 2>/dev/null || true
           } > pair-evidence/SUMMARY.txt
           (cd pair-evidence && find . -maxdepth 1 -type f ! -name SHA256SUMS -printf '%P\0' | sort -z | xargs -0 sha256sum > SHA256SUMS)
 
@@ -136,5 +156,5 @@ jobs:
         with:
           name: owner-bridge-pair-api35-evidence
           path: pair-evidence/
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 30
