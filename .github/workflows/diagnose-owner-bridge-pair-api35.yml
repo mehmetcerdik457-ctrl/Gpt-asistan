@@ -86,7 +86,7 @@ jobs:
               except Exception:
                   root=None
               if root is not None:
-                  node=next((n for n in root.iter('node') if n.attrib.get('text') == 'OWNER Control Plane'), None)
+                  node=next((n for n in root.iter('node') if n.attrib.get('text','').strip().upper() == 'OWNER CONTROL PLANE'), None)
                   if node is not None:
                       m=re.match(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', node.attrib.get('bounds',''))
                       if not m:
@@ -150,12 +150,116 @@ jobs:
             sleep 2
             adb shell am start -W -n com.mehmetcerdik.ownerai/com.example.gptasistan.MainActivity | tee pair-evidence/owner-launch.txt
             sleep 3
-            python3 pair-click.py | tee pair-evidence/pair-click-result.txt
+            python3 pair-click.py > pair-evidence/pair-click-result.txt
+            cat pair-evidence/pair-click-result.txt
             sleep 2
-            python3 pair-verify.py | tee pair-evidence/pair-ipc-result.txt
+            python3 pair-verify.py > pair-evidence/pair-ipc-result.txt
+            cat pair-evidence/pair-ipc-result.txt
             adb shell dumpsys package com.mehmetcerdik.ownerai > pair-evidence/owner-dumpsys.txt
             adb shell dumpsys package com.mehmetcerdik.ownerbridge > pair-evidence/bridge-dumpsys.txt
             adb logcat -d -v threadtime > pair-evidence/logcat.txt
+
+      - name: Assert pair IPC success token
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q '^Success        if: always()
+        shell: bash
+        run: |
+          set +e
+          {
+            echo "git_head=$GITHUB_SHA"
+            echo "owner_sha256=55a179f96811671430556c99ee747280d648ead6833eaf7419009b4214be5394"
+            echo "bridge_sha256=8588f221bd91baf9b8a6183267dd9180ab019a94264b6dfb0d112279802d48f2"
+            echo "signer_sha256=279084a36b7c17a1663bfba5fe1c5bdac974f8ef4ce56b21000d882493e39448"
+            echo "android_api=35"
+            cat pair-evidence/pair-ipc-result.txt 2>/dev/null || true
+          } > pair-evidence/SUMMARY.txt
+          (cd pair-evidence && find . -maxdepth 1 -type f ! -name SHA256SUMS -printf '%P\0' | sort -z | xargs -0 sha256sum > SHA256SUMS)
+
+      - name: Upload pair diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: owner-bridge-pair-api35-evidence
+          path: pair-evidence/
+          if-no-files-found: error
+          retention-days: 30
+ pair-evidence/owner-install.txt
+          grep -q '^Success        if: always()
+        shell: bash
+        run: |
+          set +e
+          {
+            echo "git_head=$GITHUB_SHA"
+            echo "owner_sha256=55a179f96811671430556c99ee747280d648ead6833eaf7419009b4214be5394"
+            echo "bridge_sha256=8588f221bd91baf9b8a6183267dd9180ab019a94264b6dfb0d112279802d48f2"
+            echo "signer_sha256=279084a36b7c17a1663bfba5fe1c5bdac974f8ef4ce56b21000d882493e39448"
+            echo "android_api=35"
+            cat pair-evidence/pair-ipc-result.txt 2>/dev/null || true
+          } > pair-evidence/SUMMARY.txt
+          (cd pair-evidence && find . -maxdepth 1 -type f ! -name SHA256SUMS -printf '%P\0' | sort -z | xargs -0 sha256sum > SHA256SUMS)
+
+      - name: Upload pair diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: owner-bridge-pair-api35-evidence
+          path: pair-evidence/
+          if-no-files-found: error
+          retention-days: 30
+ pair-evidence/bridge-install.txt
+          grep -q '^OWNER_CONTROL_PLANE_BUTTON_TAPPED        if: always()
+        shell: bash
+        run: |
+          set +e
+          {
+            echo "git_head=$GITHUB_SHA"
+            echo "owner_sha256=55a179f96811671430556c99ee747280d648ead6833eaf7419009b4214be5394"
+            echo "bridge_sha256=8588f221bd91baf9b8a6183267dd9180ab019a94264b6dfb0d112279802d48f2"
+            echo "signer_sha256=279084a36b7c17a1663bfba5fe1c5bdac974f8ef4ce56b21000d882493e39448"
+            echo "android_api=35"
+            cat pair-evidence/pair-ipc-result.txt 2>/dev/null || true
+          } > pair-evidence/SUMMARY.txt
+          (cd pair-evidence && find . -maxdepth 1 -type f ! -name SHA256SUMS -printf '%P\0' | sort -z | xargs -0 sha256sum > SHA256SUMS)
+
+      - name: Upload pair diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: owner-bridge-pair-api35-evidence
+          path: pair-evidence/
+          if-no-files-found: error
+          retention-days: 30
+ pair-evidence/pair-click-result.txt
+          grep -q '^OWNER_BRIDGE_PAIR_IPC_READY        if: always()
+        shell: bash
+        run: |
+          set +e
+          {
+            echo "git_head=$GITHUB_SHA"
+            echo "owner_sha256=55a179f96811671430556c99ee747280d648ead6833eaf7419009b4214be5394"
+            echo "bridge_sha256=8588f221bd91baf9b8a6183267dd9180ab019a94264b6dfb0d112279802d48f2"
+            echo "signer_sha256=279084a36b7c17a1663bfba5fe1c5bdac974f8ef4ce56b21000d882493e39448"
+            echo "android_api=35"
+            cat pair-evidence/pair-ipc-result.txt 2>/dev/null || true
+          } > pair-evidence/SUMMARY.txt
+          (cd pair-evidence && find . -maxdepth 1 -type f ! -name SHA256SUMS -printf '%P\0' | sort -z | xargs -0 sha256sum > SHA256SUMS)
+
+      - name: Upload pair diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: owner-bridge-pair-api35-evidence
+          path: pair-evidence/
+          if-no-files-found: error
+          retention-days: 30
+ pair-evidence/pair-ipc-result.txt
+          grep -q 'bridgeSignerMatch=true' pair-evidence/control-ui.txt
+          grep -q 'ok=true' pair-evidence/control-ui.txt
+          grep -q 'service=true' pair-evidence/control-ui.txt
+          grep -q 'status=READY' pair-evidence/control-ui.txt
 
       - name: Freeze pair evidence
         if: always()
