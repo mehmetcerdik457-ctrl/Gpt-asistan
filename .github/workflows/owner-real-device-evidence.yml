@@ -1,9 +1,8 @@
-name: Owner Real Device Evidence Gate
+name: Full Owner + Bridge Real Device Evidence Gate
 
 on:
   push:
-    branches:
-      - owner/evidence-intake-v1
+    branches: [owner/evidence-intake-v1]
     paths:
       - 'tools/verify_owner_real_device.py'
       - '.github/workflows/owner-real-device-evidence.yml'
@@ -16,89 +15,78 @@ permissions:
   contents: read
 
 jobs:
-  validate-owner-real-device-gate:
+  validate-full-real-device-gate:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - name: Checkout exact revision
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
-
       - name: Exact checkout proof
         shell: bash
         run: |
           set -euo pipefail
           ACTUAL="$(git rev-parse HEAD)"
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            EXPECTED="${{ github.event.pull_request.head.sha }}"
-          else
-            EXPECTED="${GITHUB_SHA}"
-          fi
-          test "${ACTUAL}" = "${EXPECTED}"
-          mkdir -p owner-evidence
-          printf 'expected_sha=%s\nactual_sha=%s\n' "${EXPECTED}" "${ACTUAL}" > owner-evidence/exact-head.txt
-
-      - name: Verifier self-test
+          if [ "${{ github.event_name }}" = "pull_request" ]; then EXPECTED="${{ github.event.pull_request.head.sha }}"; else EXPECTED="${GITHUB_SHA}"; fi
+          test "$ACTUAL" = "$EXPECTED"
+          mkdir -p full-evidence
+          printf 'expected_sha=%s\nactual_sha=%s\n' "$EXPECTED" "$ACTUAL" > full-evidence/exact-head.txt
+          echo "$ACTUAL" > full-evidence/verifier-head.txt
+      - name: Full verifier self-test
         shell: bash
         run: |
           set -euo pipefail
-          python3 tools/verify_owner_real_device.py --self-test | tee owner-evidence/self-test.txt
-          grep -q 'OWNER_REAL_DEVICE_VERIFIER_SELF_TEST_PASS' owner-evidence/self-test.txt
-
-      - name: Freeze current production contract
+          HEAD="$(git rev-parse HEAD)"
+          python3 tools/verify_owner_real_device.py --self-test --verifier-head "$HEAD" | tee full-evidence/self-test.txt
+          grep -q 'FULL_REAL_DEVICE_VERIFIER_SELF_TEST_PASS' full-evidence/self-test.txt
+      - name: Freeze full final contract
         shell: bash
         run: |
           set -euo pipefail
-          python3 tools/verify_owner_real_device.py --print-contract > owner-evidence/owner-real-device-contract.json
-          grep -q '"target_head": "c8b52661921f82d9e832a0dcf7eed514e970bf49"' owner-evidence/owner-real-device-contract.json
-          grep -q '"package_name": "com.mehmetcerdik.ownerai"' owner-evidence/owner-real-device-contract.json
-          grep -q '"version_name": "1.2.0"' owner-evidence/owner-real-device-contract.json
-          grep -q '"version_code": "4"' owner-evidence/owner-real-device-contract.json
-          grep -q '"unsigned_artifact_sha256": "f2066559876b71ae935b2515a81300c197d7308fcc29cbcdff4972f6eae86e44"' owner-evidence/owner-real-device-contract.json
-          grep -q '"expected_signer_cert_sha256": "279084a36b7c17a1663bfba5fe1c5bdac974f8ef4ce56b21000d882493e39448"' owner-evidence/owner-real-device-contract.json
-          grep -q '"signed_artifact_sha256": "55a179f96811671430556c99ee747280d648ead6833eaf7419009b4214be5394"' owner-evidence/owner-real-device-contract.json
-
-      - name: Prove frozen production gate rejects wrong signed artifact
+          HEAD="$(git rev-parse HEAD)"
+          python3 tools/verify_owner_real_device.py --print-contract --verifier-head "$HEAD" > full-evidence/full-final-contract.json
+          grep -q '"source_head": "c8b52661921f82d9e832a0dcf7eed514e970bf49"' full-evidence/full-final-contract.json
+          grep -q '"signed_sha256": "55a179f96811671430556c99ee747280d648ead6833eaf7419009b4214be5394"' full-evidence/full-final-contract.json
+          grep -q '"source_head": "a2ed5974efc94b3bc7ed8d8cfcb6169330678f0d"' full-evidence/full-final-contract.json
+          grep -q '"signed_sha256": "8588f221bd91baf9b8a6183267dd9180ab019a94264b6dfb0d112279802d48f2"' full-evidence/full-final-contract.json
+          grep -q '"package": "com.mehmetcerdik.ownerbridge"' full-evidence/full-final-contract.json
+          grep -q '"version_name": "1.1.0"' full-evidence/full-final-contract.json
+          grep -q '"version_code": "2"' full-evidence/full-final-contract.json
+          grep -q '"signer_sha256": "279084a36b7c17a1663bfba5fe1c5bdac974f8ef4ce56b21000d882493e39448"' full-evidence/full-final-contract.json
+      - name: Prove positive and fail-closed negative fixtures
         shell: bash
         run: |
           set -euo pipefail
+          HEAD="$(git rev-parse HEAD)"
           python3 - <<'PY'
-          import json, pathlib, sys
-          sys.path.insert(0, "tools")
+          import json,pathlib,sys
+          sys.path.insert(0,"tools")
           import verify_owner_real_device as v
-          pathlib.Path("owner-evidence/ci-capture-fixture.json").write_text(
-              json.dumps(v.fixture("a" * 64), sort_keys=True, indent=2) + "\n",
-              encoding="utf-8",
-          )
+          pathlib.Path("full-evidence/owner-fixture.json").write_text(json.dumps(v.owner_fixture(),sort_keys=True,indent=2)+"\n")
+          pathlib.Path("full-evidence/bridge-fixture.json").write_text(json.dumps(v.bridge_fixture(),sort_keys=True,indent=2)+"\n")
+          bad=v.bridge_fixture(); bad["bridge_artifact_sha256"]="0"*64
+          pathlib.Path("full-evidence/bridge-bad-hash.json").write_text(json.dumps(bad,sort_keys=True,indent=2)+"\n")
           PY
+          python3 tools/verify_owner_real_device.py --owner-input full-evidence/owner-fixture.json --bridge-input full-evidence/bridge-fixture.json --verifier-head "$HEAD" --output full-evidence/positive-result.json
+          grep -q 'FULL_REAL_DEVICE_EVIDENCE_VERIFIED' full-evidence/positive-result.json
           set +e
-          python3 tools/verify_owner_real_device.py \
-            --input owner-evidence/ci-capture-fixture.json \
-            > owner-evidence/production-gate-result.json
+          python3 tools/verify_owner_real_device.py --owner-input full-evidence/owner-fixture.json --bridge-input full-evidence/bridge-bad-hash.json --verifier-head "$HEAD" > full-evidence/negative-result.json
           CODE=$?
           set -e
-          test "${CODE}" -ne 0
-          grep -q 'OWNER_REAL_DEVICE_IDENTITY_MISMATCH' owner-evidence/production-gate-result.json
-
+          test "$CODE" -ne 0
+          grep -q 'BRIDGE_IDENTITY_OR_POLICY_MISMATCH' full-evidence/negative-result.json
       - name: Evidence package integrity
         shell: bash
         run: |
           set -euo pipefail
-          sha256sum tools/verify_owner_real_device.py > owner-evidence/verifier-source.sha256
-          (
-            cd owner-evidence
-            sha256sum exact-head.txt self-test.txt owner-real-device-contract.json \
-              ci-capture-fixture.json production-gate-result.json verifier-source.sha256 \
-              > SHA256SUMS
-            sha256sum -c SHA256SUMS
-          )
-
-      - name: Upload Owner gate evidence
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4.6.2
+          sha256sum tools/verify_owner_real_device.py > full-evidence/verifier-source.sha256
+          (cd full-evidence && sha256sum exact-head.txt verifier-head.txt self-test.txt full-final-contract.json owner-fixture.json bridge-fixture.json bridge-bad-hash.json positive-result.json negative-result.json verifier-source.sha256 > SHA256SUMS && sha256sum -c SHA256SUMS)
+      - name: Upload full final gate evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          retention-days: 30
-          name: owner-real-device-evidence-gate
-          path: owner-evidence/
+          retention-days: 90
+          name: full-owner-bridge-real-device-gate
+          path: full-evidence/
           if-no-files-found: error
