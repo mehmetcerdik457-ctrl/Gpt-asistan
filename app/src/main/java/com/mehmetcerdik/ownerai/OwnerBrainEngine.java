@@ -53,6 +53,8 @@ public final class OwnerBrainEngine {
             o.put("memory_entries", memory.recent(50).length());
             o.put("agent_step_limit", MAX_AGENT_STEPS);
             o.put("execution_contract", "SEE_UNDERSTAND_PLAN_ACT_SEE_VERIFY_RECOVER");
+            o.put("provider_memory_policy", "OWNER_PRIVATE_WITHHELD");
+            o.put("state_change_policy", "EXPLICIT_OWNER_ACTION_INTENT_REQUIRED");
         } catch (Exception ignored) {}
         return o;
     }
@@ -77,7 +79,7 @@ public final class OwnerBrainEngine {
             }
 
             boolean explicitRemember = explicitMemoryIntent(input);
-            String memoryContext = memory.recent(12).toString();
+            String memoryContext = OwnerBrainPolicy.providerMemoryContext();
             String transcript = systemPrompt() + "\nMEMORY=" + memoryContext + "\nOWNER=" + input;
             JSONArray trace = new JSONArray();
             String lastReply = "";
@@ -112,6 +114,18 @@ public final class OwnerBrainEngine {
 
                 String name = tool.optString("name", "");
                 JSONObject args = tool.optJSONObject("args");
+                if (!OwnerBrainPolicy.allowTool(input, name)) {
+                    JSONObject denied = fail("OWNER_ACTION_INTENT_REQUIRED");
+                    denied.put("reply", "State-changing phone actions require explicit owner action intent in the current request.");
+                    denied.put("tool", name);
+                    traceStep.put("tool_result", denied);
+                    traceStep.put("policy", "DENY_NO_OWNER_ACTION_INTENT");
+                    trace.put(traceStep);
+                    denied.put("trace", trace);
+                    denied.put("brain_status", status());
+                    memory.audit("BRAIN_ACTION_GATE", "DENY_NO_OWNER_INTENT", name);
+                    return denied;
+                }
                 JSONObject toolResult = tools.execute(name, args == null ? new JSONObject() : args);
                 traceStep.put("tool_result", toolResult);
 
@@ -171,7 +185,8 @@ public final class OwnerBrainEngine {
                 + "Return ONLY one JSON object with keys: reply(string), remember(string optional), "
                 + "tool(optional object {name,args}). Allowed tools: screen_read, launch_worker, click_text, "
                 + "type_text, swipe, back, home, recents. Never request, reveal, or store secrets. "
-                + "Durable memory writes require explicit owner intent. Do not invent tool success.";
+                + "Durable memory writes require explicit owner intent. Owner-private memory is never sent to the provider implicitly. "
+                + "State-changing phone tools require explicit action intent in the current owner request. Do not invent tool success.";
     }
 
     private boolean explicitMemoryIntent(String input) {
