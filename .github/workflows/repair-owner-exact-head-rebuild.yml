@@ -1,0 +1,102 @@
+name: Repair Owner Exact Head Rebuild
+
+on:
+  push:
+    branches:
+      - repair/owner-exact-head-rebuild-20260924
+    paths:
+      - ".github/workflows/repair-owner-exact-head-rebuild.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      OWNER_SOURCE_HEAD: c8b52661921f82d9e832a0dcf7eed514e970bf49
+      BAD_MERGE_SHA: 464ce024b7678822e40eb48fea5b014d3dafb6a1
+    steps:
+      - name: Checkout frozen Owner source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.OWNER_SOURCE_HEAD }}
+          persist-credentials: false
+
+      - name: Prove source checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$OWNER_SOURCE_HEAD"
+          mkdir -p repaired-owner-evidence
+          printf 'expected_source_head=%s\nactual_source_head=%s\n' "$OWNER_SOURCE_HEAD" "$(git rev-parse HEAD)" | tee repaired-owner-evidence/exact-source-head.txt
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up pinned Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.7"
+
+      - name: Unit tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          GITHUB_SHA="$OWNER_SOURCE_HEAD" gradle :app:testDebugUnitTest --no-daemon
+
+      - name: Build release with exact source head bound into BuildConfig
+        shell: bash
+        run: |
+          set -euo pipefail
+          GITHUB_SHA="$OWNER_SOURCE_HEAD" gradle :app:assembleRelease --no-daemon
+
+      - name: Align and statically verify repaired unsigned APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="$(find app/build/outputs/apk/release -maxdepth 1 -type f -name '*unsigned.apk' -print -quit)"
+          test -n "$APK"
+          SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          BT="$(find "$SDK/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
+          OUT="repaired-owner-evidence/MEHMET_OWNER_COMPANION_1.2.0_VC4_EXACT_HEAD_UNSIGNED_ALIGNED.apk"
+          "$BT/zipalign" -f -p 4 "$APK" "$OUT"
+          "$BT/zipalign" -c -p 4 "$OUT"
+          "$BT/aapt2" dump badging "$OUT" | tee repaired-owner-evidence/badging.txt
+          "$BT/aapt2" dump permissions "$OUT" | tee repaired-owner-evidence/permissions.txt
+          grep -Fq "package: name='com.mehmetcerdik.ownerai' versionCode='4' versionName='1.2.0'" repaired-owner-evidence/badging.txt
+          if grep -Fq 'android.permission.INTERNET' repaired-owner-evidence/permissions.txt; then
+            echo "Unexpected INTERNET permission"; exit 1
+          fi
+          unzip -p "$OUT" classes.dex > repaired-owner-evidence/classes.dex
+          strings -a repaired-owner-evidence/classes.dex | grep -Fx "$OWNER_SOURCE_HEAD"
+          if strings -a repaired-owner-evidence/classes.dex | grep -Fx "$BAD_MERGE_SHA"; then
+            echo "Bad synthetic merge SHA still embedded"; exit 1
+          fi
+          unzip -p "$OUT" META-INF/version-control-info.textproto | tee repaired-owner-evidence/version-control-info.textproto
+          grep -Fq "$OWNER_SOURCE_HEAD" repaired-owner-evidence/version-control-info.textproto
+          sha256sum "$OUT" | tee repaired-owner-evidence/unsigned.sha256
+          {
+            echo "owner_source_head=$OWNER_SOURCE_HEAD"
+            echo "embedded_build_git_sha=$OWNER_SOURCE_HEAD"
+            echo "synthetic_merge_sha_absent=$BAD_MERGE_SHA"
+            echo "application_id=com.mehmetcerdik.ownerai"
+            echo "version_name=1.2.0"
+            echo "version_code=4"
+            echo "expected_signer=279084a36b7c17a1663bfba5fe1c5bdac974f8ef4ce56b21000d882493e39448"
+            echo "network_permission=NONE"
+            echo "signing_state=UNSIGNED_ALIGNED_REPAIR_READY"
+          } | tee repaired-owner-evidence/REPAIR_MANIFEST.txt
+          rm repaired-owner-evidence/classes.dex
+          (cd repaired-owner-evidence && sha256sum exact-source-head.txt badging.txt permissions.txt version-control-info.textproto unsigned.sha256 REPAIR_MANIFEST.txt > SHA256SUMS && sha256sum -c SHA256SUMS)
+
+      - name: Upload repaired unsigned Owner
+        uses: actions/upload-artifact@v4
+        with:
+          name: owner-exact-head-repaired-unsigned
+          path: repaired-owner-evidence/
+          if-no-files-found: error
+          retention-days: 90
