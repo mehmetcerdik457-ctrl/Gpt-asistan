@@ -7,103 +7,64 @@ permissions:
   contents: read
 
 jobs:
-  exact-signed-static:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
+  exact-signed-api35-install:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
 
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Reconstruct exact canonical signed Bridge
+      - name: Reconstruct and freeze exact canonical signed Bridge
         run: |
           set -euo pipefail
           base64 -d diagnostics/MEHMET_PRIVILEGED_BRIDGE_1.1.0_VC2_GEN2_SIGNED.apk.b64 > bridge-final.apk
           ACTUAL="$(sha256sum bridge-final.apk | awk '{print $1}')"
-          echo "actual_sha256=$ACTUAL" | tee exact-hash.txt
+          echo "actual_sha256=$ACTUAL"
           test "$ACTUAL" = "8588f221bd91baf9b8a6183267dd9180ab019a94264b6dfb0d112279802d48f2"
 
-      - name: Android package-tool verification
+      - name: Enable KVM
         run: |
-          set -euo pipefail
-          SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
-          BT="$(find "$SDK/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
-          echo "BT=$BT" >> "$GITHUB_ENV"
-          unzip -t bridge-final.apk | tee unzip-test.txt
-          "$BT/aapt2" dump badging bridge-final.apk | tee badging.txt
-          grep -Fq "package: name='com.mehmetcerdik.ownerbridge' versionCode='2' versionName='1.1.0'" badging.txt
-          "$BT/zipalign" -c -p -v 4 bridge-final.apk | tee zipalign.txt
-          "$BT/apksigner" verify --verbose --print-certs bridge-final.apk 2>&1 | tee apksigner.txt
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm || true
+          ls -l /dev/kvm || true
 
-      - name: Freeze expected signer
-        run: |
-          set -euo pipefail
-          grep -Fi "Signer #1 certificate SHA-256 digest: 279084a36b7c17a1663bfba5fe1c5bdac974f8ef4ce56b21000d882493e39448" apksigner.txt
-
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: exact-final-bridge-static-diagnostics
-          path: |
-            exact-hash.txt
-            unzip-test.txt
-            badging.txt
-            zipalign.txt
-            apksigner.txt
-          if-no-files-found: warn
-          retention-days: 30
-
-  exact-signed-api35-install:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
-
-      - name: Reconstruct exact canonical signed Bridge
-        run: |
-          set -euo pipefail
-          base64 -d diagnostics/MEHMET_PRIVILEGED_BRIDGE_1.1.0_VC2_GEN2_SIGNED.apk.b64 > bridge-final.apk
-          test "$(sha256sum bridge-final.apk | awk '{print $1}')" = "8588f221bd91baf9b8a6183267dd9180ab019a94264b6dfb0d112279802d48f2"
-
-      - name: Install exact signed Bridge on clean Android 15 / API 35 emulator
+      - name: Install exact signed Bridge on clean Android 15 / API 35
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
+          target: google_apis
           arch: x86_64
           profile: pixel_6
           disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -no-metrics
           script: |
-            set -e
+            set -euo pipefail
             adb wait-for-device
-            echo "android_release=$(adb shell getprop ro.build.version.release)" | tee device.txt
-            echo "android_sdk=$(adb shell getprop ro.build.version.sdk)" | tee -a device.txt
+            adb shell 'while [[ -z $(getprop sys.boot_completed) ]]; do sleep 1; done'
+            adb shell getprop ro.build.version.release | tee android-release.txt
+            adb shell getprop ro.build.version.sdk | tee android-sdk.txt
             set +e
             adb install -r bridge-final.apk 2>&1 | tee adb-install.txt
-            INSTALL_CODE=${PIPESTATUS[0]}
+            CODE=${PIPESTATUS[0]}
             set -e
-            echo "adb_install_exit=$INSTALL_CODE" | tee -a adb-install.txt
-            if [ "$INSTALL_CODE" -ne 0 ]; then
-              adb logcat -d -v brief PackageManager:E PackageInstaller:E installd:E '*:S' | tail -300 | tee package-manager-log.txt || true
-              exit "$INSTALL_CODE"
+            echo "adb_install_exit=$CODE" | tee -a adb-install.txt
+            if [ "$CODE" -ne 0 ]; then
+              adb logcat -d -v brief | grep -E 'PackageManager|PackageInstaller|installd|INSTALL_' | tail -400 | tee package-manager-log.txt || true
+              exit "$CODE"
             fi
             adb shell pm path com.mehmetcerdik.ownerbridge | tee pm-path.txt
-            adb shell dumpsys package com.mehmetcerdik.ownerbridge | grep -E "versionCode|versionName|codePath|pkg=" | head -30 | tee package-dump.txt
+            adb shell dumpsys package com.mehmetcerdik.ownerbridge | grep -E 'versionCode|versionName|codePath|pkg=' | head -40 | tee package-dump.txt
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: exact-final-bridge-api35-install-diagnostics
           path: |
-            device.txt
+            android-release.txt
+            android-sdk.txt
             adb-install.txt
             pm-path.txt
             package-dump.txt
