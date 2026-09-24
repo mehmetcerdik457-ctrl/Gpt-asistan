@@ -17,12 +17,12 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Download exact Drive-readback Bridge APK
+      - name: Decode exact Drive-readback Bridge APK fixture
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p install-diagnostics
-          curl -L --fail --retry 3 'https://sdmntpritalynorth.oaiusercontent.com/files/00000000-1ff8-8246-ad41-a22b3139db55/raw?se=2026-09-24T05%3A27%3A39Z&sp=r&sv=2026-02-06&sr=b&scid=6d5482df-69b8-5f94-8f77-8601b37822a7&skoid=82a3371f-2f6c-4f81-8a78-2701b362559b&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-24T04%3A28%3A18Z&ske=2026-09-25T04%3A28%3A18Z&sks=b&skv=2026-02-06&sig=Fq2fsxHwnx%2BG6ltfcmEHkuUDKbTpp4FjmRZsijJc7Z8%3D' -o install-diagnostics/bridge.apk
+          base64 -d diagnostics/MEHMET_PRIVILEGED_BRIDGE_1.1.0_VC2_GEN2_SIGNED.apk.b64 > install-diagnostics/bridge.apk
           echo '8588f221bd91baf9b8a6183267dd9180ab019a94264b6dfb0d112279802d48f2  install-diagnostics/bridge.apk' | sha256sum -c -
 
       - name: Static package-manager inputs
