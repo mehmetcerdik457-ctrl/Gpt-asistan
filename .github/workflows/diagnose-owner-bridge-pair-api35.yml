@@ -26,7 +26,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          mkdir -p pair-evidence
+          mkdir -p pair-evidence downloads
           printf 'expected_sha=%s\nactual_sha=%s\n' "$GITHUB_SHA" "$(git rev-parse HEAD)" > pair-evidence/exact-head.txt
 
       - name: Acquire frozen signed Owner and Bridge from authenticated GitHub artifacts
@@ -35,7 +35,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          mkdir -p pair-evidence downloads
           curl -L --fail --retry 3 \
             -H "Authorization: Bearer ${GH_TOKEN}" \
             -H "Accept: application/vnd.github+json" \
@@ -52,8 +51,6 @@ jobs:
           unzip -j downloads/bridge-diagnostics.zip bridge.apk -d pair-evidence
           echo '55a179f96811671430556c99ee747280d648ead6833eaf7419009b4214be5394  pair-evidence/owner.apk' | sha256sum -c -
           echo '8588f221bd91baf9b8a6183267dd9180ab019a94264b6dfb0d112279802d48f2  pair-evidence/bridge.apk' | sha256sum -c -
-          stat -c 'owner_size=%s' pair-evidence/owner.apk | tee pair-evidence/sizes.txt
-          stat -c 'bridge_size=%s' pair-evidence/bridge.apk | tee -a pair-evidence/sizes.txt
 
       - name: Static pair identity and signer verification
         shell: bash
@@ -61,67 +58,25 @@ jobs:
           set -euo pipefail
           SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
           BT="$(find "$SDK/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
-          "$BT/aapt2" dump badging pair-evidence/owner.apk | tee pair-evidence/owner-badging.txt
-          "$BT/aapt2" dump badging pair-evidence/bridge.apk | tee pair-evidence/bridge-badging.txt
-          "$BT/apksigner" verify --verbose --print-certs pair-evidence/owner.apk | tee pair-evidence/owner-apksigner.txt
-          "$BT/apksigner" verify --verbose --print-certs pair-evidence/bridge.apk | tee pair-evidence/bridge-apksigner.txt
+          "$BT/aapt2" dump badging pair-evidence/owner.apk > pair-evidence/owner-badging.txt
+          "$BT/aapt2" dump badging pair-evidence/bridge.apk > pair-evidence/bridge-badging.txt
+          "$BT/apksigner" verify --verbose --print-certs pair-evidence/owner.apk > pair-evidence/owner-apksigner.txt
+          "$BT/apksigner" verify --verbose --print-certs pair-evidence/bridge.apk > pair-evidence/bridge-apksigner.txt
           grep -Fq "package: name='com.mehmetcerdik.ownerai' versionCode='4' versionName='1.2.0'" pair-evidence/owner-badging.txt
           grep -Fq "package: name='com.mehmetcerdik.ownerbridge' versionCode='2' versionName='1.1.0'" pair-evidence/bridge-badging.txt
           grep -Fiq '279084a36b7c17a1663bfba5fe1c5bdac974f8ef4ce56b21000d882493e39448' pair-evidence/owner-apksigner.txt
           grep -Fiq '279084a36b7c17a1663bfba5fe1c5bdac974f8ef4ce56b21000d882493e39448' pair-evidence/bridge-apksigner.txt
 
-      - name: Prepare resilient pair UI verification helpers
+      - name: Prepare control-plane text extractor
         shell: bash
         run: |
-          cat > pair-click.py <<'PY'
-          import re, subprocess, time, xml.etree.ElementTree as ET
-          OWNER='com.mehmetcerdik.ownerai/com.example.gptasistan.MainActivity'
-          def dump_ui():
-              subprocess.run(['adb','shell','uiautomator','dump','/sdcard/owner.xml'], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-              subprocess.run(['adb','pull','/sdcard/owner.xml','pair-evidence/owner-ui.xml'], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-          for attempt in range(4):
-              dump_ui()
-              try:
-                  root=ET.parse('pair-evidence/owner-ui.xml').getroot()
-              except Exception:
-                  root=None
-              if root is not None:
-                  node=next((n for n in root.iter('node') if n.attrib.get('text','').strip().upper() == 'OWNER CONTROL PLANE'), None)
-                  if node is not None:
-                      m=re.match(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', node.attrib.get('bounds',''))
-                      if not m:
-                          raise SystemExit('OWNER_CONTROL_PLANE_BOUNDS_INVALID')
-                      x1,y1,x2,y2=map(int,m.groups())
-                      subprocess.check_call(['adb','shell','input','tap',str((x1+x2)//2),str((y1+y2)//2)])
-                      print('OWNER_CONTROL_PLANE_BUTTON_TAPPED')
-                      raise SystemExit(0)
-                  texts=[n.attrib.get('text','') for n in root.iter('node')]
-                  if any("isn't responding" in t or t in ('Close app','Wait') for t in texts):
-                      subprocess.run(['adb','shell','input','keyevent','4'], check=False)
-                      time.sleep(1)
-              subprocess.run(['adb','shell','am','start','-W','-n',OWNER], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-              time.sleep(2)
-          raise SystemExit('OWNER_CONTROL_PLANE_BUTTON_NOT_FOUND_AFTER_RETRIES')
-          PY
-          cat > pair-verify.py <<'PY'
-          import subprocess, time, xml.etree.ElementTree as ET
-          required=['bridgeSignerMatch=true','ok=true','service=true','status=READY']
-          last=''
-          for attempt in range(5):
-              subprocess.run(['adb','shell','uiautomator','dump','/sdcard/control.xml'], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-              subprocess.run(['adb','pull','/sdcard/control.xml','pair-evidence/control-ui.xml'], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-              try:
-                  texts=[n.attrib.get('text','') for n in ET.parse('pair-evidence/control-ui.xml').getroot().iter('node')]
-              except Exception:
-                  texts=[]
-              last='\n'.join(texts)
-              open('pair-evidence/control-ui.txt','w').write(last)
-              missing=[x for x in required if x not in last]
-              if not missing:
-                  print('OWNER_BRIDGE_PAIR_IPC_READY')
-                  raise SystemExit(0)
-              time.sleep(2)
-          raise SystemExit('PAIR_IPC_NOT_READY missing='+','.join(x for x in required if x not in last))
+          cat > extract-control.py <<'PY'
+          import xml.etree.ElementTree as ET
+          root=ET.parse('pair-evidence/control-ui.xml').getroot()
+          texts=[n.attrib.get('text','') for n in root.iter('node') if n.attrib.get('text','')]
+          joined='\n'.join(texts)
+          open('pair-evidence/control-ui.txt','w').write(joined+'\n')
+          print(joined)
           PY
 
       - name: Enable KVM access
@@ -131,7 +86,7 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      - name: Install pair and prove Owner to Bridge IPC on Android 15
+      - name: Install pair and prove pre-UiAutomation service binding plus Owner Bridge IPC
         uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
         with:
           api-level: 35
@@ -146,22 +101,43 @@ jobs:
             adb install -r pair-evidence/bridge.apk > pair-evidence/bridge-install.txt
             cat pair-evidence/bridge-install.txt
             adb shell pm path com.mehmetcerdik.ownerai > pair-evidence/owner-pm-path.txt
-            cat pair-evidence/owner-pm-path.txt
             adb shell pm path com.mehmetcerdik.ownerbridge > pair-evidence/bridge-pm-path.txt
-            cat pair-evidence/bridge-pm-path.txt
-            adb shell settings put secure enabled_accessibility_services 'com.mehmetcerdik.ownerai/com.example.gptasistan.PhoneAgentAccessibilityService:com.mehmetcerdik.ownerbridge/com.mehmetcerdik.ownerbridge.BridgeAccessibilityService'
-            adb shell settings put secure accessibility_enabled 1
-            adb shell settings get secure enabled_accessibility_services > pair-evidence/enabled-accessibility-services.txt
-            adb shell settings get secure accessibility_enabled > pair-evidence/accessibility-enabled.txt
-            sleep 2
+
+            adb shell settings --user 0 put secure accessibility_enabled 0
+            adb shell settings --user 0 put secure enabled_accessibility_services 'com.mehmetcerdik.ownerai/com.example.gptasistan.PhoneAgentAccessibilityService:com.mehmetcerdik.ownerbridge/com.mehmetcerdik.ownerbridge.BridgeAccessibilityService'
+            adb shell settings --user 0 put secure accessibility_enabled 1
+            sleep 5
+
+            adb shell settings --user 0 get secure accessibility_enabled > pair-evidence/accessibility-enabled.txt
+            adb shell settings --user 0 get secure enabled_accessibility_services > pair-evidence/enabled-accessibility-services.txt
+            adb shell dumpsys accessibility > pair-evidence/accessibility-before-uiautomator.txt
+            grep -F 'com.mehmetcerdik.ownerai' pair-evidence/accessibility-before-uiautomator.txt
+            grep -F 'com.mehmetcerdik.ownerbridge' pair-evidence/accessibility-before-uiautomator.txt
+
             adb shell am start -W -n com.mehmetcerdik.ownerai/com.example.gptasistan.MainActivity > pair-evidence/owner-launch.txt
-            cat pair-evidence/owner-launch.txt
-            sleep 3
-            python3 pair-click.py > pair-evidence/pair-click-result.txt
-            cat pair-evidence/pair-click-result.txt
             sleep 2
-            python3 pair-verify.py > pair-evidence/pair-ipc-result.txt
-            cat pair-evidence/pair-ipc-result.txt
+
+            SIZE="$(adb shell wm size | tr -d '\r' | grep -Eo '[0-9]+x[0-9]+' | tail -1)"
+            W="${SIZE%x*}"
+            H="${SIZE#*x}"
+            X=$((W/2))
+            Y_CONTROL=$((H*425/1000))
+            Y_ARM=$((H*980/1000))
+            printf 'size=%s\nx=%s\ny_control=%s\ny_arm=%s\n' "$SIZE" "$X" "$Y_CONTROL" "$Y_ARM" > pair-evidence/tap-coordinates.txt
+
+            adb shell input tap "$X" "$Y_CONTROL"
+            sleep 2
+            adb shell input tap "$X" "$Y_ARM"
+            sleep 2
+
+            adb shell dumpsys accessibility > pair-evidence/accessibility-after-arm-before-uiautomator.txt
+
+            adb shell uiautomator dump /sdcard/control.xml
+            adb pull /sdcard/control.xml pair-evidence/control-ui.xml
+            python3 extract-control.py > pair-evidence/control-extract-output.txt
+            cat pair-evidence/control-ui.txt
+
+            adb shell dumpsys accessibility > pair-evidence/accessibility-after-uiautomator.txt
             adb shell dumpsys package com.mehmetcerdik.ownerai > pair-evidence/owner-dumpsys.txt
             adb shell dumpsys package com.mehmetcerdik.ownerbridge > pair-evidence/bridge-dumpsys.txt
             adb logcat -d -v threadtime > pair-evidence/logcat.txt
@@ -179,8 +155,7 @@ jobs:
             echo "android_api=35"
             echo "accessibility_enabled=$(cat pair-evidence/accessibility-enabled.txt 2>/dev/null || echo missing)"
             echo "enabled_services=$(cat pair-evidence/enabled-accessibility-services.txt 2>/dev/null || echo missing)"
-            cat pair-evidence/pair-click-result.txt 2>/dev/null || true
-            cat pair-evidence/pair-ipc-result.txt 2>/dev/null || true
+            cat pair-evidence/control-ui.txt 2>/dev/null || true
           } > pair-evidence/SUMMARY.txt
           (cd pair-evidence && find . -maxdepth 1 -type f ! -name SHA256SUMS -printf '%P\0' | sort -z | xargs -0 sha256sum > SHA256SUMS)
 
@@ -193,16 +168,21 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Assert pair IPC success token
+      - name: Assert exact pair install, service binding, and Owner-to-Bridge ready state
         if: always()
         shell: bash
         run: |
           set -euo pipefail
           grep -Fxq 'Success' pair-evidence/owner-install.txt
           grep -Fxq 'Success' pair-evidence/bridge-install.txt
-          grep -Fxq 'OWNER_CONTROL_PLANE_BUTTON_TAPPED' pair-evidence/pair-click-result.txt
-          grep -Fxq 'OWNER_BRIDGE_PAIR_IPC_READY' pair-evidence/pair-ipc-result.txt
+          grep -Fxq '1' pair-evidence/accessibility-enabled.txt
+          grep -Fq 'com.mehmetcerdik.ownerai/com.example.gptasistan.PhoneAgentAccessibilityService' pair-evidence/enabled-accessibility-services.txt
+          grep -Fq 'com.mehmetcerdik.ownerbridge/com.mehmetcerdik.ownerbridge.BridgeAccessibilityService' pair-evidence/enabled-accessibility-services.txt
+          grep -Fq 'com.mehmetcerdik.ownerai' pair-evidence/accessibility-before-uiautomator.txt
+          grep -Fq 'com.mehmetcerdik.ownerbridge' pair-evidence/accessibility-before-uiautomator.txt
           grep -Fq 'bridgeSignerMatch=true' pair-evidence/control-ui.txt
           grep -Fq 'ok=true' pair-evidence/control-ui.txt
           grep -Fq 'service=true' pair-evidence/control-ui.txt
+          grep -Fq 'armed=true' pair-evidence/control-ui.txt
+          grep -Fq 'emergency=false' pair-evidence/control-ui.txt
           grep -Fq 'status=READY' pair-evidence/control-ui.txt
