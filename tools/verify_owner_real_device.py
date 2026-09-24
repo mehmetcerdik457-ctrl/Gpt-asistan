@@ -1,229 +1,155 @@
 #!/usr/bin/env python3
-import argparse
-import copy
-import hashlib
-import json
-import pathlib
-import re
+import argparse, copy, hashlib, json, pathlib, re
 
-TARGET_HEAD = "c8b52661921f82d9e832a0dcf7eed514e970bf49"
-PACKAGE_NAME = "com.mehmetcerdik.ownerai"
-VERSION_NAME = "1.2.0"
-VERSION_CODE = "4"
-UNSIGNED_ARTIFACT_SHA256 = "f2066559876b71ae935b2515a81300c197d7308fcc29cbcdff4972f6eae86e44"
-EXPECTED_SIGNER_CERT_SHA256 = "279084a36b7c17a1663bfba5fe1c5bdac974f8ef4ce56b21000d882493e39448"
-SIGNED_ARTIFACT_SHA256 = "55a179f96811671430556c99ee747280d648ead6833eaf7419009b4214be5394"
-RUNTIME_IMPLEMENTATION = "v1_accessibility"
-REQUIRED_EVENT_ACTIONS = ("TAP", "CLICK_TEXT", "SCROLL_FORWARD")
-HEX64 = re.compile(r"^[0-9a-f]{64}$")
-
+OWNER_HEAD="c8b52661921f82d9e832a0dcf7eed514e970bf49"
+OWNER_PACKAGE="com.mehmetcerdik.ownerai"
+OWNER_VERSION_NAME="1.2.0"
+OWNER_VERSION_CODE="4"
+OWNER_UNSIGNED_SHA256="f2066559876b71ae935b2515a81300c197d7308fcc29cbcdff4972f6eae86e44"
+OWNER_SIGNED_SHA256="55a179f96811671430556c99ee747280d648ead6833eaf7419009b4214be5394"
+GEN2_SIGNER="279084a36b7c17a1663bfba5fe1c5bdac974f8ef4ce56b21000d882493e39448"
+BRIDGE_SOURCE_HEAD="a2ed5974efc94b3bc7ed8d8cfcb6169330678f0d"
+BRIDGE_PACKAGE="com.mehmetcerdik.ownerbridge"
+BRIDGE_VERSION_NAME="1.1.0"
+BRIDGE_VERSION_CODE="2"
+BRIDGE_SIGNED_SHA256="8588f221bd91baf9b8a6183267dd9180ab019a94264b6dfb0d112279802d48f2"
+HEX40=re.compile(r"^[0-9a-f]{40}$")
+HEX64=re.compile(r"^[0-9a-f]{64}$")
 
 def canonical_sha256(data):
-    encoded = json.dumps(data, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
+    return hashlib.sha256(json.dumps(data,sort_keys=True,separators=(",",":")).encode()).hexdigest()
 
+def fail(status,**extra):
+    print(json.dumps({"status":status,**extra},sort_keys=True)); raise SystemExit(2)
 
-def fail(status, **extra):
-    payload = {"status": status, **extra}
-    print(json.dumps(payload, sort_keys=True))
-    raise SystemExit(2)
+def require(cond,status,**extra):
+    if not cond: fail(status,**extra)
 
-
-def require(condition, status, **extra):
-    if not condition:
-        fail(status, **extra)
-
-
-def contract(signed_artifact_sha256=SIGNED_ARTIFACT_SHA256):
+def contract(verifier_head=None):
+    if verifier_head is not None:
+        require(isinstance(verifier_head,str) and HEX40.fullmatch(verifier_head)!=None,"VERIFIER_HEAD_INVALID")
     return {
-        "version": 1,
-        "target_head": TARGET_HEAD,
-        "package_name": PACKAGE_NAME,
-        "version_name": VERSION_NAME,
-        "version_code": VERSION_CODE,
-        "unsigned_artifact_sha256": UNSIGNED_ARTIFACT_SHA256,
-        "expected_signer_cert_sha256": EXPECTED_SIGNER_CERT_SHA256,
-        "signed_artifact_sha256": signed_artifact_sha256,
-        "phone_agent_runtime": "v1_accessibility_dynamic_evidence",
-        "runtime_implementation": RUNTIME_IMPLEMENTATION,
-        "required_event_actions": list(REQUIRED_EVENT_ACTIONS),
+      "version":2,
+      "verifier_head":verifier_head,
+      "owner":{"source_head":OWNER_HEAD,"package":OWNER_PACKAGE,"version_name":OWNER_VERSION_NAME,
+        "version_code":OWNER_VERSION_CODE,"unsigned_sha256":OWNER_UNSIGNED_SHA256,
+        "signed_sha256":OWNER_SIGNED_SHA256,"signer_sha256":GEN2_SIGNER},
+      "bridge":{"source_head":BRIDGE_SOURCE_HEAD,"package":BRIDGE_PACKAGE,"version_name":BRIDGE_VERSION_NAME,
+        "version_code":BRIDGE_VERSION_CODE,"signed_sha256":BRIDGE_SIGNED_SHA256,
+        "signer_sha256":GEN2_SIGNER,"network_permission":"NONE"},
+      "required_actions":["OPEN","TAP","SWIPE","TYPE","VERIFY","RECORD"]
     }
 
-
-def validate_data(data, expected=None):
-    expected = contract() if expected is None else expected
-    signed_hash = expected.get("signed_artifact_sha256")
-    require(
-        isinstance(signed_hash, str) and HEX64.fullmatch(signed_hash) is not None and signed_hash != "0" * 64,
-        "OWNER_SIGNED_RELEASE_NOT_FROZEN",
-    )
-    require(data.get("version") == 3, "OWNER_REAL_DEVICE_EVIDENCE_SCHEMA_MISMATCH", actual=data.get("version"), expected=3)
-    require(data.get("status") == "REAL_DEVICE_EVIDENCE_CAPTURED", "OWNER_REAL_DEVICE_CAPTURE_STATUS_INVALID", actual=data.get("status"))
-    require(data.get("git_head") == expected["target_head"], "OWNER_REAL_DEVICE_HEAD_MISMATCH", actual=data.get("git_head"), expected=expected["target_head"])
-
-    device = data.get("evidence") or {}
-    runtime = data.get("phone_agent") or {}
-
-    checks = {
-        "package_name": (str(device.get("package_name", "")), expected["package_name"]),
-        "version_name": (str(device.get("version_name", "")), expected["version_name"]),
-        "version_code": (str(device.get("version_code", "")), str(expected["version_code"])),
-        "artifact_sha256": (str(device.get("artifact_sha256", "")).lower(), signed_hash.lower()),
-        "signer_cert_sha256": (str(device.get("signer_cert_sha256", "")).lower(), expected["expected_signer_cert_sha256"].lower()),
+def validate_owner(data):
+    require(data.get("version")==3,"OWNER_SCHEMA_MISMATCH",actual=data.get("version"))
+    require(data.get("status")=="REAL_DEVICE_EVIDENCE_CAPTURED","OWNER_CAPTURE_STATUS_INVALID",actual=data.get("status"))
+    require(data.get("git_head")==OWNER_HEAD,"OWNER_HEAD_MISMATCH",actual=data.get("git_head"),expected=OWNER_HEAD)
+    d=data.get("evidence") or {}; r=data.get("phone_agent") or {}
+    checks={
+      "package_name":(str(d.get("package_name","")),OWNER_PACKAGE),
+      "version_name":(str(d.get("version_name","")),OWNER_VERSION_NAME),
+      "version_code":(str(d.get("version_code","")),OWNER_VERSION_CODE),
+      "artifact_sha256":(str(d.get("artifact_sha256","")).lower(),OWNER_SIGNED_SHA256),
+      "signer_cert_sha256":(str(d.get("signer_cert_sha256","")).lower(),GEN2_SIGNER)
     }
-    mismatches = {k: {"actual": a, "expected": e} for k, (a, e) in checks.items() if a != e}
-    require(not mismatches, "OWNER_REAL_DEVICE_IDENTITY_MISMATCH", mismatches=mismatches)
+    mm={k:{"actual":a,"expected":e} for k,(a,e) in checks.items() if a!=e}
+    require(not mm,"OWNER_IDENTITY_MISMATCH",mismatches=mm)
+    for field in ("install_result","launch_result","postcondition_result"):
+        require(d.get(field)=="PASS","OWNER_POSTCONDITION_FAIL",field=field,actual=d.get(field))
+    require(r.get("implementation")=="v1_accessibility","OWNER_RUNTIME_IMPLEMENTATION_MISMATCH")
+    require(r.get("network_permission")=="NONE","OWNER_NETWORK_POLICY_MISMATCH")
+    require(r.get("accessibility_enabled") is True,"OWNER_ACCESSIBILITY_NOT_ENABLED")
+    require(r.get("service_connected") is True,"OWNER_SERVICE_NOT_CONNECTED")
+    require(int(r.get("self_test_target_hits",0))>0,"OWNER_SELF_TEST_TARGET_NOT_HIT")
+    for field,status in (("tap_pass","OWNER_TAP_NOT_VERIFIED"),("click_text_pass","OWNER_CLICK_TEXT_NOT_VERIFIED"),("scroll_forward_pass","OWNER_SCROLL_NOT_VERIFIED")):
+        require(r.get(field) is True,status)
+    require(r.get("runtime_postcondition_result")=="PASS","OWNER_RUNTIME_POSTCONDITION_FAIL")
+    events=r.get("events") or []
+    passed={e.get("action") for e in events if isinstance(e,dict) and e.get("status")=="PASS"}
+    require({"TAP","CLICK_TEXT","SCROLL_FORWARD"}.issubset(passed),"OWNER_EVENT_EVIDENCE_INCOMPLETE",passed=sorted(passed))
+    require(any(isinstance(e,dict) and e.get("action")=="SERVICE" and e.get("status")=="READY" for e in events),"OWNER_SERVICE_READY_EVENT_MISSING")
+    return {"device_model":d.get("device_model"),"android_version":d.get("android_version"),"hash":canonical_sha256(data)}
 
-    for field in ("install_result", "launch_result", "postcondition_result"):
-        require(device.get(field) == "PASS", "OWNER_REAL_DEVICE_POSTCONDITION_FAIL", field=field, actual=device.get(field))
+def validate_bridge(data):
+    require(data.get("version")==1,"BRIDGE_SCHEMA_MISMATCH",actual=data.get("version"))
+    require(data.get("status")=="BRIDGE_FINAL_EVIDENCE_CAPTURED","BRIDGE_CAPTURE_STATUS_INVALID",actual=data.get("status"))
+    checks={
+      "bridge_package":(str(data.get("bridge_package","")),BRIDGE_PACKAGE),
+      "bridge_version_name":(str(data.get("bridge_version_name","")),BRIDGE_VERSION_NAME),
+      "bridge_version_code":(str(data.get("bridge_version_code","")),BRIDGE_VERSION_CODE),
+      "bridge_artifact_sha256":(str(data.get("bridge_artifact_sha256","")).lower(),BRIDGE_SIGNED_SHA256),
+      "bridge_signer_cert_sha256":(str(data.get("bridge_signer_cert_sha256","")).lower(),GEN2_SIGNER),
+      "owner_package":(str(data.get("owner_package","")),OWNER_PACKAGE),
+      "owner_signer_cert_sha256":(str(data.get("owner_signer_cert_sha256","")).lower(),GEN2_SIGNER),
+      "network_permission":(str(data.get("network_permission","")),"NONE")
+    }
+    mm={k:{"actual":a,"expected":e} for k,(a,e) in checks.items() if a!=e}
+    require(not mm,"BRIDGE_IDENTITY_OR_POLICY_MISMATCH",mismatches=mm)
+    require(data.get("service_connected") is True,"BRIDGE_SERVICE_NOT_CONNECTED")
+    require(data.get("launch_app_pass") is True,"BRIDGE_OPEN_LAUNCH_NOT_VERIFIED")
+    require(data.get("swipe_pass") is True,"BRIDGE_SWIPE_NOT_VERIFIED")
+    require(data.get("type_text_pass") is True,"BRIDGE_TYPE_NOT_VERIFIED")
+    require(data.get("verify_postcondition_pass") is True,"BRIDGE_VERIFY_POSTCONDITION_NOT_VERIFIED")
+    events=data.get("events") or []
+    passed={e.get("action") for e in events if isinstance(e,dict) and e.get("status")=="PASS"}
+    require({"LAUNCH_APP","SWIPE","TYPE_TEXT"}.issubset(passed),"BRIDGE_EVENT_EVIDENCE_INCOMPLETE",passed=sorted(passed))
+    require(any(isinstance(e,dict) and e.get("action")=="SERVICE" and e.get("status")=="READY" for e in events),"BRIDGE_SERVICE_READY_EVENT_MISSING")
+    return {"hash":canonical_sha256(data)}
 
-    require(runtime.get("implementation") == expected["runtime_implementation"],
-            "OWNER_PHONE_AGENT_IMPLEMENTATION_MISMATCH",
-            actual=runtime.get("implementation"), expected=expected["runtime_implementation"])
-    require(runtime.get("network_permission") == "NONE",
-            "OWNER_PHONE_AGENT_NETWORK_POLICY_MISMATCH", actual=runtime.get("network_permission"))
-    require(runtime.get("accessibility_enabled") is True, "OWNER_PHONE_AGENT_ACCESSIBILITY_NOT_ENABLED")
-    require(runtime.get("service_connected") is True, "OWNER_PHONE_AGENT_SERVICE_NOT_CONNECTED")
-    require(int(runtime.get("self_test_target_hits", 0)) > 0,
-            "OWNER_PHONE_AGENT_SELF_TEST_TARGET_NOT_HIT", actual=runtime.get("self_test_target_hits"))
-    require(runtime.get("tap_pass") is True, "OWNER_PHONE_AGENT_TAP_NOT_VERIFIED")
-    require(runtime.get("click_text_pass") is True, "OWNER_PHONE_AGENT_CLICK_TEXT_NOT_VERIFIED")
-    require(runtime.get("scroll_forward_pass") is True, "OWNER_PHONE_AGENT_SCROLL_NOT_VERIFIED")
-    require(runtime.get("runtime_postcondition_result") == "PASS",
-            "OWNER_PHONE_AGENT_RUNTIME_POSTCONDITION_FAIL", actual=runtime.get("runtime_postcondition_result"))
-
-    events = runtime.get("events") or []
-    passed = {e.get("action") for e in events if isinstance(e, dict) and e.get("status") == "PASS"}
-    missing_events = [a for a in expected["required_event_actions"] if a not in passed]
-    require(not missing_events, "OWNER_PHONE_AGENT_EVENT_EVIDENCE_INCOMPLETE", missing=missing_events)
-    require(any(isinstance(e, dict) and e.get("action") == "SERVICE" and e.get("status") == "READY" for e in events),
-            "OWNER_PHONE_AGENT_SERVICE_READY_EVENT_MISSING")
-
+def validate_full(owner,bridge,verifier_head):
+    require(isinstance(verifier_head,str) and HEX40.fullmatch(verifier_head)!=None,"VERIFIER_HEAD_INVALID",actual=verifier_head)
+    o=validate_owner(owner); b=validate_bridge(bridge)
     return {
-        "version": 1,
-        "status": "OWNER_REAL_DEVICE_EVIDENCE_VERIFIED",
-        "target_head": expected["target_head"],
-        "package_name": expected["package_name"],
-        "version_name": expected["version_name"],
-        "version_code": expected["version_code"],
-        "unsigned_artifact_sha256": expected["unsigned_artifact_sha256"],
-        "signed_artifact_sha256": signed_hash,
-        "signer_cert_sha256": expected["expected_signer_cert_sha256"],
-        "device_model": device.get("device_model"),
-        "android_version": device.get("android_version"),
-        "captured_at_epoch_ms": data.get("captured_at_epoch_ms"),
-        "self_test_target_hits": runtime.get("self_test_target_hits"),
-        "verified_actions": sorted(expected["required_event_actions"]),
-        "evidence_canonical_sha256": canonical_sha256(data),
+      "version":2,"status":"FULL_REAL_DEVICE_EVIDENCE_VERIFIED","verifier_head":verifier_head,
+      "owner_source_head":OWNER_HEAD,"owner_apk_sha256":OWNER_SIGNED_SHA256,"owner_signer_sha256":GEN2_SIGNER,
+      "bridge_source_head":BRIDGE_SOURCE_HEAD,"bridge_apk_sha256":BRIDGE_SIGNED_SHA256,"bridge_signer_sha256":GEN2_SIGNER,
+      "verified_actions":["OPEN","TAP","SWIPE","TYPE","VERIFY","RECORD"],
+      "device_model":o["device_model"],"android_version":o["android_version"],
+      "owner_evidence_sha256":o["hash"],"bridge_evidence_sha256":b["hash"]
     }
 
+def owner_fixture():
+    return {"version":3,"status":"REAL_DEVICE_EVIDENCE_CAPTURED","git_head":OWNER_HEAD,"captured_at_epoch_ms":1,
+      "evidence":{"device_model":"CI","android_version":"15","package_name":OWNER_PACKAGE,"version_name":OWNER_VERSION_NAME,
+        "version_code":OWNER_VERSION_CODE,"artifact_sha256":OWNER_SIGNED_SHA256,"signer_cert_sha256":GEN2_SIGNER,
+        "install_result":"PASS","launch_result":"PASS","postcondition_result":"PASS"},
+      "phone_agent":{"implementation":"v1_accessibility","accessibility_enabled":True,"service_connected":True,"network_permission":"NONE",
+        "self_test_target_hits":1,"tap_pass":True,"click_text_pass":True,"scroll_forward_pass":True,"runtime_postcondition_result":"PASS",
+        "events":[{"action":"SERVICE","status":"READY"},{"action":"TAP","status":"PASS"},{"action":"CLICK_TEXT","status":"PASS"},{"action":"SCROLL_FORWARD","status":"PASS"}]}}
+def bridge_fixture():
+    return {"version":1,"status":"BRIDGE_FINAL_EVIDENCE_CAPTURED","bridge_package":BRIDGE_PACKAGE,
+      "bridge_version_name":BRIDGE_VERSION_NAME,"bridge_version_code":BRIDGE_VERSION_CODE,
+      "bridge_artifact_sha256":BRIDGE_SIGNED_SHA256,"bridge_signer_cert_sha256":GEN2_SIGNER,
+      "owner_package":OWNER_PACKAGE,"owner_signer_cert_sha256":GEN2_SIGNER,"network_permission":"NONE",
+      "service_connected":True,"launch_app_pass":True,"swipe_pass":True,"type_text_pass":True,"verify_postcondition_pass":True,
+      "events":[{"action":"SERVICE","status":"READY"},{"action":"LAUNCH_APP","status":"PASS"},{"action":"SWIPE","status":"PASS"},{"action":"TYPE_TEXT","status":"PASS"}]}
 
-def validate_file(path):
-    data = json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
-    return validate_data(data, contract())
-
-
-def fixture(signed_hash):
-    return {
-        "version": 3,
-        "status": "REAL_DEVICE_EVIDENCE_CAPTURED",
-        "git_head": TARGET_HEAD,
-        "captured_at_epoch_ms": 1790200000000,
-        "evidence": {
-            "device_model": "CI FIXTURE DEVICE",
-            "android_version": "15 (SDK 35)",
-            "package_name": PACKAGE_NAME,
-            "version_name": VERSION_NAME,
-            "version_code": VERSION_CODE,
-            "artifact_sha256": signed_hash,
-            "signer_cert_sha256": EXPECTED_SIGNER_CERT_SHA256,
-            "install_result": "PASS",
-            "launch_result": "PASS",
-            "postcondition_result": "PASS",
-        },
-        "phone_agent": {
-            "implementation": RUNTIME_IMPLEMENTATION,
-            "accessibility_enabled": True,
-            "service_connected": True,
-            "network_permission": "NONE",
-            "self_test_target_hits": 2,
-            "tap_pass": True,
-            "click_text_pass": True,
-            "scroll_forward_pass": True,
-            "runtime_postcondition_result": "PASS",
-            "events": [
-                {"timestamp_ms": 1, "action": "SERVICE", "status": "READY", "detail": "fixture"},
-                {"timestamp_ms": 2, "action": "TAP", "status": "PASS", "detail": "fixture"},
-                {"timestamp_ms": 3, "action": "CLICK_TEXT", "status": "PASS", "detail": "fixture"},
-                {"timestamp_ms": 4, "action": "SCROLL_FORWARD", "status": "PASS", "detail": "fixture"},
-            ],
-        },
-    }
-
-
-def self_test():
-    signed_hash = "a" * 64
-    expected = contract(signed_hash)
-    valid = fixture(signed_hash)
-    result = validate_data(valid, expected)
-    assert result["status"] == "OWNER_REAL_DEVICE_EVIDENCE_VERIFIED"
-
-    cases = []
-    bad = copy.deepcopy(valid)
-    bad["evidence"]["artifact_sha256"] = "b" * 64
-    cases.append(bad)
-    bad = copy.deepcopy(valid)
-    bad["evidence"]["signer_cert_sha256"] = "c" * 64
-    cases.append(bad)
-    bad = copy.deepcopy(valid)
-    bad["phone_agent"]["scroll_forward_pass"] = False
-    bad["phone_agent"]["runtime_postcondition_result"] = "PENDING"
-    bad["phone_agent"]["events"] = [e for e in bad["phone_agent"]["events"] if e["action"] != "SCROLL_FORWARD"]
-    cases.append(bad)
-
-    for payload in cases:
-        try:
-            validate_data(payload, expected)
-        except SystemExit:
-            pass
-        else:
-            raise AssertionError("negative fixture unexpectedly accepted")
-
-    try:
-        validate_data(valid, contract())
-    except SystemExit:
-        pass
-    else:
-        raise AssertionError("production contract unexpectedly accepted mismatched signed artifact hash")
-
-    print(json.dumps({"status": "OWNER_REAL_DEVICE_VERIFIER_SELF_TEST_PASS", "target_head": TARGET_HEAD}, sort_keys=True))
-
+def self_test(verifier_head):
+    good=validate_full(owner_fixture(),bridge_fixture(),verifier_head)
+    assert good["status"]=="FULL_REAL_DEVICE_EVIDENCE_VERIFIED"
+    negatives=[]
+    x=copy.deepcopy(owner_fixture());x["evidence"]["artifact_sha256"]="0"*64;negatives.append((x,bridge_fixture()))
+    x=copy.deepcopy(bridge_fixture());x["bridge_artifact_sha256"]="0"*64;negatives.append((owner_fixture(),x))
+    x=copy.deepcopy(bridge_fixture());x["bridge_signer_cert_sha256"]="0"*64;negatives.append((owner_fixture(),x))
+    x=copy.deepcopy(bridge_fixture());x["swipe_pass"]=False;negatives.append((owner_fixture(),x))
+    x=copy.deepcopy(bridge_fixture());x["type_text_pass"]=False;negatives.append((owner_fixture(),x))
+    for o,b in negatives:
+        try: validate_full(o,b,verifier_head)
+        except SystemExit: pass
+        else: raise AssertionError("negative fixture unexpectedly accepted")
+    print(json.dumps({"status":"FULL_REAL_DEVICE_VERIFIER_SELF_TEST_PASS","verifier_head":verifier_head},sort_keys=True))
 
 def main():
-    p = argparse.ArgumentParser()
-    p.add_argument("--input")
-    p.add_argument("--output")
-    p.add_argument("--self-test", action="store_true")
-    p.add_argument("--print-contract", action="store_true")
-    args = p.parse_args()
+    p=argparse.ArgumentParser();p.add_argument("--owner-input");p.add_argument("--bridge-input");p.add_argument("--output")
+    p.add_argument("--verifier-head");p.add_argument("--self-test",action="store_true");p.add_argument("--print-contract",action="store_true")
+    a=p.parse_args()
+    if a.self_test: self_test(a.verifier_head or "0"*40);return
+    if a.print_contract: print(json.dumps(contract(a.verifier_head),sort_keys=True,indent=2));return
+    if not a.owner_input or not a.bridge_input or not a.verifier_head: p.error("--owner-input, --bridge-input and --verifier-head are required")
+    owner=json.loads(pathlib.Path(a.owner_input).read_text());bridge=json.loads(pathlib.Path(a.bridge_input).read_text())
+    result=validate_full(owner,bridge,a.verifier_head);render=json.dumps(result,sort_keys=True,indent=2)+"\n"
+    if a.output:
+        out=pathlib.Path(a.output);out.parent.mkdir(parents=True,exist_ok=True);out.write_text(render)
+    print(json.dumps(result,sort_keys=True))
 
-    if args.self_test:
-        self_test()
-        return
-    if args.print_contract:
-        print(json.dumps(contract(), sort_keys=True, indent=2))
-        return
-    if not args.input:
-        p.error("--input is required unless --self-test or --print-contract is used")
-
-    result = validate_file(args.input)
-    rendered = json.dumps(result, sort_keys=True, indent=2) + "\n"
-    if args.output:
-        out = pathlib.Path(args.output)
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(rendered, encoding="utf-8")
-    print(json.dumps(result, sort_keys=True))
-
-
-if __name__ == "__main__":
-    main()
+if __name__=="__main__": main()
