@@ -1,14 +1,16 @@
-name: Full Owner + Bridge Real Device Evidence Gate
+name: Owner + Bridge Evidence Content Gate
 
 on:
   push:
     branches: [owner/evidence-intake-v1]
     paths:
       - 'tools/verify_owner_real_device.py'
+      - 'tests/test_owner_evidence_scope.py'
       - '.github/workflows/owner-real-device-evidence.yml'
   pull_request:
     paths:
       - 'tools/verify_owner_real_device.py'
+      - 'tests/test_owner_evidence_scope.py'
       - '.github/workflows/owner-real-device-evidence.yml'
 
 permissions:
@@ -40,7 +42,12 @@ jobs:
           set -euo pipefail
           HEAD="$(git rev-parse HEAD)"
           python3 tools/verify_owner_real_device.py --self-test --verifier-head "$HEAD" | tee full-evidence/self-test.txt
-          grep -q 'FULL_REAL_DEVICE_VERIFIER_SELF_TEST_PASS' full-evidence/self-test.txt
+          grep -q 'FULL_EVIDENCE_VERIFIER_SELF_TEST_PASS' full-evidence/self-test.txt
+      - name: Evidence scope regression tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests -p test_owner_evidence_scope.py -v 2>&1 | tee full-evidence/scope-tests.txt
       - name: Freeze full final contract
         shell: bash
         run: |
@@ -70,7 +77,14 @@ jobs:
           pathlib.Path("full-evidence/bridge-bad-hash.json").write_text(json.dumps(bad,sort_keys=True,indent=2)+"\n")
           PY
           python3 tools/verify_owner_real_device.py --owner-input full-evidence/owner-fixture.json --bridge-input full-evidence/bridge-fixture.json --verifier-head "$HEAD" --output full-evidence/positive-result.json
-          grep -q 'FULL_REAL_DEVICE_EVIDENCE_VERIFIED' full-evidence/positive-result.json
+          grep -q 'FULL_EVIDENCE_CONTENT_VALIDATED' full-evidence/positive-result.json
+          python3 - <<'PYCODE'
+          import json,pathlib
+          result=json.loads(pathlib.Path("full-evidence/positive-result.json").read_text())
+          assert result["physical_device_status"] == "NOT_VERIFIED"
+          assert result["verifier_head_binding"] == "EXACT_CHECKOUT_VERIFIED"
+          assert "verified_actions" not in result
+          PYCODE
           set +e
           python3 tools/verify_owner_real_device.py --owner-input full-evidence/owner-fixture.json --bridge-input full-evidence/bridge-bad-hash.json --verifier-head "$HEAD" > full-evidence/negative-result.json
           CODE=$?
@@ -82,7 +96,7 @@ jobs:
         run: |
           set -euo pipefail
           sha256sum tools/verify_owner_real_device.py > full-evidence/verifier-source.sha256
-          (cd full-evidence && sha256sum exact-head.txt verifier-head.txt self-test.txt full-final-contract.json owner-fixture.json bridge-fixture.json bridge-bad-hash.json positive-result.json negative-result.json verifier-source.sha256 > SHA256SUMS && sha256sum -c SHA256SUMS)
+          (cd full-evidence && sha256sum exact-head.txt verifier-head.txt self-test.txt full-final-contract.json owner-fixture.json bridge-fixture.json bridge-bad-hash.json positive-result.json negative-result.json verifier-source.sha256 scope-tests.txt > SHA256SUMS && sha256sum -c SHA256SUMS)
       - name: Upload full final gate evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:

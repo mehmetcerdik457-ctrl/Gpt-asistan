@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-import argparse, copy, hashlib, json, pathlib, re
+"""Validate exported assertions; physical origin requires independent evidence.
+
+These APK exporters do not attest device origin, a shared session, audit-chain
+integrity, or an independently observed UI postcondition. Matching their JSON
+must never promote a fixture or self-report to a real-device acceptance result.
+"""
+import argparse, copy, hashlib, json, pathlib, re, subprocess
 
 OWNER_HEAD="c8b52661921f82d9e832a0dcf7eed514e970bf49"
 OWNER_PACKAGE="com.mehmetcerdik.ownerai"
@@ -15,6 +21,8 @@ BRIDGE_VERSION_CODE="2"
 BRIDGE_SIGNED_SHA256="8588f221bd91baf9b8a6183267dd9180ab019a94264b6dfb0d112279802d48f2"
 HEX40=re.compile(r"^[0-9a-f]{40}$")
 HEX64=re.compile(r"^[0-9a-f]{64}$")
+CONTENT_STATUS="FULL_EVIDENCE_CONTENT_VALIDATED"
+MAX_EVIDENCE_BYTES=4*1024*1024
 
 def canonical_sha256(data):
     return hashlib.sha256(json.dumps(data,sort_keys=True,separators=(",",":")).encode()).hexdigest()
@@ -25,11 +33,53 @@ def fail(status,**extra):
 def require(cond,status,**extra):
     if not cond: fail(status,**extra)
 
+def object_required(value,status):
+    require(isinstance(value,dict),status)
+    return value
+
+def load_evidence(path):
+    def reject_constant(_):
+        raise ValueError("nonfinite")
+    def unique_keys(pairs):
+        result={}
+        for key,value in pairs:
+            if key in result: raise ValueError("duplicate key")
+            result[key]=value
+        return result
+    try:
+        with pathlib.Path(path).open("rb") as stream:
+            raw=stream.read(MAX_EVIDENCE_BYTES+1)
+        require(len(raw)<=MAX_EVIDENCE_BYTES,"EVIDENCE_TOO_LARGE")
+        value=json.loads(raw.decode("utf-8"),object_pairs_hook=unique_keys,parse_constant=reject_constant)
+    except (OSError,UnicodeError,ValueError,RecursionError):
+        fail("EVIDENCE_INPUT_INVALID")
+    return object_required(value,"EVIDENCE_OBJECT_REQUIRED")
+
+def verify_checkout_head(expected):
+    require(isinstance(expected,str) and HEX40.fullmatch(expected)!=None,"VERIFIER_HEAD_INVALID")
+    try:
+        actual=subprocess.run(["git","-C",str(pathlib.Path(__file__).resolve().parents[1]),
+                               "rev-parse","HEAD"],check=True,capture_output=True,text=True).stdout.strip()
+    except (OSError,subprocess.CalledProcessError):
+        fail("VERIFIER_CHECKOUT_UNAVAILABLE")
+    require(actual==expected,"VERIFIER_CHECKOUT_MISMATCH")
+    try:
+        committed=subprocess.run(["git","-C",str(pathlib.Path(__file__).resolve().parents[1]),
+                                   "show","HEAD:tools/verify_owner_real_device.py"],
+                                  check=True,capture_output=True,text=True).stdout
+        require(committed==pathlib.Path(__file__).read_text(encoding="utf-8"),"VERIFIER_SOURCE_MISMATCH")
+    except (OSError,UnicodeError,subprocess.CalledProcessError):
+        fail("VERIFIER_SOURCE_UNAVAILABLE")
+    return actual
+
 def contract(verifier_head=None):
     if verifier_head is not None:
         require(isinstance(verifier_head,str) and HEX40.fullmatch(verifier_head)!=None,"VERIFIER_HEAD_INVALID")
     return {
-      "version":2,
+      "version":3,
+      "validation_scope":"EXPORTED_ASSERTIONS_ONLY",
+      "physical_device_status":"NOT_VERIFIED",
+      "success_status":CONTENT_STATUS,
       "verifier_head":verifier_head,
       "owner":{"source_head":OWNER_HEAD,"package":OWNER_PACKAGE,"version_name":OWNER_VERSION_NAME,
         "version_code":OWNER_VERSION_CODE,"unsigned_sha256":OWNER_UNSIGNED_SHA256,
@@ -41,10 +91,14 @@ def contract(verifier_head=None):
     }
 
 def validate_owner(data):
-    require(data.get("version")==3,"OWNER_SCHEMA_MISMATCH",actual=data.get("version"))
+    object_required(data,"OWNER_OBJECT_REQUIRED")
+    require(type(data.get("version")) is int and data["version"]==3,"OWNER_SCHEMA_MISMATCH")
     require(data.get("status")=="REAL_DEVICE_EVIDENCE_CAPTURED","OWNER_CAPTURE_STATUS_INVALID",actual=data.get("status"))
     require(data.get("git_head")==OWNER_HEAD,"OWNER_HEAD_MISMATCH",actual=data.get("git_head"),expected=OWNER_HEAD)
-    d=data.get("evidence") or {}; r=data.get("phone_agent") or {}
+    d=object_required(data.get("evidence"),"OWNER_EVIDENCE_OBJECT_REQUIRED")
+    r=object_required(data.get("phone_agent"),"OWNER_RUNTIME_OBJECT_REQUIRED")
+    for field in ("device_model","android_version"):
+        require(isinstance(d.get(field),str) and bool(d[field].strip()),"OWNER_DEVICE_METADATA_MISSING",field=field)
     checks={
       "package_name":(str(d.get("package_name","")),OWNER_PACKAGE),
       "version_name":(str(d.get("version_name","")),OWNER_VERSION_NAME),
@@ -60,18 +114,22 @@ def validate_owner(data):
     require(r.get("network_permission")=="NONE","OWNER_NETWORK_POLICY_MISMATCH")
     require(r.get("accessibility_enabled") is True,"OWNER_ACCESSIBILITY_NOT_ENABLED")
     require(r.get("service_connected") is True,"OWNER_SERVICE_NOT_CONNECTED")
-    require(int(r.get("self_test_target_hits",0))>0,"OWNER_SELF_TEST_TARGET_NOT_HIT")
+    hits=r.get("self_test_target_hits")
+    require(type(hits) is int and hits>0,"OWNER_SELF_TEST_TARGET_NOT_HIT")
     for field,status in (("tap_pass","OWNER_TAP_NOT_VERIFIED"),("click_text_pass","OWNER_CLICK_TEXT_NOT_VERIFIED"),("scroll_forward_pass","OWNER_SCROLL_NOT_VERIFIED")):
         require(r.get(field) is True,status)
     require(r.get("runtime_postcondition_result")=="PASS","OWNER_RUNTIME_POSTCONDITION_FAIL")
-    events=r.get("events") or []
+    events=r.get("events")
+    require(isinstance(events,list) and all(isinstance(e,dict) for e in events),"OWNER_EVENTS_INVALID")
+    require(all(isinstance(e.get("action"),str) and isinstance(e.get("status"),str) for e in events),"OWNER_EVENTS_INVALID")
     passed={e.get("action") for e in events if isinstance(e,dict) and e.get("status")=="PASS"}
     require({"TAP","CLICK_TEXT","SCROLL_FORWARD"}.issubset(passed),"OWNER_EVENT_EVIDENCE_INCOMPLETE",passed=sorted(passed))
     require(any(isinstance(e,dict) and e.get("action")=="SERVICE" and e.get("status")=="READY" for e in events),"OWNER_SERVICE_READY_EVENT_MISSING")
     return {"device_model":d.get("device_model"),"android_version":d.get("android_version"),"hash":canonical_sha256(data)}
 
 def validate_bridge(data):
-    require(data.get("version")==1,"BRIDGE_SCHEMA_MISMATCH",actual=data.get("version"))
+    object_required(data,"BRIDGE_OBJECT_REQUIRED")
+    require(type(data.get("version")) is int and data["version"]==1,"BRIDGE_SCHEMA_MISMATCH")
     require(data.get("status")=="BRIDGE_FINAL_EVIDENCE_CAPTURED","BRIDGE_CAPTURE_STATUS_INVALID",actual=data.get("status"))
     checks={
       "bridge_package":(str(data.get("bridge_package","")),BRIDGE_PACKAGE),
@@ -90,7 +148,9 @@ def validate_bridge(data):
     require(data.get("swipe_pass") is True,"BRIDGE_SWIPE_NOT_VERIFIED")
     require(data.get("type_text_pass") is True,"BRIDGE_TYPE_NOT_VERIFIED")
     require(data.get("verify_postcondition_pass") is True,"BRIDGE_VERIFY_POSTCONDITION_NOT_VERIFIED")
-    events=data.get("events") or []
+    events=data.get("events")
+    require(isinstance(events,list) and all(isinstance(e,dict) for e in events),"BRIDGE_EVENTS_INVALID")
+    require(all(isinstance(e.get("action"),str) and isinstance(e.get("status"),str) for e in events),"BRIDGE_EVENTS_INVALID")
     passed={e.get("action") for e in events if isinstance(e,dict) and e.get("status")=="PASS"}
     require({"LAUNCH_APP","SWIPE","TYPE_TEXT"}.issubset(passed),"BRIDGE_EVENT_EVIDENCE_INCOMPLETE",passed=sorted(passed))
     require(any(isinstance(e,dict) and e.get("action")=="SERVICE" and e.get("status")=="READY" for e in events),"BRIDGE_SERVICE_READY_EVENT_MISSING")
@@ -100,10 +160,14 @@ def validate_full(owner,bridge,verifier_head):
     require(isinstance(verifier_head,str) and HEX40.fullmatch(verifier_head)!=None,"VERIFIER_HEAD_INVALID",actual=verifier_head)
     o=validate_owner(owner); b=validate_bridge(bridge)
     return {
-      "version":2,"status":"FULL_REAL_DEVICE_EVIDENCE_VERIFIED","verifier_head":verifier_head,
+      "version":3,"status":CONTENT_STATUS,"verifier_head":verifier_head,
+      "verifier_head_binding":"CALLER_SUPPLIED_UNLESS_CLI_CHECKOUT_VERIFIED",
+      "validation_scope":"EXPORTED_ASSERTIONS_ONLY","physical_device_status":"NOT_VERIFIED",
+      "unverified_requirements":["physical_device_origin","same_device_and_fresh_session",
+        "independent_screen_postcondition","audit_chain_integrity","durable_record_readback"],
       "owner_source_head":OWNER_HEAD,"owner_apk_sha256":OWNER_SIGNED_SHA256,"owner_signer_sha256":GEN2_SIGNER,
       "bridge_source_head":BRIDGE_SOURCE_HEAD,"bridge_apk_sha256":BRIDGE_SIGNED_SHA256,"bridge_signer_sha256":GEN2_SIGNER,
-      "verified_actions":["OPEN","TAP","SWIPE","TYPE","VERIFY","RECORD"],
+      "reported_actions":["OPEN","TAP","SWIPE","TYPE","VERIFY"],
       "device_model":o["device_model"],"android_version":o["android_version"],
       "owner_evidence_sha256":o["hash"],"bridge_evidence_sha256":b["hash"]
     }
@@ -126,7 +190,8 @@ def bridge_fixture():
 
 def self_test(verifier_head):
     good=validate_full(owner_fixture(),bridge_fixture(),verifier_head)
-    assert good["status"]=="FULL_REAL_DEVICE_EVIDENCE_VERIFIED"
+    assert good["status"]==CONTENT_STATUS
+    assert good["physical_device_status"]=="NOT_VERIFIED"
     negatives=[]
     x=copy.deepcopy(owner_fixture());x["evidence"]["artifact_sha256"]="0"*64;negatives.append((x,bridge_fixture()))
     x=copy.deepcopy(bridge_fixture());x["bridge_artifact_sha256"]="0"*64;negatives.append((owner_fixture(),x))
@@ -137,7 +202,7 @@ def self_test(verifier_head):
         try: validate_full(o,b,verifier_head)
         except SystemExit: pass
         else: raise AssertionError("negative fixture unexpectedly accepted")
-    print(json.dumps({"status":"FULL_REAL_DEVICE_VERIFIER_SELF_TEST_PASS","verifier_head":verifier_head},sort_keys=True))
+    print(json.dumps({"status":"FULL_EVIDENCE_VERIFIER_SELF_TEST_PASS","physical_device_status":"NOT_VERIFIED","verifier_head":verifier_head},sort_keys=True))
 
 def main():
     p=argparse.ArgumentParser();p.add_argument("--owner-input");p.add_argument("--bridge-input");p.add_argument("--output")
@@ -146,8 +211,12 @@ def main():
     if a.self_test: self_test(a.verifier_head or "0"*40);return
     if a.print_contract: print(json.dumps(contract(a.verifier_head),sort_keys=True,indent=2));return
     if not a.owner_input or not a.bridge_input or not a.verifier_head: p.error("--owner-input, --bridge-input and --verifier-head are required")
-    owner=json.loads(pathlib.Path(a.owner_input).read_text());bridge=json.loads(pathlib.Path(a.bridge_input).read_text())
-    result=validate_full(owner,bridge,a.verifier_head);render=json.dumps(result,sort_keys=True,indent=2)+"\n"
+    actual=verify_checkout_head(a.verifier_head)
+    owner=load_evidence(a.owner_input);bridge=load_evidence(a.bridge_input)
+    result=validate_full(owner,bridge,actual)
+    result["verifier_head_binding"]="EXACT_CHECKOUT_VERIFIED"
+    result["verifier_source_sha256"]=hashlib.sha256(pathlib.Path(__file__).read_bytes()).hexdigest()
+    render=json.dumps(result,sort_keys=True,indent=2)+"\n"
     if a.output:
         out=pathlib.Path(a.output);out.parent.mkdir(parents=True,exist_ok=True);out.write_text(render)
     print(json.dumps(result,sort_keys=True))
