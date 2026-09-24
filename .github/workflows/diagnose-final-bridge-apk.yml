@@ -7,9 +7,9 @@ permissions:
   contents: read
 
 jobs:
-  build-sign-verify:
+  exact-signed-static:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -21,54 +21,45 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.7'
-
-      - name: Build exact Bridge source
+      - name: Reconstruct exact canonical signed Bridge
         run: |
           set -euo pipefail
-          gradle :bridge:assembleRelease --no-daemon
-          APK="$(find bridge/build/outputs/apk/release -name '*.apk' -type f | head -1)"
-          test -n "$APK"
-          cp "$APK" bridge-unsigned.apk
-          sha256sum bridge-unsigned.apk
+          base64 -d diagnostics/MEHMET_PRIVILEGED_BRIDGE_1.1.0_VC2_GEN2_SIGNED.apk.b64 > bridge-final.apk
+          ACTUAL="$(sha256sum bridge-final.apk | awk '{print $1}')"
+          echo "actual_sha256=$ACTUAL" | tee exact-hash.txt
+          test "$ACTUAL" = "8588f221bd91baf9b8a6183267dd9180ab019a94264b6dfb0d112279802d48f2"
 
-      - name: Verify unsigned package structure
+      - name: Android package-tool verification
         run: |
           set -euo pipefail
           SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
           BT="$(find "$SDK/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
           echo "BT=$BT" >> "$GITHUB_ENV"
-          unzip -t bridge-unsigned.apk
-          "$BT/aapt2" dump badging bridge-unsigned.apk | tee unsigned-badging.txt
-          grep -Fq "package: name='com.mehmetcerdik.ownerbridge' versionCode='2' versionName='1.1.0'" unsigned-badging.txt
-          "$BT/zipalign" -c -p -v 4 bridge-unsigned.apk | tee unsigned-zipalign.txt
+          unzip -t bridge-final.apk | tee unzip-test.txt
+          "$BT/aapt2" dump badging bridge-final.apk | tee badging.txt
+          grep -Fq "package: name='com.mehmetcerdik.ownerbridge' versionCode='2' versionName='1.1.0'" badging.txt
+          "$BT/zipalign" -c -p -v 4 bridge-final.apk | tee zipalign.txt
+          "$BT/apksigner" verify --verbose --print-certs bridge-final.apk 2>&1 | tee apksigner.txt
 
-      - name: Ephemeral Android signing
+      - name: Freeze expected signer
         run: |
           set -euo pipefail
-          keytool -genkeypair -v             -keystore diagnostic.jks             -storepass diagnostic-only             -keypass diagnostic-only             -alias diagnostic             -keyalg RSA -keysize 4096 -validity 365             -dname "CN=Diagnostic,O=MEHMET TEST,C=TR"
-          "$BT/zipalign" -p -f 4 bridge-unsigned.apk bridge-aligned.apk
-          "$BT/apksigner" sign             --ks diagnostic.jks             --ks-pass pass:diagnostic-only             --key-pass pass:diagnostic-only             --ks-key-alias diagnostic             --v1-signing-enabled true             --v2-signing-enabled true             --v3-signing-enabled true             --out bridge-diagnostic-signed.apk             bridge-aligned.apk
-          "$BT/apksigner" verify --verbose --print-certs bridge-diagnostic-signed.apk | tee apksigner.txt
-          "$BT/zipalign" -c -p -v 4 bridge-diagnostic-signed.apk | tee signed-zipalign.txt
-          sha256sum bridge-diagnostic-signed.apk
+          grep -Fi "Signer #1 certificate SHA-256 digest: 279084a36b7c17a1663bfba5fe1c5bdac974f8ef4ce56b21000d882493e39448" apksigner.txt
 
-      - name: Upload package diagnostics
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: bridge-package-diagnostics
+          name: exact-final-bridge-static-diagnostics
           path: |
-            bridge-unsigned.apk
-            bridge-diagnostic-signed.apk
-            unsigned-badging.txt
-            unsigned-zipalign.txt
-            signed-zipalign.txt
+            exact-hash.txt
+            unzip-test.txt
+            badging.txt
+            zipalign.txt
             apksigner.txt
+          if-no-files-found: warn
           retention-days: 30
 
-  api35-install:
+  exact-signed-api35-install:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -77,28 +68,13 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
 
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.7'
-
-      - name: Build and ephemeral-sign exact Bridge source
+      - name: Reconstruct exact canonical signed Bridge
         run: |
           set -euo pipefail
-          gradle :bridge:assembleRelease --no-daemon
-          APK="$(find bridge/build/outputs/apk/release -name '*.apk' -type f | head -1)"
-          SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
-          BT="$(find "$SDK/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
-          keytool -genkeypair             -keystore diagnostic.jks             -storepass diagnostic-only             -keypass diagnostic-only             -alias diagnostic             -keyalg RSA -keysize 4096 -validity 365             -dname "CN=Diagnostic,O=MEHMET TEST,C=TR"
-          "$BT/zipalign" -p -f 4 "$APK" bridge-aligned.apk
-          "$BT/apksigner" sign             --ks diagnostic.jks             --ks-pass pass:diagnostic-only             --key-pass pass:diagnostic-only             --ks-key-alias diagnostic             --v1-signing-enabled true             --v2-signing-enabled true             --v3-signing-enabled true             --out bridge-diagnostic-signed.apk             bridge-aligned.apk
-          "$BT/apksigner" verify --verbose bridge-diagnostic-signed.apk
+          base64 -d diagnostics/MEHMET_PRIVILEGED_BRIDGE_1.1.0_VC2_GEN2_SIGNED.apk.b64 > bridge-final.apk
+          test "$(sha256sum bridge-final.apk | awk '{print $1}')" = "8588f221bd91baf9b8a6183267dd9180ab019a94264b6dfb0d112279802d48f2"
 
-      - name: Install on clean Android 15 / API 35 emulator
+      - name: Install exact signed Bridge on clean Android 15 / API 35 emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
@@ -108,20 +84,29 @@ jobs:
           script: |
             set -e
             adb wait-for-device
-            adb shell getprop ro.build.version.release
-            adb shell getprop ro.build.version.sdk
-            adb install -r bridge-diagnostic-signed.apk 2>&1 | tee adb-install.txt
+            echo "android_release=$(adb shell getprop ro.build.version.release)" | tee device.txt
+            echo "android_sdk=$(adb shell getprop ro.build.version.sdk)" | tee -a device.txt
+            set +e
+            adb install -r bridge-final.apk 2>&1 | tee adb-install.txt
+            INSTALL_CODE=${PIPESTATUS[0]}
+            set -e
+            echo "adb_install_exit=$INSTALL_CODE" | tee -a adb-install.txt
+            if [ "$INSTALL_CODE" -ne 0 ]; then
+              adb logcat -d -v brief PackageManager:E PackageInstaller:E installd:E '*:S' | tail -300 | tee package-manager-log.txt || true
+              exit "$INSTALL_CODE"
+            fi
             adb shell pm path com.mehmetcerdik.ownerbridge | tee pm-path.txt
-            adb shell dumpsys package com.mehmetcerdik.ownerbridge | grep -E "versionCode|versionName|pkg=|codePath" | head -20 | tee package-dump.txt
+            adb shell dumpsys package com.mehmetcerdik.ownerbridge | grep -E "versionCode|versionName|codePath|pkg=" | head -30 | tee package-dump.txt
 
-      - name: Upload install diagnostics
+      - uses: actions/upload-artifact@v4
         if: always()
-        uses: actions/upload-artifact@v4
         with:
-          name: bridge-api35-install-diagnostics
+          name: exact-final-bridge-api35-install-diagnostics
           path: |
+            device.txt
             adb-install.txt
             pm-path.txt
             package-dump.txt
+            package-manager-log.txt
           if-no-files-found: warn
           retention-days: 30
