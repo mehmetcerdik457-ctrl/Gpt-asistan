@@ -48,7 +48,7 @@ jobs:
           HEAD="$(git rev-parse HEAD)"
           python3 tools/verify_owner_real_device.py --print-contract --verifier-head "$HEAD" > full-evidence/full-final-contract.json
           grep -q '"source_head": "c8b52661921f82d9e832a0dcf7eed514e970bf49"' full-evidence/full-final-contract.json
-          grep -q '"signed_sha256": "55a179f96811671430556c99ee747280d648ead6833eaf7419009b4214be5394"' full-evidence/full-final-contract.json
+          grep -q '"signed_sha256": "be15d47df7573fe4da7500cbd31f5caf21df380f0084c623d6e7a4a5e15f84b7"' full-evidence/full-final-contract.json
           grep -q '"source_head": "a2ed5974efc94b3bc7ed8d8cfcb6169330678f0d"' full-evidence/full-final-contract.json
           grep -q '"signed_sha256": "8588f221bd91baf9b8a6183267dd9180ab019a94264b6dfb0d112279802d48f2"' full-evidence/full-final-contract.json
           grep -q '"package": "com.mehmetcerdik.ownerbridge"' full-evidence/full-final-contract.json
