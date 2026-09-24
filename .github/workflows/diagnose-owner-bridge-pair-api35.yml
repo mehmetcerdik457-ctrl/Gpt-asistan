@@ -70,31 +70,58 @@ jobs:
           grep -Fiq '279084a36b7c17a1663bfba5fe1c5bdac974f8ef4ce56b21000d882493e39448' pair-evidence/owner-apksigner.txt
           grep -Fiq '279084a36b7c17a1663bfba5fe1c5bdac974f8ef4ce56b21000d882493e39448' pair-evidence/bridge-apksigner.txt
 
-      - name: Prepare pair UI verification helpers
+      - name: Prepare resilient pair UI verification helpers
         shell: bash
         run: |
           cat > pair-click.py <<'PY'
-          import re, subprocess, xml.etree.ElementTree as ET
-          root=ET.parse('pair-evidence/owner-ui.xml').getroot()
-          node=next((n for n in root.iter('node') if n.attrib.get('text') == 'OWNER Control Plane'), None)
-          if node is None:
-              raise SystemExit('OWNER_CONTROL_PLANE_BUTTON_NOT_FOUND')
-          m=re.match(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', node.attrib.get('bounds',''))
-          if not m:
-              raise SystemExit('OWNER_CONTROL_PLANE_BOUNDS_INVALID')
-          x1,y1,x2,y2=map(int,m.groups())
-          subprocess.check_call(['adb','shell','input','tap',str((x1+x2)//2),str((y1+y2)//2)])
+          import re, subprocess, time, xml.etree.ElementTree as ET
+          OWNER='com.mehmetcerdik.ownerai/com.example.gptasistan.MainActivity'
+          def dump_ui():
+              subprocess.run(['adb','shell','uiautomator','dump','/sdcard/owner.xml'], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+              subprocess.run(['adb','pull','/sdcard/owner.xml','pair-evidence/owner-ui.xml'], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+          for attempt in range(4):
+              dump_ui()
+              try:
+                  root=ET.parse('pair-evidence/owner-ui.xml').getroot()
+              except Exception:
+                  root=None
+              if root is not None:
+                  node=next((n for n in root.iter('node') if n.attrib.get('text') == 'OWNER Control Plane'), None)
+                  if node is not None:
+                      m=re.match(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', node.attrib.get('bounds',''))
+                      if not m:
+                          raise SystemExit('OWNER_CONTROL_PLANE_BOUNDS_INVALID')
+                      x1,y1,x2,y2=map(int,m.groups())
+                      subprocess.check_call(['adb','shell','input','tap',str((x1+x2)//2),str((y1+y2)//2)])
+                      print('OWNER_CONTROL_PLANE_BUTTON_TAPPED')
+                      raise SystemExit(0)
+                  texts=[n.attrib.get('text','') for n in root.iter('node')]
+                  if any("isn't responding" in t or t in ('Close app','Wait') for t in texts):
+                      subprocess.run(['adb','shell','input','keyevent','4'], check=False)
+                      time.sleep(1)
+              subprocess.run(['adb','shell','am','start','-W','-n',OWNER], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+              time.sleep(2)
+          raise SystemExit('OWNER_CONTROL_PLANE_BUTTON_NOT_FOUND_AFTER_RETRIES')
           PY
           cat > pair-verify.py <<'PY'
-          import xml.etree.ElementTree as ET
-          texts=[n.attrib.get('text','') for n in ET.parse('pair-evidence/control-ui.xml').getroot().iter('node')]
-          joined='\n'.join(texts)
-          open('pair-evidence/control-ui.txt','w').write(joined)
+          import subprocess, time, xml.etree.ElementTree as ET
           required=['bridgeSignerMatch=true','ok=true','service=true','status=READY']
-          missing=[x for x in required if x not in joined]
-          if missing:
-              raise SystemExit('PAIR_IPC_NOT_READY missing='+','.join(missing))
-          print('OWNER_BRIDGE_PAIR_IPC_READY')
+          last=''
+          for attempt in range(5):
+              subprocess.run(['adb','shell','uiautomator','dump','/sdcard/control.xml'], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+              subprocess.run(['adb','pull','/sdcard/control.xml','pair-evidence/control-ui.xml'], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+              try:
+                  texts=[n.attrib.get('text','') for n in ET.parse('pair-evidence/control-ui.xml').getroot().iter('node')]
+              except Exception:
+                  texts=[]
+              last='\n'.join(texts)
+              open('pair-evidence/control-ui.txt','w').write(last)
+              missing=[x for x in required if x not in last]
+              if not missing:
+                  print('OWNER_BRIDGE_PAIR_IPC_READY')
+                  raise SystemExit(0)
+              time.sleep(2)
+          raise SystemExit('PAIR_IPC_NOT_READY missing='+','.join(x for x in required if x not in last))
           PY
 
       - name: Enable KVM access
@@ -110,7 +137,6 @@ jobs:
           api-level: 35
           target: google_apis
           arch: x86_64
-          profile: pixel_7_pro
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
           disable-animations: true
           script: |
@@ -123,13 +149,9 @@ jobs:
             adb shell settings put secure accessibility_enabled 1
             sleep 2
             adb shell am start -W -n com.mehmetcerdik.ownerai/com.example.gptasistan.MainActivity | tee pair-evidence/owner-launch.txt
+            sleep 3
+            python3 pair-click.py | tee pair-evidence/pair-click-result.txt
             sleep 2
-            adb shell uiautomator dump /sdcard/owner.xml
-            adb pull /sdcard/owner.xml pair-evidence/owner-ui.xml
-            python3 pair-click.py
-            sleep 2
-            adb shell uiautomator dump /sdcard/control.xml
-            adb pull /sdcard/control.xml pair-evidence/control-ui.xml
             python3 pair-verify.py | tee pair-evidence/pair-ipc-result.txt
             adb shell dumpsys package com.mehmetcerdik.ownerai > pair-evidence/owner-dumpsys.txt
             adb shell dumpsys package com.mehmetcerdik.ownerbridge > pair-evidence/bridge-dumpsys.txt
