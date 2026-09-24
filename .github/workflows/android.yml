@@ -39,7 +39,10 @@ jobs:
         run: gradle :app:testDebugUnitTest
 
       - name: Build unsigned release APK
-        run: gradle :app:assembleRelease
+        shell: bash
+        run: |
+          set -euo pipefail
+          OWNER_BUILD_GIT_SHA="$(git rev-parse HEAD)" gradle :app:assembleRelease
 
       - name: Generate unsigned release evidence
         shell: bash
@@ -61,6 +64,9 @@ jobs:
           "${ZIPALIGN}" -f -p 4 "${APK}" "${ALIGNED}"
 
           APK_HASH="$(sha256sum "${ALIGNED}" | awk '{print $1}')"
+          unzip -p "${ALIGNED}" classes.dex > /tmp/owner-classes.dex
+          grep -aFq "${HEAD_SHA}" /tmp/owner-classes.dex
+          rm -f /tmp/owner-classes.dex
           printf '%s  %s\n' "${APK_HASH}" "$(basename "${ALIGNED}")" > android-evidence/APK_UNSIGNED_SHA256
           "${AAPT}" dump badging "${ALIGNED}" > android-evidence/apk-badging.txt
           "${AAPT}" dump permissions "${ALIGNED}" > android-evidence/apk-permissions.txt
@@ -82,6 +88,7 @@ jobs:
             echo "run_id=${GITHUB_RUN_ID}"
             echo "repository=${GITHUB_REPOSITORY}"
             echo "git_head=${HEAD_SHA}"
+            echo "embedded_build_git_sha=${HEAD_SHA}"
             echo "unsigned_apk_sha256=${APK_HASH}"
             echo "build_tools_version=${BUILD_TOOLS_VERSION}"
             echo "application_id=com.mehmetcerdik.ownerai"
