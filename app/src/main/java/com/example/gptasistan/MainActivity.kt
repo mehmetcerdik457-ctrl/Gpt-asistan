@@ -18,6 +18,7 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.mehmetcerdik.ownerai.BridgeClient
 import com.mehmetcerdik.ownerai.OwnerControlPlaneActivity
+import com.mehmetcerdik.ownerai.OwnerBrainActivity
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -38,7 +39,7 @@ class MainActivity : AppCompatActivity() {
             setPadding(32, 48, 32, 48)
         }
         container.addView(TextView(this).apply {
-            text = "MEHMET Owner Companion · Phone Agent Runtime v1.2"
+            text = "MEHMET Owner Companion · Brain + Phone Runtime v1.3"
             textSize = 20f
         })
         statusView = TextView(this).apply { textSize = 16f; setPadding(0, 20, 0, 20) }
@@ -51,6 +52,11 @@ class MainActivity : AppCompatActivity() {
         container.addView(Button(this).apply {
             text = "OWNER Control Plane"
             setOnClickListener { startActivity(Intent(this@MainActivity, OwnerControlPlaneActivity::class.java)) }
+        })
+
+        container.addView(Button(this).apply {
+            text = "MEHMET AI — Brain / Memory / Models"
+            setOnClickListener { startActivity(Intent(this@MainActivity, OwnerBrainActivity::class.java)) }
         })
 
         selfTestTarget = Button(this).apply {
@@ -179,7 +185,7 @@ class MainActivity : AppCompatActivity() {
     private fun refreshRuntime() {
         val enabled = PhoneAgentAccessibilityService.isEnabled(this)
         val connected = PhoneAgentAccessibilityService.instance != null
-        statusView.text = "Accessibility enabled=" + enabled + " · service connected=" + connected + " · network permission=NONE"
+        statusView.text = "Accessibility enabled=" + enabled + " · service connected=" + connected + " · network permission=INTERNET (provider only)"
         val events = PhoneAgentAccessibilityService.readEvents(this)
         val sb = StringBuilder("Son olaylar:\n")
         val start = maxOf(0, events.length() - 14)
@@ -209,7 +215,7 @@ class MainActivity : AppCompatActivity() {
         val signerHash = signerSha256()
         val signerMatch = signerHash.equals(BuildConfig.EXPECTED_SIGNER_SHA256, ignoreCase = true)
         val packageMatch = packageName == "com.mehmetcerdik.ownerai"
-        val versionMatch = versionCode == 4L && info.versionName == "1.2.0"
+        val versionMatch = versionCode == 5L && info.versionName == "1.3.0"
         val devicePostcondition = if (
             apkHash.matches(Regex("^[0-9a-f]{64}$")) &&
             signerMatch && packageMatch && versionMatch
@@ -246,7 +252,7 @@ class MainActivity : AppCompatActivity() {
             .put("implementation", "v1_accessibility")
             .put("accessibility_enabled", enabled)
             .put("service_connected", connected)
-            .put("network_permission", "NONE")
+            .put("network_permission", "INTERNET_PROVIDER_ONLY")
             .put("self_test_target_hits", hits)
             .put("tap_pass", tapPass)
             .put("click_text_pass", clickPass)
@@ -255,7 +261,7 @@ class MainActivity : AppCompatActivity() {
             .put("events", events)
 
         return JSONObject()
-            .put("version", 3)
+            .put("version", 4)
             .put("status", if (devicePostcondition == "PASS") "REAL_DEVICE_EVIDENCE_CAPTURED" else "REAL_DEVICE_EVIDENCE_FAIL")
             .put("git_head", BuildConfig.BUILD_GIT_SHA)
             .put("captured_at_epoch_ms", System.currentTimeMillis())
