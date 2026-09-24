@@ -1,0 +1,68 @@
+name: Diagnose Final Bridge APK
+on:
+  push:
+    branches: [diagnostic/bridge-invalid-apk-20260924]
+permissions:
+  contents: read
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Decode exact signed APK
+        run: |
+          set -euo pipefail
+          base64 -d diagnostics/MEHMET_PRIVILEGED_BRIDGE_1.1.0_VC2_GEN2_SIGNED.apk.b64 > bridge-final.apk
+          echo "sha256=$(sha256sum bridge-final.apk | awk '{print $1}')"
+          test "$(sha256sum bridge-final.apk | awk '{print $1}')" = "8588f221bd91baf9b8a6183267dd9180ab019a94264b6dfb0d112279802d48f2"
+      - name: Locate Android build tools
+        run: |
+          set -euo pipefail
+          SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          BT="$(find "$SDK/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
+          echo "BT=$BT" | tee -a "$GITHUB_ENV"
+          "$BT/aapt2" version
+          "$BT/apksigner" version
+      - name: ZIP integrity
+        run: |
+          set -euo pipefail
+          unzip -t bridge-final.apk
+          zipinfo -v bridge-final.apk > zipinfo.txt
+      - name: Package parser
+        run: |
+          set -euo pipefail
+          "$BT/aapt2" dump badging bridge-final.apk | tee badging.txt
+          "$BT/aapt2" dump xmltree bridge-final.apk --file AndroidManifest.xml | tee manifest-tree.txt
+      - name: Alignment
+        run: |
+          set -euo pipefail
+          "$BT/zipalign" -c -p -v 4 bridge-final.apk | tee zipalign.txt
+      - name: Cryptographic APK signature verification
+        run: |
+          set -o pipefail
+          "$BT/apksigner" verify --verbose --print-certs --min-sdk-version 26 --max-sdk-version 35 bridge-final.apk 2>&1 | tee apksigner.txt
+          code=${PIPESTATUS[0]}
+          echo "APKSIGNER_EXIT=$code"
+          exit "$code"
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bridge-invalid-apk-diagnostics
+          path: |
+            badging.txt
+            manifest-tree.txt
+            zipinfo.txt
+            zipalign.txt
+            apksigner.txt
+          if-no-files-found: warn
+          retention-days: 30
