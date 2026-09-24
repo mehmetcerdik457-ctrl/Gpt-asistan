@@ -5,6 +5,7 @@ on:
     branches:
       - phone-agent/runtime-v1
       - owner/stable-companion-v1
+      - owner/full-brain-v1-20260924
 
 permissions:
   contents: read
