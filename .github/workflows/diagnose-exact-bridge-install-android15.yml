@@ -1,0 +1,99 @@
+name: Diagnose Exact Bridge Install Android 15
+
+on:
+  push:
+    branches:
+      - tools/apk-signing-kit-20260924
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Download exact Drive-readback Bridge APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p install-diagnostics
+          curl -L --fail --retry 3 'https://sdmntpritalynorth.oaiusercontent.com/files/00000000-1ff8-8246-ad41-a22b3139db55/raw?se=2026-09-24T05%3A27%3A39Z&sp=r&sv=2026-02-06&sr=b&scid=6d5482df-69b8-5f94-8f77-8601b37822a7&skoid=82a3371f-2f6c-4f81-8a78-2701b362559b&sktid=a48cca56-e6da-484e-a814-9c849652bcb3&skt=2026-09-24T04%3A28%3A18Z&ske=2026-09-25T04%3A28%3A18Z&sks=b&skv=2026-02-06&sig=Fq2fsxHwnx%2BG6ltfcmEHkuUDKbTpp4FjmRZsijJc7Z8%3D' -o install-diagnostics/bridge.apk
+          echo '8588f221bd91baf9b8a6183267dd9180ab019a94264b6dfb0d112279802d48f2  install-diagnostics/bridge.apk' | sha256sum -c -
+
+      - name: Static package-manager inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          BT="$(find "$SDK/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
+          "$BT/aapt2" dump badging install-diagnostics/bridge.apk > install-diagnostics/aapt2-badging.txt
+          "$BT/aapt2" dump xmltree install-diagnostics/bridge.apk --file AndroidManifest.xml > install-diagnostics/aapt2-manifest-tree.txt
+          "$BT/apksigner" verify --verbose --print-certs install-diagnostics/bridge.apk > install-diagnostics/apksigner.txt
+          "$BT/zipalign" -c -p 4 install-diagnostics/bridge.apk
+          unzip -lv install-diagnostics/bridge.apk > install-diagnostics/unzip-lv.txt
+          sha256sum install-diagnostics/bridge.apk > install-diagnostics/bridge.sha256
+          cat install-diagnostics/aapt2-badging.txt
+          cat install-diagnostics/apksigner.txt
+
+      - name: Enable KVM access
+        shell: bash
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Install exact signed APK on Android 15 package manager
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: |
+            set +e
+            adb wait-for-device
+            {
+              echo "release=$(adb shell getprop ro.build.version.release | tr -d '\r')"
+              echo "sdk=$(adb shell getprop ro.build.version.sdk | tr -d '\r')"
+              echo "abi=$(adb shell getprop ro.product.cpu.abi | tr -d '\r')"
+            } > install-diagnostics/emulator.txt
+            adb logcat -c
+            adb install -r -t install-diagnostics/bridge.apk > install-diagnostics/adb-install.txt 2>&1
+            echo "$?" > install-diagnostics/adb-install.rc
+            adb shell pm path com.mehmetcerdik.ownerbridge > install-diagnostics/pm-path.txt 2>&1
+            adb shell dumpsys package com.mehmetcerdik.ownerbridge > install-diagnostics/dumpsys-package.txt 2>&1
+            adb logcat -d -v threadtime > install-diagnostics/logcat.txt 2>&1
+            exit 0
+
+      - name: Summarize install result
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "ADB_INSTALL_RC=$(cat install-diagnostics/adb-install.rc 2>/dev/null || echo missing)" | tee install-diagnostics/SUMMARY.txt
+          cat install-diagnostics/adb-install.txt | tee -a install-diagnostics/SUMMARY.txt
+          cat install-diagnostics/pm-path.txt | tee -a install-diagnostics/SUMMARY.txt
+          grep -Ei 'PackageManager|PackageInstaller|ownerbridge|invalid|parse|apk' install-diagnostics/logcat.txt | tail -300 > install-diagnostics/package-log-filtered.txt || true
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bridge-install-android15-diagnostics
+          path: install-diagnostics/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Assert platform install
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(cat install-diagnostics/adb-install.rc)" = "0"
+          grep -q '^Success$' install-diagnostics/adb-install.txt
