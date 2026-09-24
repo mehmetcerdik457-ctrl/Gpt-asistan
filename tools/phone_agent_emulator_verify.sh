@@ -213,9 +213,9 @@ scroll_pass = has_pass("SCROLL_FORWARD")
 status = "EMULATOR_PHONE_AGENT_RUNTIME_PASS" if all([service_ready, hits > 0, tap_pass, click_pass, scroll_pass]) else "EMULATOR_PHONE_AGENT_RUNTIME_FAIL"
 
 pkg = (root/"dumpsys-package.txt").read_text(errors="replace")
-if "versionName=1.2.0" not in pkg:
+if "versionName=1.3.0" not in pkg:
     raise SystemExit("versionName mismatch")
-if "versionCode=4" not in pkg:
+if "versionCode=5" not in pkg:
     raise SystemExit("versionCode mismatch")
 
 data = {
@@ -223,8 +223,8 @@ data = {
     "status": status,
     "git_head": head,
     "package_name": "com.mehmetcerdik.ownerai",
-    "version_name": "1.2.0",
-    "version_code": "4",
+    "version_name": "1.3.0",
+    "version_code": "5",
     "apk_sha256": apk_sha,
     "device": {
         "manufacturer": (root/"manufacturer.txt").read_text().strip(),
