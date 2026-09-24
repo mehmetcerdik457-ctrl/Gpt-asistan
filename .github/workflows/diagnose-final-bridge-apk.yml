@@ -9,7 +9,7 @@ permissions:
 jobs:
   exact-signed-api35-install:
     runs-on: ubuntu-22.04
-    timeout-minutes: 25
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -18,7 +18,7 @@ jobs:
 
       - name: Reconstruct and freeze exact canonical signed Bridge
         run: |
-          set -euo pipefail
+          set -eu
           base64 -d diagnostics/MEHMET_PRIVILEGED_BRIDGE_1.1.0_VC2_GEN2_SIGNED.apk.b64 > bridge-final.apk
           ACTUAL="$(sha256sum bridge-final.apk | awk '{print $1}')"
           echo "actual_sha256=$ACTUAL"
@@ -29,6 +29,7 @@ jobs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm || true
+          sudo chmod 666 /dev/kvm || true
           ls -l /dev/kvm || true
 
       - name: Install exact signed Bridge on clean Android 15 / API 35
@@ -41,22 +42,22 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -no-metrics
           script: |
-            set -euo pipefail
             adb wait-for-device
-            adb shell 'while [[ -z $(getprop sys.boot_completed) ]]; do sleep 1; done'
-            adb shell getprop ro.build.version.release | tee android-release.txt
-            adb shell getprop ro.build.version.sdk | tee android-sdk.txt
-            set +e
-            adb install -r bridge-final.apk 2>&1 | tee adb-install.txt
-            CODE=${PIPESTATUS[0]}
-            set -e
-            echo "adb_install_exit=$CODE" | tee -a adb-install.txt
+            adb shell getprop ro.build.version.release > android-release.txt
+            adb shell getprop ro.build.version.sdk > android-sdk.txt
+            adb install -r bridge-final.apk > adb-install.txt 2>&1
+            CODE=$?
+            cat adb-install.txt
+            echo "adb_install_exit=$CODE" >> adb-install.txt
             if [ "$CODE" -ne 0 ]; then
-              adb logcat -d -v brief | grep -E 'PackageManager|PackageInstaller|installd|INSTALL_' | tail -400 | tee package-manager-log.txt || true
+              adb logcat -d -v brief | grep -E 'PackageManager|PackageInstaller|installd|INSTALL_' | tail -400 > package-manager-log.txt || true
+              cat package-manager-log.txt || true
               exit "$CODE"
             fi
-            adb shell pm path com.mehmetcerdik.ownerbridge | tee pm-path.txt
-            adb shell dumpsys package com.mehmetcerdik.ownerbridge | grep -E 'versionCode|versionName|codePath|pkg=' | head -40 | tee package-dump.txt
+            adb shell pm path com.mehmetcerdik.ownerbridge > pm-path.txt
+            cat pm-path.txt
+            adb shell dumpsys package com.mehmetcerdik.ownerbridge | grep -E 'versionCode|versionName|codePath|pkg=' | head -40 > package-dump.txt
+            cat package-dump.txt
 
       - uses: actions/upload-artifact@v4
         if: always()
