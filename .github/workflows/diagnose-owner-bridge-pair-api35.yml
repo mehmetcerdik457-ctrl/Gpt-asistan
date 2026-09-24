@@ -141,14 +141,21 @@ jobs:
           disable-animations: true
           script: |
             adb wait-for-device
-            adb install -r pair-evidence/owner.apk | tee pair-evidence/owner-install.txt
-            adb install -r pair-evidence/bridge.apk | tee pair-evidence/bridge-install.txt
-            adb shell pm path com.mehmetcerdik.ownerai | tee pair-evidence/owner-pm-path.txt
-            adb shell pm path com.mehmetcerdik.ownerbridge | tee pair-evidence/bridge-pm-path.txt
+            adb install -r pair-evidence/owner.apk > pair-evidence/owner-install.txt
+            cat pair-evidence/owner-install.txt
+            adb install -r pair-evidence/bridge.apk > pair-evidence/bridge-install.txt
+            cat pair-evidence/bridge-install.txt
+            adb shell pm path com.mehmetcerdik.ownerai > pair-evidence/owner-pm-path.txt
+            cat pair-evidence/owner-pm-path.txt
+            adb shell pm path com.mehmetcerdik.ownerbridge > pair-evidence/bridge-pm-path.txt
+            cat pair-evidence/bridge-pm-path.txt
             adb shell settings put secure enabled_accessibility_services 'com.mehmetcerdik.ownerai/com.example.gptasistan.PhoneAgentAccessibilityService:com.mehmetcerdik.ownerbridge/com.mehmetcerdik.ownerbridge.BridgeAccessibilityService'
             adb shell settings put secure accessibility_enabled 1
+            adb shell settings get secure enabled_accessibility_services > pair-evidence/enabled-accessibility-services.txt
+            adb shell settings get secure accessibility_enabled > pair-evidence/accessibility-enabled.txt
             sleep 2
-            adb shell am start -W -n com.mehmetcerdik.ownerai/com.example.gptasistan.MainActivity | tee pair-evidence/owner-launch.txt
+            adb shell am start -W -n com.mehmetcerdik.ownerai/com.example.gptasistan.MainActivity > pair-evidence/owner-launch.txt
+            cat pair-evidence/owner-launch.txt
             sleep 3
             python3 pair-click.py > pair-evidence/pair-click-result.txt
             cat pair-evidence/pair-click-result.txt
@@ -158,108 +165,6 @@ jobs:
             adb shell dumpsys package com.mehmetcerdik.ownerai > pair-evidence/owner-dumpsys.txt
             adb shell dumpsys package com.mehmetcerdik.ownerbridge > pair-evidence/bridge-dumpsys.txt
             adb logcat -d -v threadtime > pair-evidence/logcat.txt
-
-      - name: Assert pair IPC success token
-        if: always()
-        shell: bash
-        run: |
-          set -euo pipefail
-          grep -q '^Success        if: always()
-        shell: bash
-        run: |
-          set +e
-          {
-            echo "git_head=$GITHUB_SHA"
-            echo "owner_sha256=55a179f96811671430556c99ee747280d648ead6833eaf7419009b4214be5394"
-            echo "bridge_sha256=8588f221bd91baf9b8a6183267dd9180ab019a94264b6dfb0d112279802d48f2"
-            echo "signer_sha256=279084a36b7c17a1663bfba5fe1c5bdac974f8ef4ce56b21000d882493e39448"
-            echo "android_api=35"
-            cat pair-evidence/pair-ipc-result.txt 2>/dev/null || true
-          } > pair-evidence/SUMMARY.txt
-          (cd pair-evidence && find . -maxdepth 1 -type f ! -name SHA256SUMS -printf '%P\0' | sort -z | xargs -0 sha256sum > SHA256SUMS)
-
-      - name: Upload pair diagnostic evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: owner-bridge-pair-api35-evidence
-          path: pair-evidence/
-          if-no-files-found: error
-          retention-days: 30
- pair-evidence/owner-install.txt
-          grep -q '^Success        if: always()
-        shell: bash
-        run: |
-          set +e
-          {
-            echo "git_head=$GITHUB_SHA"
-            echo "owner_sha256=55a179f96811671430556c99ee747280d648ead6833eaf7419009b4214be5394"
-            echo "bridge_sha256=8588f221bd91baf9b8a6183267dd9180ab019a94264b6dfb0d112279802d48f2"
-            echo "signer_sha256=279084a36b7c17a1663bfba5fe1c5bdac974f8ef4ce56b21000d882493e39448"
-            echo "android_api=35"
-            cat pair-evidence/pair-ipc-result.txt 2>/dev/null || true
-          } > pair-evidence/SUMMARY.txt
-          (cd pair-evidence && find . -maxdepth 1 -type f ! -name SHA256SUMS -printf '%P\0' | sort -z | xargs -0 sha256sum > SHA256SUMS)
-
-      - name: Upload pair diagnostic evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: owner-bridge-pair-api35-evidence
-          path: pair-evidence/
-          if-no-files-found: error
-          retention-days: 30
- pair-evidence/bridge-install.txt
-          grep -q '^OWNER_CONTROL_PLANE_BUTTON_TAPPED        if: always()
-        shell: bash
-        run: |
-          set +e
-          {
-            echo "git_head=$GITHUB_SHA"
-            echo "owner_sha256=55a179f96811671430556c99ee747280d648ead6833eaf7419009b4214be5394"
-            echo "bridge_sha256=8588f221bd91baf9b8a6183267dd9180ab019a94264b6dfb0d112279802d48f2"
-            echo "signer_sha256=279084a36b7c17a1663bfba5fe1c5bdac974f8ef4ce56b21000d882493e39448"
-            echo "android_api=35"
-            cat pair-evidence/pair-ipc-result.txt 2>/dev/null || true
-          } > pair-evidence/SUMMARY.txt
-          (cd pair-evidence && find . -maxdepth 1 -type f ! -name SHA256SUMS -printf '%P\0' | sort -z | xargs -0 sha256sum > SHA256SUMS)
-
-      - name: Upload pair diagnostic evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: owner-bridge-pair-api35-evidence
-          path: pair-evidence/
-          if-no-files-found: error
-          retention-days: 30
- pair-evidence/pair-click-result.txt
-          grep -q '^OWNER_BRIDGE_PAIR_IPC_READY        if: always()
-        shell: bash
-        run: |
-          set +e
-          {
-            echo "git_head=$GITHUB_SHA"
-            echo "owner_sha256=55a179f96811671430556c99ee747280d648ead6833eaf7419009b4214be5394"
-            echo "bridge_sha256=8588f221bd91baf9b8a6183267dd9180ab019a94264b6dfb0d112279802d48f2"
-            echo "signer_sha256=279084a36b7c17a1663bfba5fe1c5bdac974f8ef4ce56b21000d882493e39448"
-            echo "android_api=35"
-            cat pair-evidence/pair-ipc-result.txt 2>/dev/null || true
-          } > pair-evidence/SUMMARY.txt
-          (cd pair-evidence && find . -maxdepth 1 -type f ! -name SHA256SUMS -printf '%P\0' | sort -z | xargs -0 sha256sum > SHA256SUMS)
-
-      - name: Upload pair diagnostic evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: owner-bridge-pair-api35-evidence
-          path: pair-evidence/
-          if-no-files-found: error
-          retention-days: 30
- pair-evidence/pair-ipc-result.txt
-          grep -q 'bridgeSignerMatch=true' pair-evidence/control-ui.txt
-          grep -q 'ok=true' pair-evidence/control-ui.txt
-          grep -q 'service=true' pair-evidence/control-ui.txt
-          grep -q 'status=READY' pair-evidence/control-ui.txt
 
       - name: Freeze pair evidence
         if: always()
@@ -272,6 +177,9 @@ jobs:
             echo "bridge_sha256=8588f221bd91baf9b8a6183267dd9180ab019a94264b6dfb0d112279802d48f2"
             echo "signer_sha256=279084a36b7c17a1663bfba5fe1c5bdac974f8ef4ce56b21000d882493e39448"
             echo "android_api=35"
+            echo "accessibility_enabled=$(cat pair-evidence/accessibility-enabled.txt 2>/dev/null || echo missing)"
+            echo "enabled_services=$(cat pair-evidence/enabled-accessibility-services.txt 2>/dev/null || echo missing)"
+            cat pair-evidence/pair-click-result.txt 2>/dev/null || true
             cat pair-evidence/pair-ipc-result.txt 2>/dev/null || true
           } > pair-evidence/SUMMARY.txt
           (cd pair-evidence && find . -maxdepth 1 -type f ! -name SHA256SUMS -printf '%P\0' | sort -z | xargs -0 sha256sum > SHA256SUMS)
@@ -284,3 +192,17 @@ jobs:
           path: pair-evidence/
           if-no-files-found: error
           retention-days: 30
+
+      - name: Assert pair IPC success token
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fxq 'Success' pair-evidence/owner-install.txt
+          grep -Fxq 'Success' pair-evidence/bridge-install.txt
+          grep -Fxq 'OWNER_CONTROL_PLANE_BUTTON_TAPPED' pair-evidence/pair-click-result.txt
+          grep -Fxq 'OWNER_BRIDGE_PAIR_IPC_READY' pair-evidence/pair-ipc-result.txt
+          grep -Fq 'bridgeSignerMatch=true' pair-evidence/control-ui.txt
+          grep -Fq 'ok=true' pair-evidence/control-ui.txt
+          grep -Fq 'service=true' pair-evidence/control-ui.txt
+          grep -Fq 'status=READY' pair-evidence/control-ui.txt
