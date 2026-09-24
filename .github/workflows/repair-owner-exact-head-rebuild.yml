@@ -72,10 +72,54 @@ jobs:
             echo "Unexpected INTERNET permission"; exit 1
           fi
           unzip -p "$OUT" classes.dex > repaired-owner-evidence/classes.dex
-          strings -a repaired-owner-evidence/classes.dex | grep -Fx "$OWNER_SOURCE_HEAD"
-          if strings -a repaired-owner-evidence/classes.dex | grep -Fx "$BAD_MERGE_SHA"; then
-            echo "Bad synthetic merge SHA still embedded"; exit 1
-          fi
+          python3 - "$OUT" "$OWNER_SOURCE_HEAD" "$BAD_MERGE_SHA" <<'PY' | tee repaired-owner-evidence/buildconfig-proof.txt
+import sys,zipfile,struct,json
+apk,expected,bad=sys.argv[1:4]
+with zipfile.ZipFile(apk) as z:
+    data=z.read("classes.dex")
+u32=lambda o: struct.unpack_from("<I",data,o)[0]
+def uleb(off):
+    val=0;shift=0;i=0
+    while True:
+        b=data[off+i]; val|=(b&0x7f)<<shift; i+=1
+        if b<0x80:return val,i
+        shift+=7
+ss,so=u32(0x38),u32(0x3c); ts,to=u32(0x40),u32(0x44); fs,fo=u32(0x50),u32(0x54); cs,co=u32(0x60),u32(0x64)
+def getstr(i):
+    off=u32(so+4*i); _,n=uleb(off); off+=n; end=data.index(0,off); return data[off:end].decode("utf-8","replace")
+strings=[getstr(i) for i in range(ss)]
+types=[strings[u32(to+4*i)] for i in range(ts)]
+fields=[]
+for i in range(fs):
+    cl,ty,nm=struct.unpack_from("<HHI",data,fo+8*i); fields.append((types[cl],types[ty],strings[nm]))
+found=None
+for ci in range(cs):
+    vals=struct.unpack_from("<IIIIIIII",data,co+32*ci)
+    class_idx,_,_,_,_,_,class_data_off,static_values_off=vals
+    if not types[class_idx].endswith("/BuildConfig;"): continue
+    off=class_data_off; sizes=[]
+    for _ in range(4):
+        v,n=uleb(off); off+=n; sizes.append(v)
+    fidx=0; stat=[]
+    for _ in range(sizes[0]):
+        diff,n=uleb(off); off+=n
+        acc,n=uleb(off); off+=n
+        fidx+=diff; stat.append(fidx)
+    off=static_values_off; count,n=uleb(off); off+=n; values=[]
+    for _ in range(count):
+        head=data[off]; off+=1; vt=head&0x1f; arg=head>>5
+        if vt==0x1f: values.append(bool(arg)); continue
+        if vt==0x1e: values.append(None); continue
+        raw=data[off:off+arg+1]; off+=arg+1; num=int.from_bytes(raw,"little")
+        values.append(strings[num] if vt==0x17 else num)
+    for j,fi in enumerate(stat):
+        if fields[fi][2]=="BUILD_GIT_SHA":
+            found=values[j] if j<len(values) else None
+            break
+print(json.dumps({"build_git_sha":found,"expected":expected,"bad_merge_sha":bad,"match":found==expected,"bad_absent":found!=bad},sort_keys=True))
+if found!=expected: raise SystemExit("BUILD_GIT_SHA_MISMATCH")
+if found==bad: raise SystemExit("SYNTHETIC_MERGE_SHA_STILL_EMBEDDED")
+PY
           unzip -p "$OUT" META-INF/version-control-info.textproto | tee repaired-owner-evidence/version-control-info.textproto
           grep -Fq "$OWNER_SOURCE_HEAD" repaired-owner-evidence/version-control-info.textproto
           sha256sum "$OUT" | tee repaired-owner-evidence/unsigned.sha256
@@ -91,9 +135,10 @@ jobs:
             echo "signing_state=UNSIGNED_ALIGNED_REPAIR_READY"
           } | tee repaired-owner-evidence/REPAIR_MANIFEST.txt
           rm repaired-owner-evidence/classes.dex
-          (cd repaired-owner-evidence && sha256sum exact-source-head.txt badging.txt permissions.txt version-control-info.textproto unsigned.sha256 REPAIR_MANIFEST.txt > SHA256SUMS && sha256sum -c SHA256SUMS)
+          (cd repaired-owner-evidence && sha256sum exact-source-head.txt badging.txt permissions.txt buildconfig-proof.txt version-control-info.textproto unsigned.sha256 REPAIR_MANIFEST.txt > SHA256SUMS && sha256sum -c SHA256SUMS)
 
       - name: Upload repaired unsigned Owner
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: owner-exact-head-repaired-unsigned
