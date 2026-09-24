@@ -37,8 +37,6 @@ jobs:
           "$BT/zipalign" -c -p 4 install-diagnostics/bridge.apk
           unzip -lv install-diagnostics/bridge.apk > install-diagnostics/unzip-lv.txt
           sha256sum install-diagnostics/bridge.apk > install-diagnostics/bridge.sha256
-          cat install-diagnostics/aapt2-badging.txt
-          cat install-diagnostics/apksigner.txt
 
       - name: Enable KVM access
         shell: bash
@@ -56,36 +54,31 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           script: |
-            set +e
             adb wait-for-device
-            {
-              echo "release=$(adb shell getprop ro.build.version.release | tr -d '\r')"
-              echo "sdk=$(adb shell getprop ro.build.version.sdk | tr -d '\r')"
-              echo "abi=$(adb shell getprop ro.product.cpu.abi | tr -d '\r')"
-            } > install-diagnostics/emulator.txt
+            echo "release=$(adb shell getprop ro.build.version.release | tr -d '\r')" > install-diagnostics/emulator.txt
+            echo "sdk=$(adb shell getprop ro.build.version.sdk | tr -d '\r')" >> install-diagnostics/emulator.txt
+            echo "abi=$(adb shell getprop ro.product.cpu.abi | tr -d '\r')" >> install-diagnostics/emulator.txt
             adb logcat -c
-            adb install -r -t install-diagnostics/bridge.apk > install-diagnostics/adb-install.txt 2>&1
-            echo "$?" > install-diagnostics/adb-install.rc
-            adb shell pm path com.mehmetcerdik.ownerbridge > install-diagnostics/pm-path.txt 2>&1
-            adb shell dumpsys package com.mehmetcerdik.ownerbridge > install-diagnostics/dumpsys-package.txt 2>&1
-            adb logcat -d -v threadtime > install-diagnostics/logcat.txt 2>&1
-            exit 0
+            sh -c 'set +e; adb install -r -t install-diagnostics/bridge.apk > install-diagnostics/adb-install.txt 2>&1; rc=$?; echo "$rc" > install-diagnostics/adb-install.rc; exit 0'
+            sh -c 'adb shell pm path com.mehmetcerdik.ownerbridge > install-diagnostics/pm-path.txt 2>&1; exit 0'
+            sh -c 'adb shell dumpsys package com.mehmetcerdik.ownerbridge > install-diagnostics/dumpsys-package.txt 2>&1; exit 0'
+            sh -c 'adb logcat -d -v threadtime > install-diagnostics/logcat.txt 2>&1; exit 0'
 
       - name: Summarize install result
         if: always()
         shell: bash
         run: |
-          set -euo pipefail
+          set -u
           echo "ADB_INSTALL_RC=$(cat install-diagnostics/adb-install.rc 2>/dev/null || echo missing)" | tee install-diagnostics/SUMMARY.txt
-          cat install-diagnostics/adb-install.txt | tee -a install-diagnostics/SUMMARY.txt
-          cat install-diagnostics/pm-path.txt | tee -a install-diagnostics/SUMMARY.txt
-          grep -Ei 'PackageManager|PackageInstaller|ownerbridge|invalid|parse|apk' install-diagnostics/logcat.txt | tail -300 > install-diagnostics/package-log-filtered.txt || true
+          cat install-diagnostics/adb-install.txt 2>/dev/null | tee -a install-diagnostics/SUMMARY.txt || true
+          cat install-diagnostics/pm-path.txt 2>/dev/null | tee -a install-diagnostics/SUMMARY.txt || true
+          grep -Ei 'PackageManager|PackageInstaller|ownerbridge|invalid|parse|apk' install-diagnostics/logcat.txt 2>/dev/null | tail -300 > install-diagnostics/package-log-filtered.txt || true
 
       - name: Upload diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: bridge-install-android15-diagnostics
+          name: bridge-install-android15-diagnostics-v2
           path: install-diagnostics/
           if-no-files-found: error
           retention-days: 30
