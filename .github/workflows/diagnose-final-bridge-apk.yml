@@ -2,67 +2,126 @@ name: Diagnose Final Bridge APK
 on:
   push:
     branches: [diagnostic/bridge-invalid-apk-20260924]
+  workflow_dispatch:
 permissions:
   contents: read
+
 jobs:
-  diagnose:
+  build-sign-verify:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - name: Set up Java
-        uses: actions/setup-java@v4
+
+      - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
-      - name: Decode exact signed APK
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Build exact Bridge source
         run: |
           set -euo pipefail
-          base64 -d diagnostics/MEHMET_PRIVILEGED_BRIDGE_1.1.0_VC2_GEN2_SIGNED.apk.b64 > bridge-final.apk
-          echo "sha256=$(sha256sum bridge-final.apk | awk '{print $1}')"
-          test "$(sha256sum bridge-final.apk | awk '{print $1}')" = "8588f221bd91baf9b8a6183267dd9180ab019a94264b6dfb0d112279802d48f2"
-      - name: Locate Android build tools
+          gradle :bridge:assembleRelease --no-daemon
+          APK="$(find bridge/build/outputs/apk/release -name '*.apk' -type f | head -1)"
+          test -n "$APK"
+          cp "$APK" bridge-unsigned.apk
+          sha256sum bridge-unsigned.apk
+
+      - name: Verify unsigned package structure
         run: |
           set -euo pipefail
           SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
           BT="$(find "$SDK/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
-          echo "BT=$BT" | tee -a "$GITHUB_ENV"
-          "$BT/aapt2" version
-          "$BT/apksigner" version
-      - name: ZIP integrity
+          echo "BT=$BT" >> "$GITHUB_ENV"
+          unzip -t bridge-unsigned.apk
+          "$BT/aapt2" dump badging bridge-unsigned.apk | tee unsigned-badging.txt
+          grep -Fq "package: name='com.mehmetcerdik.ownerbridge' versionCode='2' versionName='1.1.0'" unsigned-badging.txt
+          "$BT/zipalign" -c -p -v 4 bridge-unsigned.apk | tee unsigned-zipalign.txt
+
+      - name: Ephemeral Android signing
         run: |
           set -euo pipefail
-          unzip -t bridge-final.apk
-          zipinfo -v bridge-final.apk > zipinfo.txt
-      - name: Package parser
+          keytool -genkeypair -v             -keystore diagnostic.jks             -storepass diagnostic-only             -keypass diagnostic-only             -alias diagnostic             -keyalg RSA -keysize 4096 -validity 365             -dname "CN=Diagnostic,O=MEHMET TEST,C=TR"
+          "$BT/zipalign" -p -f 4 bridge-unsigned.apk bridge-aligned.apk
+          "$BT/apksigner" sign             --ks diagnostic.jks             --ks-pass pass:diagnostic-only             --key-pass pass:diagnostic-only             --ks-key-alias diagnostic             --v1-signing-enabled true             --v2-signing-enabled true             --v3-signing-enabled true             --out bridge-diagnostic-signed.apk             bridge-aligned.apk
+          "$BT/apksigner" verify --verbose --print-certs bridge-diagnostic-signed.apk | tee apksigner.txt
+          "$BT/zipalign" -c -p -v 4 bridge-diagnostic-signed.apk | tee signed-zipalign.txt
+          sha256sum bridge-diagnostic-signed.apk
+
+      - name: Upload package diagnostics
+        uses: actions/upload-artifact@v4
+        with:
+          name: bridge-package-diagnostics
+          path: |
+            bridge-unsigned.apk
+            bridge-diagnostic-signed.apk
+            unsigned-badging.txt
+            unsigned-zipalign.txt
+            signed-zipalign.txt
+            apksigner.txt
+          retention-days: 30
+
+  api35-install:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Build and ephemeral-sign exact Bridge source
         run: |
           set -euo pipefail
-          "$BT/aapt2" dump badging bridge-final.apk | tee badging.txt
-          "$BT/aapt2" dump xmltree bridge-final.apk --file AndroidManifest.xml | tee manifest-tree.txt
-      - name: Alignment
-        run: |
-          set -euo pipefail
-          "$BT/zipalign" -c -p -v 4 bridge-final.apk | tee zipalign.txt
-      - name: Cryptographic APK signature verification
-        run: |
-          set -o pipefail
-          "$BT/apksigner" verify --verbose --print-certs --min-sdk-version 26 --max-sdk-version 35 bridge-final.apk 2>&1 | tee apksigner.txt
-          code=${PIPESTATUS[0]}
-          echo "APKSIGNER_EXIT=$code"
-          exit "$code"
-      - name: Upload diagnostics
+          gradle :bridge:assembleRelease --no-daemon
+          APK="$(find bridge/build/outputs/apk/release -name '*.apk' -type f | head -1)"
+          SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          BT="$(find "$SDK/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
+          keytool -genkeypair             -keystore diagnostic.jks             -storepass diagnostic-only             -keypass diagnostic-only             -alias diagnostic             -keyalg RSA -keysize 4096 -validity 365             -dname "CN=Diagnostic,O=MEHMET TEST,C=TR"
+          "$BT/zipalign" -p -f 4 "$APK" bridge-aligned.apk
+          "$BT/apksigner" sign             --ks diagnostic.jks             --ks-pass pass:diagnostic-only             --key-pass pass:diagnostic-only             --ks-key-alias diagnostic             --v1-signing-enabled true             --v2-signing-enabled true             --v3-signing-enabled true             --out bridge-diagnostic-signed.apk             bridge-aligned.apk
+          "$BT/apksigner" verify --verbose bridge-diagnostic-signed.apk
+
+      - name: Install on clean Android 15 / API 35 emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: |
+            set -e
+            adb wait-for-device
+            adb shell getprop ro.build.version.release
+            adb shell getprop ro.build.version.sdk
+            adb install -r bridge-diagnostic-signed.apk 2>&1 | tee adb-install.txt
+            adb shell pm path com.mehmetcerdik.ownerbridge | tee pm-path.txt
+            adb shell dumpsys package com.mehmetcerdik.ownerbridge | grep -E "versionCode|versionName|pkg=|codePath" | head -20 | tee package-dump.txt
+
+      - name: Upload install diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: bridge-invalid-apk-diagnostics
+          name: bridge-api35-install-diagnostics
           path: |
-            badging.txt
-            manifest-tree.txt
-            zipinfo.txt
-            zipalign.txt
-            apksigner.txt
+            adb-install.txt
+            pm-path.txt
+            package-dump.txt
           if-no-files-found: warn
           retention-days: 30
