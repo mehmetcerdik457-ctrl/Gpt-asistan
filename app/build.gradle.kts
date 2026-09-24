@@ -3,7 +3,7 @@ plugins {
   kotlin("android")
 }
 
-val gitSha = System.getenv("GITHUB_SHA") ?: "LOCAL"
+val gitSha = System.getenv("OWNER_BUILD_GIT_SHA") ?: System.getenv("GITHUB_SHA") ?: "LOCAL"
 val expectedSignerSha256 = "279084a36b7c17a1663bfba5fe1c5bdac974f8ef4ce56b21000d882493e39448"
 
 android {
