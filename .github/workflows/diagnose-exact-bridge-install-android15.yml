@@ -1,9 +1,7 @@
 name: Diagnose Exact Bridge Install Android 15
 
 on:
-  push:
-    branches:
-      - tools/apk-signing-kit-20260924
+  workflow_dispatch:
 
 permissions:
   contents: read

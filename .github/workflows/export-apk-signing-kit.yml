@@ -1,9 +1,7 @@
 name: Export Android APK Signing Kit
 
 on:
-  push:
-    branches:
-      - tools/apk-signing-kit-20260924
+  workflow_dispatch:
 
 permissions:
   contents: read
