@@ -112,6 +112,24 @@ jobs:
           ./evidence/twg.bin skills --help > evidence/twg-skills-help.txt 2>&1 || true
           ./evidence/twg.bin jira --help > evidence/twg-jira-help.txt 2>&1 || true
           ./evidence/twg.bin confluence --help > evidence/twg-confluence-help.txt 2>&1 || true
+          ./evidence/twg.bin skills install --help > evidence/twg-skills-install-help.txt 2>&1 || true
+
+          set +e
+          timeout 30s ./evidence/twg.bin skills install > evidence/twg-skills-install.txt 2>&1
+          SKILLS_INSTALL_EXIT=$?
+          set -e
+          echo "TWG_SKILLS_INSTALL_EXIT=$SKILLS_INSTALL_EXIT" | tee evidence/twg-skills-install-exit.txt
+          {
+            echo "HOME=$HOME"
+            echo "CANONICAL_SKILL_PATH=$HOME/.agents/skills/twg"
+            echo "CODEX_SKILL_PATH=$HOME/.codex/skills/twg"
+            echo "--- canonical tree ---"
+            find "$HOME/.agents/skills/twg" -maxdepth 4 -type f -print 2>/dev/null || true
+            echo "--- codex tree ---"
+            find "$HOME/.codex/skills/twg" -maxdepth 4 -type f -print 2>/dev/null || true
+            echo "--- file hashes ---"
+            find "$HOME/.agents/skills/twg" "$HOME/.codex/skills/twg" -maxdepth 4 -type f -exec sha256sum {} \; 2>/dev/null || true
+          } | tee evidence/twg-skill-paths-and-hashes.txt
 
           set +e
           ./evidence/twg.bin doctor > evidence/twg-doctor.txt 2>&1
@@ -128,6 +146,7 @@ jobs:
             echo "EXPECTED_BINARY_SHA256=$EXPECTED_SHA256"
             echo "ACTUAL_BINARY_SHA256=$ACTUAL_SHA256"
             echo "BINARY_CHECKSUM_VERIFY=PASS"
+            echo "TWG_SKILLS_INSTALL_EXIT=$SKILLS_INSTALL_EXIT"
             echo "TWG_DOCTOR_EXIT=$DOCTOR_EXIT"
           } > evidence/summary.env
 
