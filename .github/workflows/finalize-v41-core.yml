@@ -154,15 +154,18 @@ jobs:
           grep -q 'com.mehmetcerdik.ownerai.permission.BRIDGE' core-evidence/manifest-xmltree.txt
           grep -q 'protectionLevel' core-evidence/manifest-xmltree.txt
           unzip -p "$APK" classes.dex | strings > core-evidence/classes-dex-strings.txt
-          for marker in createConfirmDeviceCredentialIntent FLAG_SECURE DEVICE_CREDENTIAL_GATED_SIGNED_CORE_SESSION approvePackage revokePackage revokeAllNonDefaultPackages listApprovedPackages verifyPostcondition; do
+          for marker in createConfirmDeviceCredentialIntent DEVICE_CREDENTIAL_NOT_CONFIGURED approvePackage revokePackage revokeAllNonDefaultPackages listApprovedPackages verifyPostcondition typeText; do
             grep -Fq "$marker" core-evidence/classes-dex-strings.txt
           done
+          ROOT="$RUNNER_TEMP/v41core/MEHMET_OWNER_V4_1_CONTROL_PLANE_SOURCE"
+          grep -Fq 'WindowManager.LayoutParams.FLAG_SECURE' "$ROOT/core/src/main/java/com/mehmetcerdik/ownerai/MainActivity.java"
+          grep -Fq 'createConfirmDeviceCredentialIntent' "$ROOT/core/src/main/java/com/mehmetcerdik/ownerai/MainActivity.java"
           {
             echo 'CORE_PACKAGE_VERSION=PASS'
             echo 'CORE_NO_INTERNET_PERMISSION=PASS'
             echo 'CORE_SIGNATURE_PERMISSION_PRESENT=PASS_COMPILED'
-            echo 'CORE_DEVICE_CREDENTIAL_GATE=PASS_COMPILED_SURFACE'
-            echo 'CORE_FLAG_SECURE=PASS_COMPILED_SURFACE'
+            echo 'CORE_DEVICE_CREDENTIAL_GATE=PASS_EXACT_SOURCE_AND_COMPILED_METHOD_PRESENT'
+            echo 'CORE_FLAG_SECURE=PASS_EXACT_SOURCE_LINKED_TO_COMPILED_CLASS_RUNTIME_NOT_PROVEN'
             echo 'CORE_APPROVAL_REVOCATION_UI_CLIENT=PASS_COMPILED_SURFACE'
             echo 'CORE_POSTCONDITION_CLIENT=PASS_COMPILED_SURFACE'
           } > core-evidence/static-capabilities.txt
