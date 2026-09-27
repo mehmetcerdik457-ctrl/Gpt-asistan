@@ -1,9 +1,9 @@
 package com.mehmetcerdik.ownerai;
 
-import android.app.Activity;
 import android.content.Intent;
 import android.graphics.Typeface;
 import android.os.Bundle;
+import androidx.appcompat.app.AppCompatActivity;
 import android.provider.Settings;
 import android.view.View;
 import android.widget.Button;
@@ -12,7 +12,7 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
-public final class OwnerControlPlaneActivity extends Activity implements View.OnClickListener {
+public final class OwnerControlPlaneActivity extends AppCompatActivity implements View.OnClickListener {
     private static final String WORKER = "com.codespaceapps.aichat";
     private TextView status;
     private TextView result;
@@ -96,8 +96,12 @@ public final class OwnerControlPlaneActivity extends Activity implements View.On
 
     @Override public void onClick(View v){
         int id=v.getId();
-        Bundle out;
         if(id==REFRESH){ refresh(); return; }
+        OwnerAuth.require(this, () -> executeAuthorized(id), s -> result.setText(s));
+    }
+
+    private void executeAuthorized(int id){
+        Bundle out;
         if(id==ACCESS){ startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)); return; }
         if(id==ARM) out=BridgeClient.arm(this,5*60*1000L);
         else if(id==STOP) out=BridgeClient.stop(this);

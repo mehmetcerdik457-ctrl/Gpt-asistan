@@ -13,12 +13,14 @@ permissions:
 jobs:
   control-plane-validation:
     name: Validate Control Plane Structure
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - name: Checkout exact target revision
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
 
       - name: Verify exact checkout
         shell: bash
@@ -130,7 +132,7 @@ jobs:
         run: (cd evidence && sha256sum -c SHA256SUMS)
 
       - name: Upload evidence
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4.6.2
         with:
           name: control-plane-validation-evidence
           path: evidence/

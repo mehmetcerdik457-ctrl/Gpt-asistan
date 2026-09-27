@@ -4,6 +4,8 @@
     android:name="com.mehmetcerdik.ownerai.permission.BRIDGE"
     android:protectionLevel="signature" />
   <uses-permission android:name="com.mehmetcerdik.ownerai.permission.BRIDGE" />
+  <uses-permission android:name="android.permission.INTERNET" />
+  <uses-permission android:name="android.permission.USE_BIOMETRIC" />
 
   <queries>
     <package android:name="com.codespaceapps.aichat" />
@@ -25,6 +27,10 @@
 
     <activity
       android:name="com.mehmetcerdik.ownerai.OwnerControlPlaneActivity"
+      android:exported="false" />
+
+    <activity
+      android:name="com.mehmetcerdik.ownerai.OwnerBrainActivity"
       android:exported="false" />
 
     <service

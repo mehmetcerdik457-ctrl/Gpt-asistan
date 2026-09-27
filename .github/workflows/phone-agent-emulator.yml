@@ -5,18 +5,25 @@ on:
     branches:
       - phone-agent/runtime-v1
       - owner/stable-companion-v1
+      - owner/full-brain-v1-20260924
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
   phone-agent-emulator:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
       - name: Checkout exact revision
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
+          persist-credentials: false
 
       - name: Verify exact checkout
         shell: bash
@@ -25,15 +32,16 @@ jobs:
           test "${ACTUAL}" = "${GITHUB_SHA}"
           printf "expected_sha=%s\nactual_sha=%s\n" "${GITHUB_SHA}" "${ACTUAL}"
 
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: temurin
           java-version: "17"
 
       - name: Set up pinned Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6.2.0
         with:
           gradle-version: "8.7"
+          cache-provider: basic
 
       - name: Unit test and build exact-head APK
         run: |
@@ -67,7 +75,7 @@ jobs:
 
       - name: Upload emulator runtime evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4.6.2
         with:
           name: phone-agent-emulator-evidence
           path: emulator-evidence/

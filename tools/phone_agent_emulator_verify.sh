@@ -157,6 +157,23 @@ if [[ ":${ENABLED}:" != *":${SERVICE}:"* && ":${ENABLED}:" != *":${SERVICE_FULL}
   fi
 fi
 
+# Android 14+ emulator images may deny shell launch of
+# ACCESSIBILITY_DETAILS_SETTINGS with OPEN_ACCESSIBILITY_DETAILS_SETTINGS.
+# For CI only, use the shell's secure-settings capability as a deterministic
+# fallback. This path is guarded by ro.kernel.qemu=1 and is never used on a
+# physical device or in application production code.
+ENABLED="$(adb shell settings --user 0 get secure enabled_accessibility_services | tr -d "\r")"
+if [[ ":${ENABLED}:" != *":${SERVICE}:"* && ":${ENABLED}:" != *":${SERVICE_FULL}:"* ]]; then
+  QEMU="$(adb shell getprop ro.kernel.qemu | tr -d "\r")"
+  printf "ro.kernel.qemu=%s\n" "${QEMU}" > "${EVIDENCE_DIR}/accessibility-enable-fallback.txt"
+  if [[ "${QEMU}" == "1" ]]; then
+    adb shell settings --user 0 put secure enabled_accessibility_services "${SERVICE}"
+    adb shell settings --user 0 put secure accessibility_enabled 1
+    sleep 3
+    adb shell settings --user 0 get secure enabled_accessibility_services | tr -d "\r" >> "${EVIDENCE_DIR}/accessibility-enable-fallback.txt"
+  fi
+fi
+
 ENABLED="$(adb shell settings --user 0 get secure enabled_accessibility_services | tr -d "\r")"
 printf "%s\n" "${ENABLED}" > "${EVIDENCE_DIR}/enabled_accessibility_services.txt"
 case ":${ENABLED}:" in
@@ -213,9 +230,9 @@ scroll_pass = has_pass("SCROLL_FORWARD")
 status = "EMULATOR_PHONE_AGENT_RUNTIME_PASS" if all([service_ready, hits > 0, tap_pass, click_pass, scroll_pass]) else "EMULATOR_PHONE_AGENT_RUNTIME_FAIL"
 
 pkg = (root/"dumpsys-package.txt").read_text(errors="replace")
-if "versionName=1.2.0" not in pkg:
+if "versionName=1.3.0" not in pkg:
     raise SystemExit("versionName mismatch")
-if "versionCode=4" not in pkg:
+if "versionCode=5" not in pkg:
     raise SystemExit("versionCode mismatch")
 
 data = {
@@ -223,8 +240,8 @@ data = {
     "status": status,
     "git_head": head,
     "package_name": "com.mehmetcerdik.ownerai",
-    "version_name": "1.2.0",
-    "version_code": "4",
+    "version_name": "1.3.0",
+    "version_code": "5",
     "apk_sha256": apk_sha,
     "device": {
         "manufacturer": (root/"manufacturer.txt").read_text().strip(),
