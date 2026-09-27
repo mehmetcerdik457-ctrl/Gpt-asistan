@@ -19,6 +19,7 @@ import androidx.appcompat.app.AppCompatActivity
 import com.mehmetcerdik.ownerai.BridgeClient
 import com.mehmetcerdik.ownerai.OwnerControlPlaneActivity
 import com.mehmetcerdik.ownerai.OwnerBrainActivity
+import com.mehmetcerdik.ownerai.OwnerAuth
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -46,17 +47,17 @@ class MainActivity : AppCompatActivity() {
         container.addView(statusView)
         container.addView(Button(this).apply {
             text = "Erişilebilirlik Ayarlarını Aç"
-            setOnClickListener { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
+            setOnClickListener { requireOwner { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) } }
         })
 
         container.addView(Button(this).apply {
             text = "OWNER Control Plane"
-            setOnClickListener { startActivity(Intent(this@MainActivity, OwnerControlPlaneActivity::class.java)) }
+            setOnClickListener { requireOwner { startActivity(Intent(this@MainActivity, OwnerControlPlaneActivity::class.java)) } }
         })
 
         container.addView(Button(this).apply {
             text = "MEHMET AI — Brain / Memory / Models"
-            setOnClickListener { startActivity(Intent(this@MainActivity, OwnerBrainActivity::class.java)) }
+            setOnClickListener { requireOwner { startActivity(Intent(this@MainActivity, OwnerBrainActivity::class.java)) } }
         })
 
         selfTestTarget = Button(this).apply {
@@ -71,11 +72,11 @@ class MainActivity : AppCompatActivity() {
         }
         container.addView(selfTestTarget)
 
-        container.addView(Button(this).apply { text = "Ana Ekran"; setOnClickListener { runAction(PhoneActionType.HOME) } })
-        container.addView(Button(this).apply { text = "Geri"; setOnClickListener { runAction(PhoneActionType.BACK) } })
-        container.addView(Button(this).apply { text = "Son Uygulamalar"; setOnClickListener { runAction(PhoneActionType.RECENTS) } })
-        container.addView(Button(this).apply { text = "Aşağı Kaydır"; setOnClickListener { runAction(PhoneActionType.SCROLL_FORWARD) } })
-        container.addView(Button(this).apply { text = "Yukarı Kaydır"; setOnClickListener { runAction(PhoneActionType.SCROLL_BACKWARD) } })
+        container.addView(Button(this).apply { text = "Ana Ekran"; setOnClickListener { requireOwner { runAction(PhoneActionType.HOME) } } })
+        container.addView(Button(this).apply { text = "Geri"; setOnClickListener { requireOwner { runAction(PhoneActionType.BACK) } } })
+        container.addView(Button(this).apply { text = "Son Uygulamalar"; setOnClickListener { requireOwner { runAction(PhoneActionType.RECENTS) } } })
+        container.addView(Button(this).apply { text = "Aşağı Kaydır"; setOnClickListener { requireOwner { runAction(PhoneActionType.SCROLL_FORWARD) } } })
+        container.addView(Button(this).apply { text = "Yukarı Kaydır"; setOnClickListener { requireOwner { runAction(PhoneActionType.SCROLL_BACKWARD) } } })
 
         val clickText = EditText(this).apply {
             hint = "Görünür metin"
@@ -86,25 +87,29 @@ class MainActivity : AppCompatActivity() {
         container.addView(Button(this).apply {
             text = "Metne Tıkla"
             setOnClickListener {
-                val ok = PhoneAgentAccessibilityService.instance?.execute(
-                    PhoneActionType.CLICK_TEXT, text = clickText.text.toString()
-                ) == true
-                toastResult("CLICK_TEXT", ok)
-                handler.postDelayed({ refreshRuntime() }, 250)
+                requireOwner {
+                    val ok = PhoneAgentAccessibilityService.instance?.execute(
+                        PhoneActionType.CLICK_TEXT, text = clickText.text.toString()
+                    ) == true
+                    toastResult("CLICK_TEXT", ok)
+                    handler.postDelayed({ refreshRuntime() }, 250)
+                }
             }
         })
 
         container.addView(Button(this).apply {
             text = "Yerel Self-Test: TAP + CLICK + SCROLL"
-            setOnClickListener { runLocalSelfTest() }
+            setOnClickListener { requireOwner { runLocalSelfTest() } }
         })
 
         container.addView(Button(this).apply {
             text = "Olay Günlüğünü Temizle"
             setOnClickListener {
+                requireOwner {
                 PhoneAgentAccessibilityService.clearEvents(this@MainActivity)
                 getSharedPreferences("phone_agent_self_test", MODE_PRIVATE).edit().clear().apply()
                 refreshRuntime()
+                }
             }
         })
 
@@ -144,13 +149,23 @@ class MainActivity : AppCompatActivity() {
         setContentView(ScrollView(this).apply { addView(container) })
         refreshRuntime()
         if (BuildConfig.DEBUG && intent.getBooleanExtra("emulator_self_test", false)) {
-            handler.postDelayed({ runLocalSelfTest() }, 2500)
+            handler.postDelayed({ requireOwner { runLocalSelfTest() } }, 2500)
         }
     }
 
     override fun onResume() {
         super.onResume()
         if (::statusView.isInitialized) refreshRuntime()
+    }
+
+    private fun requireOwner(action: () -> Unit) {
+        OwnerAuth.require(
+            this,
+            Runnable { action() },
+            java.util.function.Consumer { status ->
+                Toast.makeText(this, status, Toast.LENGTH_SHORT).show()
+            }
+        )
     }
 
     private fun runAction(action: PhoneActionType) {

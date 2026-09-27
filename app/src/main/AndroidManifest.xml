@@ -5,6 +5,7 @@
     android:protectionLevel="signature" />
   <uses-permission android:name="com.mehmetcerdik.ownerai.permission.BRIDGE" />
   <uses-permission android:name="android.permission.INTERNET" />
+  <uses-permission android:name="android.permission.USE_BIOMETRIC" />
 
   <queries>
     <package android:name="com.codespaceapps.aichat" />

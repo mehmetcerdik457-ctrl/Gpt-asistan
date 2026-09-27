@@ -1,7 +1,7 @@
 package com.mehmetcerdik.ownerai;
 
-import android.app.Activity;
 import android.os.Bundle;
+import androidx.appcompat.app.AppCompatActivity;
 import android.text.InputType;
 import android.view.ViewGroup;
 import android.widget.Button;
@@ -15,7 +15,7 @@ import org.json.JSONObject;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-public final class OwnerBrainActivity extends Activity {
+public final class OwnerBrainActivity extends AppCompatActivity {
     private OwnerBrainEngine engine;
     private EditText endpoint;
     private EditText model;
@@ -52,22 +52,30 @@ public final class OwnerBrainActivity extends Activity {
 
         Button save = new Button(this); save.setText("Provider Ayarlarını Güvenli Kaydet");
         save.setOnClickListener(v -> {
-            engine.saveConfig(endpoint.getText().toString(), model.getText().toString(), secret.getText().toString());
-            secret.setText("");
-            output.setText(engine.status().toString());
+            OwnerAuth.require(this,
+                    () -> {
+                        engine.saveConfig(endpoint.getText().toString(), model.getText().toString(), secret.getText().toString());
+                        secret.setText("");
+                        output.setText("OWNER_AUTH_REQUIRED");
+                    },
+                    s -> output.setText(s));
         });
         root.addView(save);
 
         Button run = new Button(this); run.setText("Beyne Sor / Planla / Gerekirse Tool Çalıştır");
-        run.setOnClickListener(v -> runBrain());
+        run.setOnClickListener(v -> OwnerAuth.require(this, this::runBrain, s -> output.setText(s)));
         root.addView(run);
 
         Button mem = new Button(this); mem.setText("Owner Memory Göster");
-        mem.setOnClickListener(v -> output.setText(engine.memorySnapshot().toString()));
+        mem.setOnClickListener(v -> OwnerAuth.require(this,
+                () -> output.setText(engine.memorySnapshot().toString()),
+                s -> output.setText(s)));
         root.addView(mem);
 
         Button audit = new Button(this); audit.setText("Audit Göster");
-        audit.setOnClickListener(v -> output.setText(engine.auditSnapshot().toString()));
+        audit.setOnClickListener(v -> OwnerAuth.require(this,
+                () -> output.setText(engine.auditSnapshot().toString()),
+                s -> output.setText(s)));
         root.addView(audit);
 
         output = new TextView(this);
