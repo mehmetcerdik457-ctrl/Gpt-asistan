@@ -157,6 +157,23 @@ if [[ ":${ENABLED}:" != *":${SERVICE}:"* && ":${ENABLED}:" != *":${SERVICE_FULL}
   fi
 fi
 
+# Android 14+ emulator images may deny shell launch of
+# ACCESSIBILITY_DETAILS_SETTINGS with OPEN_ACCESSIBILITY_DETAILS_SETTINGS.
+# For CI only, use the shell's secure-settings capability as a deterministic
+# fallback. This path is guarded by ro.kernel.qemu=1 and is never used on a
+# physical device or in application production code.
+ENABLED="$(adb shell settings --user 0 get secure enabled_accessibility_services | tr -d "\r")"
+if [[ ":${ENABLED}:" != *":${SERVICE}:"* && ":${ENABLED}:" != *":${SERVICE_FULL}:"* ]]; then
+  QEMU="$(adb shell getprop ro.kernel.qemu | tr -d "\r")"
+  printf "ro.kernel.qemu=%s\n" "${QEMU}" > "${EVIDENCE_DIR}/accessibility-enable-fallback.txt"
+  if [[ "${QEMU}" == "1" ]]; then
+    adb shell settings --user 0 put secure enabled_accessibility_services "${SERVICE}"
+    adb shell settings --user 0 put secure accessibility_enabled 1
+    sleep 3
+    adb shell settings --user 0 get secure enabled_accessibility_services | tr -d "\r" >> "${EVIDENCE_DIR}/accessibility-enable-fallback.txt"
+  fi
+fi
+
 ENABLED="$(adb shell settings --user 0 get secure enabled_accessibility_services | tr -d "\r")"
 printf "%s\n" "${ENABLED}" > "${EVIDENCE_DIR}/enabled_accessibility_services.txt"
 case ":${ENABLED}:" in
