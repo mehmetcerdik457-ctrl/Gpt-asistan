@@ -1,0 +1,3 @@
+MEHMET OWNER V4.1 continuous execution trigger
+Purpose: re-run exact finalize-v41-bridge build/verify workflow without changing V4.1 source bytes.
+Worker com.codespaceapps.aichat remains untouched.
