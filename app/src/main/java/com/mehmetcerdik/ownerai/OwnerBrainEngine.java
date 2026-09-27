@@ -54,6 +54,7 @@ public final class OwnerBrainEngine {
             o.put("agent_step_limit", MAX_AGENT_STEPS);
             o.put("execution_contract", "SEE_UNDERSTAND_PLAN_ACT_SEE_VERIFY_RECOVER");
             o.put("provider_memory_policy", "OWNER_PRIVATE_WITHHELD");
+            o.put("memory_storage_policy", "AES_256_GCM_ANDROID_KEYSTORE");
             o.put("state_change_policy", "EXPLICIT_OWNER_ACTION_INTENT_REQUIRED");
         } catch (Exception ignored) {}
         return o;

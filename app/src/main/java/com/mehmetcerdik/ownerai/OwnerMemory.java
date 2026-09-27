@@ -14,7 +14,7 @@ import java.util.Locale;
 
 public final class OwnerMemory extends SQLiteOpenHelper {
     private static final String DB = "mehmet_owner_memory.db";
-    private static final int VERSION = 1;
+    private static final int VERSION = 2;
 
     public OwnerMemory(Context c) { super(c, DB, null, VERSION); }
 
@@ -25,7 +25,24 @@ public final class OwnerMemory extends SQLiteOpenHelper {
         db.execSQL("CREATE INDEX idx_audit_ts ON audit(ts DESC)");
     }
 
-    @Override public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {}
+    @Override public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
+        if (oldVersion < 2) {
+            db.beginTransaction();
+            try (Cursor c = db.rawQuery("SELECT id,text FROM memory", null)) {
+                while (c.moveToNext()) {
+                    long id = c.getLong(0);
+                    String stored = c.getString(1);
+                    if (SecureSecrets.isEncryptedMemoryBlob(stored)) continue;
+                    ContentValues v = new ContentValues();
+                    v.put("text", SecureSecrets.encryptMemory(stored == null ? "" : stored));
+                    db.update("memory", v, "id=?", new String[]{String.valueOf(id)});
+                }
+                db.setTransactionSuccessful();
+            } finally {
+                db.endTransaction();
+            }
+        }
+    }
 
     public synchronized long remember(String kind, String text) {
         if (text == null) return -1;
@@ -34,7 +51,7 @@ public final class OwnerMemory extends SQLiteOpenHelper {
         ContentValues v = new ContentValues();
         v.put("ts", System.currentTimeMillis());
         v.put("kind", kind == null ? "owner" : kind);
-        v.put("text", clean);
+        v.put("text", SecureSecrets.encryptMemory(clean));
         return getWritableDatabase().insert("memory", null, v);
     }
 
@@ -47,7 +64,9 @@ public final class OwnerMemory extends SQLiteOpenHelper {
                 JSONObject o = new JSONObject();
                 o.put("ts", c.getLong(0));
                 o.put("kind", c.getString(1));
-                o.put("text", c.getString(2));
+                String decrypted = SecureSecrets.decryptMemory(c.getString(2));
+                if (decrypted == null) continue;
+                o.put("text", decrypted);
                 out.put(o);
             }
         } catch (Exception ignored) {}
