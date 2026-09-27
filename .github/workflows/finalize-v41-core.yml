@@ -1,0 +1,204 @@
+name: Finalize V4.1 Owner Core
+
+on:
+  push:
+    branches:
+      - owner/bridge-v41-finalization
+    paths:
+      - 'bridge-v41/**'
+      - '.github/workflows/finalize-v41-core.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build-verify-core:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Exact HEAD proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          mkdir -p core-evidence
+          printf 'expected_sha=%s\nactual_sha=%s\n' "$GITHUB_SHA" "$(git rev-parse HEAD)" > core-evidence/exact-head.txt
+
+      - name: Recover exact immutable V4.1 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC_ZIP="bridge-v41/MEHMET_OWNER_V4_1_CONTROL_PLANE_SOURCE_CANDIDATE.zip"
+          EXPECTED="7df6d150b9159affe69e529fdf1ada3ce8f957ffb1c99ba7c55f8fe3eefd7628"
+          ACTUAL="$(sha256sum "$SRC_ZIP" | awk '{print $1}')"
+          test "$ACTUAL" = "$EXPECTED"
+          unzip -t "$SRC_ZIP" | tee core-evidence/source-zip-integrity.txt
+          rm -rf "$RUNNER_TEMP/v41core"
+          mkdir -p "$RUNNER_TEMP/v41core"
+          unzip -q "$SRC_ZIP" -d "$RUNNER_TEMP/v41core"
+          ROOT="$RUNNER_TEMP/v41core/MEHMET_OWNER_V4_1_CONTROL_PLANE_SOURCE"
+          test -f "$ROOT/core/src/main/java/com/mehmetcerdik/ownerai/MainActivity.java"
+          (cd "$ROOT" && sha256sum -c SOURCE_TREE_MANIFEST.sha256) | tee core-evidence/source-tree-manifest-check.txt
+          printf 'source_zip_sha256=%s\nsource_root=%s\n' "$ACTUAL" "$ROOT" > core-evidence/source-lock.txt
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up pinned Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Ensure Android SDK 35/build-tools 35.0.0
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          test -n "$SDK_ROOT"
+          SDKMANAGER="$(command -v sdkmanager || true)"
+          if [ -n "$SDKMANAGER" ]; then
+            yes | "$SDKMANAGER" --licenses >/dev/null || true
+            "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0" >/dev/null
+          fi
+          test -f "$SDK_ROOT/platforms/android-35/android.jar"
+          test -x "$SDK_ROOT/build-tools/35.0.0/aapt2"
+          test -x "$SDK_ROOT/build-tools/35.0.0/zipalign"
+          test -x "$SDK_ROOT/build-tools/35.0.0/apksigner"
+          java -version 2>&1 | tee core-evidence/java-version.txt
+          gradle --version | tee core-evidence/gradle-version.txt
+          grep -q 'Gradle 8.9' core-evidence/gradle-version.txt
+
+      - name: Materialize and verify canonical Gradle 8.9 wrapper jar
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/v41core/MEHMET_OWNER_V4_1_CONTROL_PLANE_SOURCE"
+          SCRATCH="$RUNNER_TEMP/wrapper-scratch"
+          mkdir -p "$SCRATCH"
+          printf "rootProject.name='wrapper-scratch'\n" > "$SCRATCH/settings.gradle"
+          printf "tasks.register('noop')\n" > "$SCRATCH/build.gradle"
+          gradle -p "$SCRATCH" wrapper --gradle-version 8.9 --distribution-type bin --no-daemon
+          JAR="$SCRATCH/gradle/wrapper/gradle-wrapper.jar"
+          test -f "$JAR"
+          JAR_SHA="$(sha256sum "$JAR" | awk '{print $1}')"
+          test "$JAR_SHA" = "498495120a03b9a6ab5d155f5de3c8f0d986a449153702fb80fc80e134484f17"
+          mkdir -p "$ROOT/gradle/wrapper"
+          cp "$JAR" "$ROOT/gradle/wrapper/gradle-wrapper.jar"
+          chmod +x "$ROOT/gradlew"
+          grep -Fq 'distributionUrl=https\://services.gradle.org/distributions/gradle-8.9-bin.zip' "$ROOT/gradle/wrapper/gradle-wrapper.properties"
+          grep -Fq 'distributionSha256Sum=d725d707bfabd4dfdc958c624003b3c80accc03f7037b5122c4b1d0ef15cecab' "$ROOT/gradle/wrapper/gradle-wrapper.properties"
+          "$ROOT/gradlew" -p "$ROOT" --version | tee core-evidence/wrapper-gradle-version.txt
+          grep -q 'Gradle 8.9' core-evidence/wrapper-gradle-version.txt
+          {
+            echo "WRAPPER_JAR_PRESENT=YES"
+            echo "WRAPPER_JAR_SHA256=$JAR_SHA"
+            echo "WRAPPER_VERSION=8.9"
+            echo "GRADLE_8_9_MATCH=PASS"
+          } > core-evidence/wrapper-verify.txt
+
+      - name: Run preserved V4.1 source/security tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/v41core/MEHMET_OWNER_V4_1_CONTROL_PLANE_SOURCE"
+          (
+            cd "$ROOT"
+            python3 tests/source_lexical_test.py
+            python3 tests/source_security_invariant_test.py
+            bash tests/run_pure_java_tests.sh
+            python3 tests/static_security_test.py
+          ) | tee core-evidence/source-tests.txt
+          grep -q 'SOURCE_LEXICAL_TEST=PASS' core-evidence/source-tests.txt
+          grep -q 'SOURCE_SECURITY_INVARIANT_TEST=PASS' core-evidence/source-tests.txt
+          grep -q 'PURE_JAVA_SECURITY_TEST=PASS' core-evidence/source-tests.txt
+
+      - name: Build exact V4.1 Core release with verified wrapper
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/v41core/MEHMET_OWNER_V4_1_CONTROL_PLANE_SOURCE"
+          "$ROOT/gradlew" -p "$ROOT" :core:clean :core:assembleRelease --no-daemon --stacktrace | tee core-evidence/gradle-build.txt
+          IN="$ROOT/core/build/outputs/apk/release/core-release-unsigned.apk"
+          test -f "$IN"
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          OUT="$PWD/core-evidence/MEHMET_OWNER_CORE_1.2.0_VC4_UNSIGNED_ALIGNED.apk"
+          "$SDK_ROOT/build-tools/35.0.0/zipalign" -p -f 4 "$IN" "$OUT"
+          "$SDK_ROOT/build-tools/35.0.0/zipalign" -c -p 4 "$OUT"
+          sha256sum "$OUT" > core-evidence/unsigned-apk.sha256
+
+      - name: Static APK identity and security verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          AAPT2="$SDK_ROOT/build-tools/35.0.0/aapt2"
+          APK="core-evidence/MEHMET_OWNER_CORE_1.2.0_VC4_UNSIGNED_ALIGNED.apk"
+          "$AAPT2" dump badging "$APK" > core-evidence/aapt2-badging.txt
+          grep -q "package: name='com.mehmetcerdik.ownerai' versionCode='4' versionName='1.2.0'" core-evidence/aapt2-badging.txt
+          grep -q "minSdkVersion:'26'" core-evidence/aapt2-badging.txt
+          grep -q "targetSdkVersion:'35'" core-evidence/aapt2-badging.txt
+          "$AAPT2" dump permissions "$APK" > core-evidence/aapt2-permissions.txt
+          if grep -q 'android.permission.INTERNET' core-evidence/aapt2-permissions.txt; then
+            echo 'UNEXPECTED_INTERNET_PERMISSION' >&2
+            exit 41
+          fi
+          "$AAPT2" dump xmltree --file AndroidManifest.xml "$APK" > core-evidence/manifest-xmltree.txt
+          grep -q 'com.mehmetcerdik.ownerai.permission.BRIDGE' core-evidence/manifest-xmltree.txt
+          grep -q 'protectionLevel' core-evidence/manifest-xmltree.txt
+          unzip -p "$APK" classes.dex | strings > core-evidence/classes-dex-strings.txt
+          for marker in createConfirmDeviceCredentialIntent FLAG_SECURE DEVICE_CREDENTIAL_GATED_SIGNED_CORE_SESSION approvePackage revokePackage revokeAllNonDefaultPackages listApprovedPackages verifyPostcondition; do
+            grep -Fq "$marker" core-evidence/classes-dex-strings.txt
+          done
+          {
+            echo 'CORE_PACKAGE_VERSION=PASS'
+            echo 'CORE_NO_INTERNET_PERMISSION=PASS'
+            echo 'CORE_SIGNATURE_PERMISSION_PRESENT=PASS_COMPILED'
+            echo 'CORE_DEVICE_CREDENTIAL_GATE=PASS_COMPILED_SURFACE'
+            echo 'CORE_FLAG_SECURE=PASS_COMPILED_SURFACE'
+            echo 'CORE_APPROVAL_REVOCATION_UI_CLIENT=PASS_COMPILED_SURFACE'
+            echo 'CORE_POSTCONDITION_CLIENT=PASS_COMPILED_SURFACE'
+          } > core-evidence/static-capabilities.txt
+
+      - name: Package reproducible derived source with wrapper jar
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/v41core/MEHMET_OWNER_V4_1_CONTROL_PLANE_SOURCE"
+          DERIVED="$PWD/core-evidence/MEHMET_OWNER_V4_1_REPRODUCIBLE_SOURCE_WITH_WRAPPER.zip"
+          (cd "$RUNNER_TEMP/v41core" && zip -qr "$DERIVED" MEHMET_OWNER_V4_1_CONTROL_PLANE_SOURCE)
+          sha256sum "$DERIVED" > core-evidence/reproducible-source.sha256
+
+      - name: Evidence integrity
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "verifier_head=$GITHUB_SHA"
+            echo "source_zip_sha256=7df6d150b9159affe69e529fdf1ada3ce8f957ffb1c99ba7c55f8fe3eefd7628"
+            echo "expected_gen2_signer=279084a36b7c17a1663bfba5fe1c5bdac974f8ef4ce56b21000d882493e39448"
+            echo "core_package=com.mehmetcerdik.ownerai"
+            echo "core_version=1.2.0/4"
+            echo "worker_package=com.codespaceapps.aichat"
+            echo "worker_mutation=NONE"
+          } > core-evidence/build-contract.txt
+          (
+            cd core-evidence
+            sha256sum exact-head.txt source-lock.txt source-tree-manifest-check.txt java-version.txt gradle-version.txt wrapper-gradle-version.txt wrapper-verify.txt source-tests.txt gradle-build.txt               MEHMET_OWNER_CORE_1.2.0_VC4_UNSIGNED_ALIGNED.apk unsigned-apk.sha256 aapt2-badging.txt aapt2-permissions.txt manifest-xmltree.txt classes-dex-strings.txt               static-capabilities.txt MEHMET_OWNER_V4_1_REPRODUCIBLE_SOURCE_WITH_WRAPPER.zip reproducible-source.sha256 build-contract.txt > SHA256SUMS
+            sha256sum -c SHA256SUMS
+          )
+
+      - name: Upload exact Core build evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: owner-core-v41-unsigned-build-evidence
+          path: core-evidence/
+          if-no-files-found: error
+          retention-days: 90
