@@ -1,0 +1,141 @@
+name: TWG Network Probe
+
+on:
+  push:
+    branches:
+      - twg-network-probe-20260927
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: official-installer-network-and-integrity
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Probe network and verify official TWG installer
+        id: probe
+        shell: bash
+        continue-on-error: true
+        run: |
+          set -u
+          mkdir -p evidence
+          LOG="evidence/raw-evidence.log"
+          ERR="evidence/raw-stderr.log"
+          exec > >(tee -a "$LOG") 2> >(tee -a "$ERR" >&2)
+          set -x
+
+          date -u +"FETCH_TIMESTAMP=%Y-%m-%dT%H:%M:%SZ"
+          echo "GITHUB_RUN_ID=$GITHUB_RUN_ID"
+          echo "GITHUB_SHA=$GITHUB_SHA"
+          echo "GITHUB_REF=$GITHUB_REF"
+          echo "CWD=$(pwd)"
+          uname -a
+          uname -m
+          command -v bash
+          command -v curl
+          command -v sha256sum
+          env | grep -Ei '^(http|https|all|no)_proxy=' || true
+
+          getent hosts teamwork-graph.atlassian.com || true
+          getent hosts developer.atlassian.com || true
+          curl -I --connect-timeout 10 --max-time 20 https://developer.atlassian.com/ || true
+          curl -I --connect-timeout 10 --max-time 20 https://teamwork-graph.atlassian.com/ || true
+
+          INSTALL_URL="https://teamwork-graph.atlassian.com/cli/install"
+          FETCH_TIMESTAMP="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+          echo "FETCH_TIMESTAMP=$FETCH_TIMESTAMP" | tee evidence/fetch-timestamp.txt
+
+          curl -fsSL --retry 2 -D evidence/installer.headers -o evidence/install.raw "$INSTALL_URL"
+          INSTALLER_FETCH_EXIT=$?
+          echo "INSTALLER_FETCH_EXIT=$INSTALLER_FETCH_EXIT"
+          if [ "$INSTALLER_FETCH_EXIT" -ne 0 ]; then
+            exit "$INSTALLER_FETCH_EXIT"
+          fi
+
+          INSTALLER_SHA256="$(sha256sum evidence/install.raw | awk '{print $1}')"
+          printf '%s  %s\n' "$INSTALLER_SHA256" "install.raw" | tee evidence/installer.sha256
+
+          DEFAULT_VERSION="$(awk -F= '/^DEFAULT_VERSION=/{gsub(/"/,"",$2); print $2; exit}' evidence/install.raw)"
+          if [ -z "$DEFAULT_VERSION" ]; then
+            echo "DEFAULT_VERSION_NOT_FOUND" >&2
+            exit 31
+          fi
+          echo "DEFAULT_VERSION=$DEFAULT_VERSION" | tee evidence/default-version.txt
+
+          OS="$(uname -s)"
+          ARCH="$(uname -m)"
+          case "$OS" in
+            Linux) PLATFORM="linux" ;;
+            Darwin) PLATFORM="darwin" ;;
+            *) echo "UNSUPPORTED_OS=$OS" >&2; exit 32 ;;
+          esac
+          case "$ARCH" in
+            x86_64) ARCH_SUFFIX="x64" ;;
+            arm64|aarch64) ARCH_SUFFIX="arm64" ;;
+            *) echo "UNSUPPORTED_ARCH=$ARCH" >&2; exit 33 ;;
+          esac
+
+          DOWNLOAD_BINARY_NAME="twg-$PLATFORM-$ARCH_SUFFIX-v$DEFAULT_VERSION"
+          CHECKSUMS_URL="https://teamwork-graph.atlassian.com/cli/SHA256SUMS-v$DEFAULT_VERSION"
+          BINARY_URL="https://teamwork-graph.atlassian.com/cli/$DOWNLOAD_BINARY_NAME"
+
+          {
+            echo "DOWNLOAD_BINARY_NAME=$DOWNLOAD_BINARY_NAME"
+            echo "CHECKSUMS_URL=$CHECKSUMS_URL"
+            echo "BINARY_URL=$BINARY_URL"
+          } | tee evidence/release-target.txt
+
+          curl -fsSL --retry 2 -o evidence/SHA256SUMS "$CHECKSUMS_URL"
+          EXPECTED_SHA256="$(awk -v f="$DOWNLOAD_BINARY_NAME" '$2==f || $2=="*"f {print $1; exit}' evidence/SHA256SUMS)"
+          if [ -z "$EXPECTED_SHA256" ]; then
+            echo "CHECKSUM_ENTRY_NOT_FOUND=$DOWNLOAD_BINARY_NAME" >&2
+            exit 34
+          fi
+          echo "EXPECTED_BINARY_SHA256=$EXPECTED_SHA256" | tee evidence/expected-binary.sha256
+
+          curl -fsSL --retry 2 -o evidence/twg.bin "$BINARY_URL"
+          ACTUAL_SHA256="$(sha256sum evidence/twg.bin | awk '{print $1}')"
+          echo "ACTUAL_BINARY_SHA256=$ACTUAL_SHA256" | tee evidence/actual-binary.sha256
+
+          if [ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]; then
+            echo "BINARY_CHECKSUM_VERIFY=FAIL" | tee evidence/checksum-status.txt
+            exit 42
+          fi
+          echo "BINARY_CHECKSUM_VERIFY=PASS" | tee evidence/checksum-status.txt
+
+          chmod +x evidence/twg.bin
+          ./evidence/twg.bin --version | tee evidence/twg-version.txt
+          ./evidence/twg.bin skills --help > evidence/twg-skills-help.txt 2>&1 || true
+          ./evidence/twg.bin jira --help > evidence/twg-jira-help.txt 2>&1 || true
+          ./evidence/twg.bin confluence --help > evidence/twg-confluence-help.txt 2>&1 || true
+
+          set +e
+          ./evidence/twg.bin doctor > evidence/twg-doctor.txt 2>&1
+          DOCTOR_EXIT=$?
+          set -e
+          echo "TWG_DOCTOR_EXIT=$DOCTOR_EXIT" | tee evidence/twg-doctor-exit.txt
+
+          {
+            echo "FETCH_TIMESTAMP=$FETCH_TIMESTAMP"
+            echo "INSTALLER_SHA256=$INSTALLER_SHA256"
+            echo "DEFAULT_VERSION=$DEFAULT_VERSION"
+            echo "DOWNLOAD_BINARY_NAME=$DOWNLOAD_BINARY_NAME"
+            echo "CHECKSUMS_URL=$CHECKSUMS_URL"
+            echo "EXPECTED_BINARY_SHA256=$EXPECTED_SHA256"
+            echo "ACTUAL_BINARY_SHA256=$ACTUAL_SHA256"
+            echo "BINARY_CHECKSUM_VERIFY=PASS"
+            echo "TWG_DOCTOR_EXIT=$DOCTOR_EXIT"
+          } > evidence/summary.env
+
+      - name: Upload raw TWG probe evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: twg-network-probe-raw-evidence
+          path: evidence/
+          if-no-files-found: error
+          retention-days: 7
