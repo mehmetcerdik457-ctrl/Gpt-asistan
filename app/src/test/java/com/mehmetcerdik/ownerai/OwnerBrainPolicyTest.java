@@ -34,6 +34,25 @@ public final class OwnerBrainPolicyTest {
         assertTrue(OwnerBrainPolicy.allowTool("Type hello", "type_text"));
     }
 
+    @Test public void actionIntentIsScopedToRequestedTool() {
+        assertTrue(OwnerBrainPolicy.allowTool("Chatbot uygulamasını aç", "launch_worker"));
+        assertFalse(OwnerBrainPolicy.allowTool("Chatbot uygulamasını aç", "type_text"));
+        assertFalse(OwnerBrainPolicy.allowTool("Chatbot uygulamasını aç", "swipe"));
+        assertFalse(OwnerBrainPolicy.allowTool("Chatbot uygulamasını aç", "home"));
+
+        assertTrue(OwnerBrainPolicy.allowTool("Mesaj alanına merhaba yaz", "type_text"));
+        assertFalse(OwnerBrainPolicy.allowTool("Mesaj alanına merhaba yaz", "launch_worker"));
+        assertFalse(OwnerBrainPolicy.allowTool("Mesaj alanına merhaba yaz", "click_text"));
+
+        assertTrue(OwnerBrainPolicy.allowTool("Ana ekran", "home"));
+        assertFalse(OwnerBrainPolicy.allowTool("Ana ekran", "back"));
+        assertTrue(OwnerBrainPolicy.allowTool("Son uygulamalar", "recents"));
+    }
+
+    @Test public void unknownStateChangingToolFailsClosed() {
+        assertFalse(OwnerBrainPolicy.allowTool("Bunu yap", "delete_everything"));
+    }
+
     @Test public void explicitArabicActionIntentAllowsStateChange() {
         assertTrue(OwnerBrainPolicy.allowTool("افتح التطبيق", "launch_worker"));
         assertTrue(OwnerBrainPolicy.allowTool("اضغط زر الإرسال", "click_text"));
