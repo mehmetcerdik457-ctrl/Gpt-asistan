@@ -56,7 +56,7 @@ public final class OwnerBrainActivity extends AppCompatActivity {
                     () -> {
                         engine.saveConfig(endpoint.getText().toString(), model.getText().toString(), secret.getText().toString());
                         secret.setText("");
-                        output.setText("OWNER_AUTH_REQUIRED");
+                        output.setText(engine.status().toString());
                     },
                     s -> output.setText(s));
         });
@@ -80,7 +80,7 @@ public final class OwnerBrainActivity extends AppCompatActivity {
 
         output = new TextView(this);
         output.setTextIsSelectable(true);
-        output.setText(engine.status().toString());
+        output.setText("OWNER_AUTH_REQUIRED");
         root.addView(output, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
