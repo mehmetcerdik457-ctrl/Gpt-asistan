@@ -115,7 +115,7 @@ jobs:
           ./evidence/twg.bin skills install --help > evidence/twg-skills-install-help.txt 2>&1 || true
 
           set +e
-          timeout 30s ./evidence/twg.bin skills install > evidence/twg-skills-install.txt 2>&1
+          timeout 30s ./evidence/twg.bin skills install --yes > evidence/twg-skills-install.txt 2>&1
           SKILLS_INSTALL_EXIT=$?
           set -e
           echo "TWG_SKILLS_INSTALL_EXIT=$SKILLS_INSTALL_EXIT" | tee evidence/twg-skills-install-exit.txt
