@@ -13,7 +13,7 @@ def gradle_values(path):
         m=re.search(pat,t); req(m, f'{path}: {k} missing'); out[k]=m.group(1)
     return out
 core=gradle_values('core/build.gradle'); bridge=gradle_values('bridge/build.gradle')
-req(core=={'namespace':'com.mehmetcerdik.ownerai','applicationId':'com.mehmetcerdik.ownerai','compileSdk':'35','buildToolsVersion':'35.0.0','minSdk':'26','targetSdk':'35','versionCode':'4','versionName':'1.2.0'},'core identity mismatch')
+req(core=={'namespace':'com.mehmetcerdik.ownerai','applicationId':'com.mehmetcerdik.ownerai','compileSdk':'35','buildToolsVersion':'35.0.0','minSdk':'26','targetSdk':'35','versionCode':'5','versionName':'1.3.0'},'core identity mismatch')
 req(bridge=={'namespace':'com.mehmetcerdik.ownerbridge','applicationId':'com.mehmetcerdik.ownerbridge','compileSdk':'35','buildToolsVersion':'35.0.0','minSdk':'26','targetSdk':'35','versionCode':'2','versionName':'1.1.0'},'bridge identity mismatch')
 cm=ET.parse(R/'core/src/main/AndroidManifest.xml').getroot(); bm=ET.parse(R/'bridge/src/main/AndroidManifest.xml').getroot(); acc=ET.parse(R/'bridge/src/main/res/xml/accessibility_service_config.xml').getroot()
 core_perms=[x.get(A+'name') for x in cm.findall('uses-permission')]; bridge_perms=[x.get(A+'name') for x in bm.findall('uses-permission')]
