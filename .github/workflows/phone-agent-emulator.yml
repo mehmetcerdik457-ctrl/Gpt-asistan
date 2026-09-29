@@ -77,6 +77,7 @@ jobs:
           test "${APP_SIGNER}" = "${OWNER_EXPECTED_SIGNER_SHA256}"
           test "${BRIDGE_SIGNER}" = "${OWNER_EXPECTED_SIGNER_SHA256}"
           printf 'app_signer=%s\nbridge_signer=%s\n' "${APP_SIGNER}" "${BRIDGE_SIGNER}" > /tmp/debug-pair-signers.txt
+          echo "VERIFIER_APKSIGNER=${APKSIGNER}" >> "${GITHUB_ENV}"
 
       - name: Enable KVM
         run: |

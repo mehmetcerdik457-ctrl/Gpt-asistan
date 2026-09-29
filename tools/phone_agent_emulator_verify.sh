@@ -19,8 +19,12 @@ printf "%s  %s\n" "${APK_SHA256}" "$(basename "${APK}")" > "${EVIDENCE_DIR}/APK_
 
 adb wait-for-device
 
-BUILD_TOOLS_VERSION="$(ls "${ANDROID_HOME}/build-tools" | sort -V | tail -1)"
-APKSIGNER="${ANDROID_HOME}/build-tools/${BUILD_TOOLS_VERSION}/apksigner"
+if [[ -n "${VERIFIER_APKSIGNER:-}" ]]; then
+  APKSIGNER="${VERIFIER_APKSIGNER}"
+else
+  BUILD_TOOLS_VERSION="$(ls "${ANDROID_HOME}/build-tools" | sort -V | tail -1)"
+  APKSIGNER="${ANDROID_HOME}/build-tools/${BUILD_TOOLS_VERSION}/apksigner"
+fi
 test -x "${APKSIGNER}"
 
 package_state() {
