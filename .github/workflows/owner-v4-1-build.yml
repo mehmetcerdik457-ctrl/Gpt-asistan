@@ -157,11 +157,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p owner_v4_1/out/android-build-tools-35.0.0/lib
+          mkdir -p owner_v4_1/out/android-build-tools-35.0.0/lib owner_v4_1/out/android-build-tools-35.0.0/lib64
           cp "${ANDROID_HOME}/build-tools/${BUILD_TOOLS}/apksigner" owner_v4_1/out/android-build-tools-35.0.0/
           cp "${ANDROID_HOME}/build-tools/${BUILD_TOOLS}/zipalign" owner_v4_1/out/android-build-tools-35.0.0/
           cp "${ANDROID_HOME}/build-tools/${BUILD_TOOLS}/aapt2" owner_v4_1/out/android-build-tools-35.0.0/
           cp "${ANDROID_HOME}/build-tools/${BUILD_TOOLS}/lib/apksigner.jar" owner_v4_1/out/android-build-tools-35.0.0/lib/
+          cp "${ANDROID_HOME}/build-tools/${BUILD_TOOLS}/lib64/libc++.so" owner_v4_1/out/android-build-tools-35.0.0/lib64/
           chmod +x owner_v4_1/out/android-build-tools-35.0.0/apksigner owner_v4_1/out/android-build-tools-35.0.0/zipalign owner_v4_1/out/android-build-tools-35.0.0/aapt2
           find owner_v4_1/out/android-build-tools-35.0.0 -type f -print0 | sort -z | xargs -0 sha256sum > owner_v4_1/out/build_tools_sha256.txt
 
