@@ -101,11 +101,11 @@ jobs:
           set -euo pipefail
           test -s emulator-evidence/phone-agent-emulator-evidence.json
           grep -q '"status": "EMULATOR_HARDENED_RUNTIME_PASS"' emulator-evidence/phone-agent-emulator-evidence.json
-          grep -Fq '"git_head": "'"${GITHUB_SHA}"'"' emulator-evidence/phone-agent-emulator-evidence.json
+          grep -Fq '"git_head": "'"${EXPECTED_HEAD_SHA}"'"' emulator-evidence/phone-agent-emulator-evidence.json
           grep -q '"signer_match": true' emulator-evidence/phone-agent-emulator-evidence.json
           grep -q '"screen_read_ok": true' emulator-evidence/phone-agent-emulator-evidence.json
           (cd emulator-evidence && sha256sum -c SHA256SUMS)
-          cp /tmp/debug-signer.txt emulator-evidence/
+          cp /tmp/emulator-exact-head.txt emulator-evidence/\n          cp /tmp/debug-signer.txt emulator-evidence/
           cp /tmp/debug-pair-signers.txt emulator-evidence/
 
       - name: Upload hardened emulator evidence
