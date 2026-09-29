@@ -6,6 +6,8 @@ import android.database.Cursor;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.OpenableColumns;
+import android.speech.RecognizerIntent;
+import android.speech.tts.TextToSpeech;
 import android.text.InputType;
 import android.util.Base64;
 import android.view.ViewGroup;
@@ -24,11 +26,15 @@ import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
+import java.util.ArrayList;
+import java.util.Locale;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public final class OwnerBrainActivity extends AppCompatActivity {
     private static final int PICK_ATTACHMENT = 2401;
+    private static final int PICK_SPEECH = 2402;
     private static final int MAX_ATTACHMENT_BYTES = 12 * 1024 * 1024;
 
     private OwnerBrainEngine engine;
@@ -51,11 +57,16 @@ public final class OwnerBrainActivity extends AppCompatActivity {
     private TextView attachmentStatus;
     private TextView output;
     private OwnerAttachment attachment;
+    private TextToSpeech tts;
+    private String lastReply = "";
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
         engine = new OwnerBrainEngine(this);
+        tts = new TextToSpeech(this, status -> {
+            if (status == TextToSpeech.SUCCESS) configureTts();
+        });
         JSONObject initial = engine.status();
         JSONObject feature = initial.optJSONObject("features");
         if (feature == null) feature = new JSONObject();
@@ -145,9 +156,17 @@ public final class OwnerBrainActivity extends AppCompatActivity {
 
         root.addView(prompt);
 
+        Button speech = new Button(this); speech.setText("Konuşarak Görev Gir");
+        speech.setOnClickListener(v -> OwnerAuth.require(this, this::startSpeechInput, s -> output.setText(s)));
+        root.addView(speech);
+
         Button run = new Button(this); run.setText("Beyne Sor / Planla / Gerekirse Tool Çalıştır");
         run.setOnClickListener(v -> OwnerAuth.require(this, () -> runBrain(prompt.getText().toString()), s -> output.setText(s)));
         root.addView(run);
+
+        Button speak = new Button(this); speak.setText("Son Cevabı Seslendir");
+        speak.setOnClickListener(v -> OwnerAuth.require(this, this::speakLastReply, s -> output.setText(s)));
+        root.addView(speak);
 
         Button ocr = new Button(this); ocr.setText("Seçili Görselden OCR");
         ocr.setOnClickListener(v -> OwnerAuth.require(this, () -> {
@@ -213,9 +232,19 @@ public final class OwnerBrainActivity extends AppCompatActivity {
 
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode != PICK_ATTACHMENT || resultCode != Activity.RESULT_OK || data == null || data.getData() == null) return;
-        Uri uri = data.getData();
-        OwnerAuth.require(this, () -> loadAttachment(uri), s -> output.setText(s));
+        if (resultCode != Activity.RESULT_OK || data == null) return;
+        if (requestCode == PICK_SPEECH) {
+            ArrayList<String> results = data.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS);
+            if (results != null && !results.isEmpty()) {
+                prompt.setText(results.get(0));
+                output.setText("VOICE_INPUT_CAPTURED");
+            }
+            return;
+        }
+        if (requestCode == PICK_ATTACHMENT && data.getData() != null) {
+            Uri uri = data.getData();
+            OwnerAuth.require(this, () -> loadAttachment(uri), s -> output.setText(s));
+        }
     }
 
     private void loadAttachment(Uri uri) {
@@ -281,17 +310,74 @@ public final class OwnerBrainActivity extends AppCompatActivity {
         return m.contains("mpeg") || m.contains("mp3") || m.contains("wav") || n.endsWith(".mp3") || n.endsWith(".wav");
     }
 
+    private void startSpeechInput() {
+        try {
+            Intent i = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+            i.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+            String tag = language.getText().toString().trim();
+            if (!tag.isEmpty()) i.putExtra(RecognizerIntent.EXTRA_LANGUAGE, tag);
+            i.putExtra(RecognizerIntent.EXTRA_PROMPT, "MEHMET AI için konuş");
+            startActivityForResult(i, PICK_SPEECH);
+        } catch (Exception e) {
+            output.setText("VOICE_INPUT_UNAVAILABLE:" + e.getClass().getSimpleName());
+        }
+    }
+
+    private void configureTts() {
+        if (tts == null) return;
+        String tag = language == null ? "" : language.getText().toString().trim();
+        if (!tag.isEmpty()) {
+            try { tts.setLanguage(Locale.forLanguageTag(tag)); } catch (Exception ignored) {}
+        }
+        String requested = voice == null ? "" : voice.getText().toString().trim();
+        if (!requested.isEmpty()) {
+            try {
+                Set<android.speech.tts.Voice> voices = tts.getVoices();
+                if (voices != null) {
+                    for (android.speech.tts.Voice candidate : voices) {
+                        if (requested.equalsIgnoreCase(candidate.getName())) {
+                            tts.setVoice(candidate);
+                            break;
+                        }
+                    }
+                }
+            } catch (Exception ignored) {}
+        }
+    }
+
+    private void speakLastReply() {
+        if (lastReply == null || lastReply.trim().isEmpty()) {
+            output.setText("VOICE_OUTPUT_NO_REPLY");
+            return;
+        }
+        configureTts();
+        if (tts == null) {
+            output.setText("VOICE_OUTPUT_UNAVAILABLE");
+            return;
+        }
+        int result = tts.speak(lastReply, TextToSpeech.QUEUE_FLUSH, null, "owner-reply");
+        output.setText(result == TextToSpeech.SUCCESS ? "VOICE_OUTPUT_STARTED" : "VOICE_OUTPUT_FAILED:" + result);
+    }
+
     private void runBrain(String text) {
         output.setText("Çalışıyor…");
         final OwnerAttachment current = attachment;
         executor.submit(() -> {
             JSONObject result = engine.run(text, current);
-            runOnUiThread(() -> output.setText(result.toString()));
+            String reply = result.optString("reply", "");
+            runOnUiThread(() -> {
+                lastReply = reply;
+                output.setText(result.toString());
+            });
         });
     }
 
     @Override protected void onDestroy() {
         executor.shutdownNow();
+        if (tts != null) {
+            tts.stop();
+            tts.shutdown();
+        }
         super.onDestroy();
     }
 }
