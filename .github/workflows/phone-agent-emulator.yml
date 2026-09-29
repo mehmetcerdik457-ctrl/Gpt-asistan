@@ -6,6 +6,7 @@ on:
       - phone-agent/runtime-v1
       - owner/stable-companion-v1
       - owner/full-brain-v1-20260924
+      - owner/feature-parity-v1-20260929
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
