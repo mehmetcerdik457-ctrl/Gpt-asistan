@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "principle": "least-privilege",
+  "require_policy_check": true,
+  "require_evidence_after_action": true,
+  "deny": [
+    "production-deploy",
+    "production-secret-read",
+    "credential-export",
+    "disable-security-controls"
+  ],
+  "user_gate": [
+    "merge-main",
+    "delete-repository",
+    "force-push-protected",
+    "external-account-admin"
+  ],
+  "allow_platform": [
+    "repository-read",
+    "branch-create",
+    "pull-request-create",
+    "ci-observe",
+    "evidence-readback",
+    "connector-read",
+    "connector-write-approved",
+    "model-route-discovery"
+  ]
+}

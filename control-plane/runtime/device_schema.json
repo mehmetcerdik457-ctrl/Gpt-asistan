@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "status_without_device": "USER_GATE",
+  "required_fields": [
+    "device_model",
+    "android_version",
+    "package_name",
+    "version_name",
+    "version_code",
+    "artifact_sha256",
+    "install_result",
+    "launch_result",
+    "postcondition_result"
+  ],
+  "install_results": [
+    "PASS",
+    "FAIL"
+  ],
+  "launch_results": [
+    "PASS",
+    "FAIL"
+  ],
+  "postcondition_results": [
+    "PASS",
+    "FAIL"
+  ]
+}

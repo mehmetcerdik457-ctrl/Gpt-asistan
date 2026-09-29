@@ -1,29 +1,143 @@
-name: Build APK
-on: [push]
+name: Build Stable Owner Companion
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - name: Checkout exact target revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Verify exact checkout
+        shell: bash
+        run: |
+          ACTUAL_SHA="$(git rev-parse HEAD)"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            EXPECTED_SHA="${{ github.event.pull_request.head.sha }}"
+          else
+            EXPECTED_SHA="${GITHUB_SHA}"
+          fi
+          test "${ACTUAL_SHA}" = "${EXPECTED_SHA}"
+          printf 'expected_sha=%s\nactual_sha=%s\n' "${EXPECTED_SHA}" "${ACTUAL_SHA}" > /tmp/android-exact-head.txt
+
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: 'temurin'
           java-version: '17'
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v3
-      - name: Generate Gradle Wrapper (if missing)
-        run: |
-          if [ ! -f gradlew ]; then
-            curl -sL https://services.gradle.org/distributions/gradle-8.7-bin.zip -o gradle.zip
-            unzip -q gradle.zip -d gradle-8.7
-            echo '#!/usr/bin/env sh' > gradlew
-            echo 'exec "$(pwd)/gradle-8.7/gradle-8.7/bin/gradle" "$@"' >> gradlew
-            chmod +x gradlew
-          fi
-      - name: Build Debug APK
-        run: ./gradlew :app:assembleDebug
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
+
+      - name: Set up pinned Gradle
+        uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6.2.0
         with:
-          name: app-debug
-          path: app/build/outputs/apk/debug/*.apk
+          gradle-version: '8.7'
+          cache-provider: basic
+
+      - name: Unit-test phone-agent policy
+        run: gradle :app:testDebugUnitTest
+
+      - name: Build unsigned release APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          OWNER_BUILD_GIT_SHA="$(git rev-parse HEAD)" gradle :app:assembleRelease
+
+      - name: Generate unsigned release evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="$(find app/build/outputs/apk/release -maxdepth 1 -type f -name '*unsigned.apk' -print -quit)"
+          test -n "${APK}"
+          mkdir -p android-evidence signing-toolkit
+          cp /tmp/android-exact-head.txt android-evidence/exact-head.txt
+          HEAD_SHA="$(sed -n 's/^actual_sha=//p' /tmp/android-exact-head.txt)"
+          test -n "${HEAD_SHA}"
+
+          BUILD_TOOLS_VERSION="$(ls "${ANDROID_HOME}/build-tools" | sort -V | tail -1)"
+          BUILD_TOOLS="${ANDROID_HOME}/build-tools/${BUILD_TOOLS_VERSION}"
+          AAPT="${BUILD_TOOLS}/aapt"
+          ZIPALIGN="${BUILD_TOOLS}/zipalign"
+
+          ALIGNED="android-evidence/MEHMET_OWNER_COMPANION_1.4.0_VC6_UNSIGNED_ALIGNED.apk"
+          "${ZIPALIGN}" -f -p 4 "${APK}" "${ALIGNED}"
+
+          APK_HASH="$(sha256sum "${ALIGNED}" | awk '{print $1}')"
+          unzip -p "${ALIGNED}" classes.dex > /tmp/owner-classes.dex
+          grep -aFq "${HEAD_SHA}" /tmp/owner-classes.dex
+          rm -f /tmp/owner-classes.dex
+          printf '%s  %s\n' "${APK_HASH}" "$(basename "${ALIGNED}")" > android-evidence/APK_UNSIGNED_SHA256
+          "${AAPT}" dump badging "${ALIGNED}" > android-evidence/apk-badging.txt
+          "${AAPT}" dump permissions "${ALIGNED}" > android-evidence/apk-permissions.txt
+          "${AAPT}" dump xmltree "${ALIGNED}" AndroidManifest.xml > android-evidence/manifest-tree.txt
+
+          grep -q "package: name='com.mehmetcerdik.ownerai'" android-evidence/apk-badging.txt
+          grep -q "versionCode='6'" android-evidence/apk-badging.txt
+          grep -q "versionName='1.4.0'" android-evidence/apk-badging.txt
+          grep -q 'PhoneAgentAccessibilityService' android-evidence/manifest-tree.txt
+          grep -q 'android.permission.BIND_ACCESSIBILITY_SERVICE' android-evidence/manifest-tree.txt
+          grep -q 'com.mehmetcerdik.ownerai.permission.BRIDGE' android-evidence/manifest-tree.txt
+          grep -q 'com.mehmetcerdik.ownerai.OwnerControlPlaneActivity' android-evidence/manifest-tree.txt
+          grep -q 'android.permission.INTERNET' android-evidence/apk-permissions.txt
+          grep -q 'android.permission.USE_BIOMETRIC' android-evidence/apk-permissions.txt
+          grep -q 'com.mehmetcerdik.ownerai.OwnerBrainActivity' android-evidence/manifest-tree.txt
+
+          {
+            echo "artifact_path=${ALIGNED}"
+            echo "artifact_size=$(stat -c '%s' "${ALIGNED}")"
+            echo "run_id=${GITHUB_RUN_ID}"
+            echo "repository=${GITHUB_REPOSITORY}"
+            echo "git_head=${HEAD_SHA}"
+            echo "embedded_build_git_sha=${HEAD_SHA}"
+            echo "unsigned_apk_sha256=${APK_HASH}"
+            echo "build_tools_version=${BUILD_TOOLS_VERSION}"
+            echo "application_id=com.mehmetcerdik.ownerai"
+            echo "version_code=6"
+            echo "version_name=1.4.0"
+            echo "expected_signer_cert_sha256=279084a36b7c17a1663bfba5fe1c5bdac974f8ef4ce56b21000d882493e39448"
+            echo "phone_agent_runtime=v1_accessibility_dynamic_evidence"
+            echo "network_permission=INTERNET_PROVIDER_ONLY"
+            echo "owner_auth_policy=BIOMETRIC_OR_DEVICE_CREDENTIAL_5M"
+            echo "memory_storage_policy=AES_256_GCM_ANDROID_KEYSTORE"
+            echo "signing_state=UNSIGNED_ALIGNED_READY_FOR_GEN2"
+          } > android-evidence/build-metadata.txt
+
+          cat > android-evidence/device-expected-pre-sign.json <<EOF
+          {
+            "git_head": "${HEAD_SHA}",
+            "package_name": "com.mehmetcerdik.ownerai",
+            "version_name": "1.4.0",
+            "version_code": "6",
+            "expected_signer_cert_sha256": "279084a36b7c17a1663bfba5fe1c5bdac974f8ef4ce56b21000d882493e39448",
+            "unsigned_artifact_sha256": "${APK_HASH}",
+            "phone_agent_runtime": "v1_accessibility_dynamic_evidence",
+            "network_permission": "INTERNET_PROVIDER_ONLY"
+          }
+          EOF
+
+          cp "${BUILD_TOOLS}/apksigner" signing-toolkit/
+          cp "${ZIPALIGN}" signing-toolkit/
+          cp "${BUILD_TOOLS}/aapt2" signing-toolkit/
+          cp -a "${BUILD_TOOLS}/lib" signing-toolkit/
+          if [ -d "${BUILD_TOOLS}/lib64" ]; then cp -a "${BUILD_TOOLS}/lib64" signing-toolkit/; fi
+          tar -czf android-evidence/android-signing-toolkit.tar.gz -C signing-toolkit .
+
+          test "${APK_HASH}" = "$(sha256sum "${ALIGNED}" | awk '{print $1}')"
+
+      - name: Upload unsigned stable Owner APK
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4.6.2
+        with:
+          name: stable-owner-companion-unsigned-release
+          path: android-evidence/MEHMET_OWNER_COMPANION_1.4.0_VC6_UNSIGNED_ALIGNED.apk
+          if-no-files-found: error
+
+      - name: Upload Android build evidence and signing toolkit
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4.6.2
+        with:
+          name: stable-owner-companion-build-evidence
+          path: android-evidence/
+          if-no-files-found: error

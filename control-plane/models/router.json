@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "mode": "policy-gated",
+  "fallback": "none",
+  "require_provider_authorization": true,
+  "require_task_classification": true,
+  "providers": [
+    {
+      "name": "openai_platform",
+      "discovery": "VERIFIED",
+      "execution": "NOT_VERIFIED",
+      "task_classes": [
+        "reasoning",
+        "coding",
+        "general"
+      ]
+    },
+    {
+      "name": "hugging_face",
+      "discovery": "VERIFIED",
+      "execution": "DENIED_BY_SCOPE",
+      "task_classes": [
+        "open-source-model-discovery"
+      ]
+    },
+    {
+      "name": "replit",
+      "discovery": "VERIFIED",
+      "execution": "NOT_APPLICABLE",
+      "task_classes": [
+        "compute"
+      ]
+    },
+    {
+      "name": "github_actions_sklearn",
+      "discovery": "VERIFIED",
+      "execution": "VERIFIED",
+      "task_classes": [
+        "classification-smoke"
+      ],
+      "purpose": "open-source-model-execution-validation",
+      "evidence": {
+        "run_id": 35617641474,
+        "artifact_id": 10647070841,
+        "artifact_sha256": "7310fb3fe34f522c51153de4c8cdd0cf56555e818edcb114e4beb8a44824a417",
+        "exact_head": "4998a98ed0005afba07b94c1e72ffdf09c380c80",
+        "runtime": "scikit-learn",
+        "runtime_version": "1.5.2",
+        "result_sha256": "3ce85b30ba5647e3cfaf924f26aaab96cf67bac75514e498c84dd128f3038953"
+      }
+    }
+  ]
+}
