@@ -29,6 +29,14 @@ package_state() {
   mkdir -p "${out}"
   adb shell dumpsys package "${pkg}" > "${out}/dumpsys.txt" 2>/dev/null || true
   adb shell pm path "${pkg}" 2>/dev/null | tr -d "\r" > "${out}/pm-path.txt" || true
+  {
+    echo "package=${pkg}"
+    grep -m1 -E 'versionCode=' "${out}/dumpsys.txt" || true
+    grep -m1 -E 'versionName=' "${out}/dumpsys.txt" || true
+    grep -m1 -E 'dataDir=' "${out}/dumpsys.txt" || true
+    grep -m1 -E 'firstInstallTime=' "${out}/dumpsys.txt" || true
+    grep -m1 -E 'lastUpdateTime=' "${out}/dumpsys.txt" || true
+  } > "${out}/package-summary.txt"
   local remote
   remote="$(sed -n 's/^package://p' "${out}/pm-path.txt" | head -1)"
   if [[ -n "${remote}" ]]; then
@@ -76,11 +84,20 @@ package_state "${PACKAGE}" "after-owner"
 package_state "${BRIDGE_PACKAGE}" "after-bridge"
 package_state "${WORKER_PACKAGE}" "after-public-cihat"
 
-if [[ -f "${EVIDENCE_DIR}/before-public-cihat/installed-base.sha256" || -f "${EVIDENCE_DIR}/after-public-cihat/installed-base.sha256" ]]; then
-  diff -u "${EVIDENCE_DIR}/before-public-cihat/installed-base.sha256" "${EVIDENCE_DIR}/after-public-cihat/installed-base.sha256" > "${EVIDENCE_DIR}/public-cihat-sha.diff" || {
+BEFORE_CIHAT_SHA_FILE="${EVIDENCE_DIR}/before-public-cihat/installed-base.sha256"
+AFTER_CIHAT_SHA_FILE="${EVIDENCE_DIR}/after-public-cihat/installed-base.sha256"
+if [[ -f "${BEFORE_CIHAT_SHA_FILE}" != -f "${AFTER_CIHAT_SHA_FILE}" ]]; then
+  echo "FAIL:PUBLIC_CIHAT_INSTALL_STATE_CHANGED" >&2
+  exit 19
+fi
+if [[ -f "${BEFORE_CIHAT_SHA_FILE}" && -f "${AFTER_CIHAT_SHA_FILE}" ]]; then
+  BEFORE_CIHAT_SHA="$(awk '{print $1}' "${BEFORE_CIHAT_SHA_FILE}")"
+  AFTER_CIHAT_SHA="$(awk '{print $1}' "${AFTER_CIHAT_SHA_FILE}")"
+  printf 'before_sha256=%s\nafter_sha256=%s\n' "${BEFORE_CIHAT_SHA}" "${AFTER_CIHAT_SHA}" > "${EVIDENCE_DIR}/public-cihat-sha-compare.txt"
+  if [[ "${BEFORE_CIHAT_SHA}" != "${AFTER_CIHAT_SHA}" ]]; then
     echo "FAIL:PUBLIC_CIHAT_CHANGED" >&2
     exit 19
-  }
+  fi
 fi
 
 adb shell cmd appops set "${PACKAGE}" ACCESS_RESTRICTED_SETTINGS allow || true

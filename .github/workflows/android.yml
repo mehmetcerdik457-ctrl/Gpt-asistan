@@ -68,6 +68,9 @@ jobs:
           grep -q 'CIHAT_VERIFY_RESPONSE' app/src/main/java/com/mehmetcerdik/ownerai/CihatSemanticAdapter.java
           grep -q 'previous_record_hash' app/src/main/java/com/mehmetcerdik/ownerai/OwnerMemory.java
           grep -q 'HmacSHA256' app/src/main/java/com/mehmetcerdik/ownerai/AuditIntegrity.java
+          grep -q 'CLIENT_SECRET_PATH = "/v1/realtime/client_secrets"' app/src/main/java/com/mehmetcerdik/ownerai/RealtimeVoicePolicy.java
+          grep -q 'WEBRTC_CALLS_PATH = "/v1/realtime/calls"' app/src/main/java/com/mehmetcerdik/ownerai/RealtimeVoicePolicy.java
+          grep -q 'TRUSTED_EPHEMERAL_TOKEN_ISSUER_REQUIRED_NOT_RUNTIME_VERIFIED' app/src/main/java/com/mehmetcerdik/ownerai/RealtimeVoicePolicy.java
 
           grep -q 'versionCode = 3' bridge/build.gradle.kts
           grep -q 'versionName = "1.2.0"' bridge/build.gradle.kts

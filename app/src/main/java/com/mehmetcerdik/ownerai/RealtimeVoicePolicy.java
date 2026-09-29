@@ -5,7 +5,8 @@ import org.json.JSONObject;
 public final class RealtimeVoicePolicy {
     public static final String TRANSPORT = "WEBRTC";
     public static final String API_HOST = "api.openai.com";
-    public static final String API_PATH = "/v1/realtime";
+    public static final String CLIENT_SECRET_PATH = "/v1/realtime/client_secrets";
+    public static final String WEBRTC_CALLS_PATH = "/v1/realtime/calls";
     public static final String MODEL = "gpt-realtime-2.1";
     public static final String CREDENTIAL_POLICY = "SHORT_LIVED_EPHEMERAL_TOKEN_FROM_TRUSTED_ISSUER";
 
@@ -14,10 +15,11 @@ public final class RealtimeVoicePolicy {
     public static JSONObject status() {
         JSONObject o = new JSONObject();
         try {
-            o.put("status", "SOURCE_IMPLEMENTED_NOT_RUNTIME_VERIFIED");
+            o.put("status", "TRUSTED_EPHEMERAL_TOKEN_ISSUER_REQUIRED_NOT_RUNTIME_VERIFIED");
             o.put("transport", TRANSPORT);
             o.put("host", API_HOST);
-            o.put("path", API_PATH);
+            o.put("client_secret_path", CLIENT_SECRET_PATH);
+            o.put("webrtc_calls_path", WEBRTC_CALLS_PATH);
             o.put("model", MODEL);
             o.put("credential_policy", CREDENTIAL_POLICY);
             o.put("long_lived_provider_secret_in_realtime_client", false);

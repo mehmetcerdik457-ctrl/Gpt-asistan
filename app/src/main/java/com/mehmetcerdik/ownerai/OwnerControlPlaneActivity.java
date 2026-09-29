@@ -74,12 +74,22 @@ public final class OwnerControlPlaneActivity extends AppCompatActivity {
         ScrollView scroll = new ScrollView(this);
         scroll.addView(root);
         setContentView(scroll);
-        refresh();
+        redactUnlessAuthorized();
     }
 
     @Override protected void onResume() {
         super.onResume();
-        if (status != null) refresh();
+        redactUnlessAuthorized();
+    }
+
+    private void redactUnlessAuthorized() {
+        if (status == null || result == null) return;
+        if (!OwnerSession.isAuthorized(this)) {
+            status.setText("OWNER_AUTH_REQUIRED");
+            result.setText("OWNER_AUTH_REQUIRED");
+            return;
+        }
+        refresh();
     }
 
     private void refresh() {
