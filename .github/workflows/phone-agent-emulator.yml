@@ -5,6 +5,7 @@ on:
     branches:
       - phone-agent/runtime-v1
       - owner/stable-companion-v1
+      - owner/edition-v1
 
 permissions:
   contents: read
