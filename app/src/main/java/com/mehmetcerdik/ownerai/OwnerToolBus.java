@@ -27,15 +27,14 @@ public final class OwnerToolBus {
             return result(false, "BRIDGE_SIGNER_MISMATCH_OR_NOT_INSTALLED", null);
         }
 
-        long ttl = Math.min(Math.max(1_000L, OwnerSession.remainingMs()), 120_000L);
-        Bundle armed = BridgeClient.arm(context, ttl);
-        if (armed == null || !armed.getBoolean("ok", false)) {
-            return result(false, "BRIDGE_ARM_FAILED", armed);
+        // Read only non-privileged bridge status first. Never arm privileged execution
+        // before the current owner request has passed code-level policy authorization.
+        Bundle bridgeStatus = BridgeClient.status(context);
+        if (bridgeStatus == null || !bridgeStatus.getBoolean("ok", false)) {
+            memory.audit("TOOL_POLICY:" + tool, "DENY", "BRIDGE_STATUS_UNAVAILABLE");
+            return result(false, "BRIDGE_STATUS_UNAVAILABLE", bridgeStatus);
         }
-
-        Bundle before = BridgeClient.screenRead(context);
-        String currentPackage = before == null ? "" : before.getString("active_package", "");
-        if ("OPEN_APP".equals(tool) && currentPackage.isEmpty()) currentPackage = WORKER;
+        String currentPackage = bridgeStatus.getString("active_package", "");
 
         OwnerBrainPolicy.Decision decision = OwnerBrainPolicy.authorize(
                 ownerRequest, tool, safeArgs, currentPackage, OwnerSession.isFresh(context));
@@ -44,9 +43,16 @@ public final class OwnerToolBus {
             return result(false, decision.status, null);
         }
 
+        long ttl = Math.min(Math.max(1_000L, OwnerSession.remainingMs()), 120_000L);
+        Bundle armed = BridgeClient.arm(context, ttl);
+        if (armed == null || !armed.getBoolean("ok", false)) {
+            memory.audit("TOOL_POLICY:" + tool, "FAIL", "BRIDGE_ARM_FAILED_AFTER_POLICY");
+            return result(false, "BRIDGE_ARM_FAILED", armed);
+        }
+
         Bundle out;
         switch (tool) {
-            case "READ_SCREEN": out = before; break;
+            case "READ_SCREEN": out = BridgeClient.screenRead(context); break;
             case "OPEN_APP": out = BridgeClient.launchApp(context, WORKER); break;
             case "FIND_ELEMENT":
                 out = BridgeClient.findElement(context,
