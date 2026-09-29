@@ -34,9 +34,11 @@ public final class OwnerAuth {
             return;
         }
 
+        // API 30+ supports the secure STRONG-or-device-credential combination.
+        // Older releases use BIOMETRIC_STRONG only; never downgrade release auth to WEAK.
         int authenticators = Build.VERSION.SDK_INT >= 30
                 ? BiometricManager.Authenticators.BIOMETRIC_STRONG | BiometricManager.Authenticators.DEVICE_CREDENTIAL
-                : BiometricManager.Authenticators.BIOMETRIC_WEAK | BiometricManager.Authenticators.DEVICE_CREDENTIAL;
+                : BiometricManager.Authenticators.BIOMETRIC_STRONG;
 
         int availability = BiometricManager.from(activity).canAuthenticate(authenticators);
         if (availability != BiometricManager.BIOMETRIC_SUCCESS) {
@@ -68,13 +70,16 @@ public final class OwnerAuth {
                     }
                 });
 
-        BiometricPrompt.PromptInfo info = new BiometricPrompt.PromptInfo.Builder()
+        BiometricPrompt.PromptInfo.Builder infoBuilder = new BiometricPrompt.PromptInfo.Builder()
                 .setTitle("MEHMET Owner doğrulaması")
                 .setSubtitle("Owner kimliği + kayıtlı cihaz kanıtı için doğrula")
                 .setAllowedAuthenticators(authenticators)
-                .setConfirmationRequired(true)
-                .build();
-        prompt.authenticate(info);
+                .setConfirmationRequired(true);
+        if (Build.VERSION.SDK_INT < 30) {
+            // Required when DEVICE_CREDENTIAL is not one of the allowed authenticators.
+            infoBuilder.setNegativeButtonText("İptal");
+        }
+        prompt.authenticate(infoBuilder.build());
     }
 
     private static boolean isDebugEmulator() {
