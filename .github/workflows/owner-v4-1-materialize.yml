@@ -1,52 +1,13 @@
 name: Owner V4.1 Materialize Canonical Source
 
 on:
-  push:
-    branches:
-      - owner-v4-1-feature-parity-20260929
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
   materialize:
-    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Verify canonical source archive
-        shell: bash
-        run: |
-          set -euo pipefail
-          SOURCE="owner_v4_1/MEHMET_OWNER_V4_1_CONTROL_PLANE_SOURCE_CANDIDATE.zip"
-          EXPECTED="7df6d150b9159affe69e529fdf1ada3ce8f957ffb1c99ba7c55f8fe3eefd7628"
-          test -f "$SOURCE"
-          ACTUAL="$(sha256sum "$SOURCE" | awk '{print $1}')"
-          printf 'EXPECTED=%s\nACTUAL=%s\n' "$EXPECTED" "$ACTUAL"
-          test "$ACTUAL" = "$EXPECTED"
-
-      - name: Materialize verified source tree
-        shell: bash
-        run: |
-          set -euo pipefail
-          rm -rf owner_v4_1_extracted
-          mkdir -p owner_v4_1_extracted
-          unzip -q owner_v4_1/MEHMET_OWNER_V4_1_CONTROL_PLANE_SOURCE_CANDIDATE.zip -d owner_v4_1_extracted
-          find owner_v4_1_extracted -type f -print0 | sort -z | xargs -0 sha256sum > owner_v4_1_extracted/MATERIALIZED_SHA256.txt
-
-      - name: Commit materialized canonical tree
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add owner_v4_1_extracted
-          if git diff --cached --quiet; then
-            echo "No materialization changes"
-            exit 0
-          fi
-          git commit -m "chore(owner-v4.1): materialize canonical source for feature parity"
-          git push origin HEAD
+      - run: echo "Canonical source is already materialized on the feature-parity branch. Manual rerun only."
