@@ -27,6 +27,10 @@
       android:name="com.mehmetcerdik.ownerai.OwnerControlPlaneActivity"
       android:exported="false" />
 
+    <activity
+      android:name="com.mehmetcerdik.ownerai.OwnerFeatureMatrixActivity"
+      android:exported="false" />
+
     <service
       android:name=".PhoneAgentAccessibilityService"
       android:exported="true"
