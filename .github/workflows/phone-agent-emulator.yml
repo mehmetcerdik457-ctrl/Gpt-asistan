@@ -56,7 +56,8 @@ jobs:
           gradle :app:testDebugUnitTest :app:assembleDebug
           BUILD_TOOLS_VERSION="$(ls "${ANDROID_HOME}/build-tools" | sort -V | tail -1)"
           APKSIGNER="${ANDROID_HOME}/build-tools/${BUILD_TOOLS_VERSION}/apksigner"
-          SIGNER="$("${APKSIGNER}" verify --print-certs app/build/outputs/apk/debug/app-debug.apk | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1 | tr 'A-F' 'a-f')"
+          CERTS="$("${APKSIGNER}" verify --print-certs app/build/outputs/apk/debug/app-debug.apk)"
+          SIGNER="$(printf '%s\n' "${CERTS}" | sed -nE 's/^.*certificate SHA-256 digest:[[:space:]]*//p' | sed -n '1p' | tr 'A-F' 'a-f')"
           test -n "${SIGNER}"
           echo "OWNER_EXPECTED_SIGNER_SHA256=${SIGNER}" >> "${GITHUB_ENV}"
           printf 'debug_signer_sha256=%s\n' "${SIGNER}" > /tmp/debug-signer.txt
@@ -69,8 +70,10 @@ jobs:
           gradle :app:clean :bridge:clean :app:assembleDebug :bridge:assembleDebug
           BUILD_TOOLS_VERSION="$(ls "${ANDROID_HOME}/build-tools" | sort -V | tail -1)"
           APKSIGNER="${ANDROID_HOME}/build-tools/${BUILD_TOOLS_VERSION}/apksigner"
-          APP_SIGNER="$("${APKSIGNER}" verify --print-certs app/build/outputs/apk/debug/app-debug.apk | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1 | tr 'A-F' 'a-f')"
-          BRIDGE_SIGNER="$("${APKSIGNER}" verify --print-certs bridge/build/outputs/apk/debug/bridge-debug.apk | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1 | tr 'A-F' 'a-f')"
+          APP_CERTS="$("${APKSIGNER}" verify --print-certs app/build/outputs/apk/debug/app-debug.apk)"
+          BRIDGE_CERTS="$("${APKSIGNER}" verify --print-certs bridge/build/outputs/apk/debug/bridge-debug.apk)"
+          APP_SIGNER="$(printf '%s\n' "${APP_CERTS}" | sed -nE 's/^.*certificate SHA-256 digest:[[:space:]]*//p' | sed -n '1p' | tr 'A-F' 'a-f')"
+          BRIDGE_SIGNER="$(printf '%s\n' "${BRIDGE_CERTS}" | sed -nE 's/^.*certificate SHA-256 digest:[[:space:]]*//p' | sed -n '1p' | tr 'A-F' 'a-f')"
           test "${APP_SIGNER}" = "${OWNER_EXPECTED_SIGNER_SHA256}"
           test "${BRIDGE_SIGNER}" = "${OWNER_EXPECTED_SIGNER_SHA256}"
           printf 'app_signer=%s\nbridge_signer=%s\n' "${APP_SIGNER}" "${BRIDGE_SIGNER}" > /tmp/debug-pair-signers.txt
@@ -105,7 +108,8 @@ jobs:
           grep -q '"signer_match": true' emulator-evidence/phone-agent-emulator-evidence.json
           grep -q '"screen_read_ok": true' emulator-evidence/phone-agent-emulator-evidence.json
           (cd emulator-evidence && sha256sum -c SHA256SUMS)
-          cp /tmp/emulator-exact-head.txt emulator-evidence/\n          cp /tmp/debug-signer.txt emulator-evidence/
+          cp /tmp/emulator-exact-head.txt emulator-evidence/
+          cp /tmp/debug-signer.txt emulator-evidence/
           cp /tmp/debug-pair-signers.txt emulator-evidence/
 
       - name: Upload hardened emulator evidence
