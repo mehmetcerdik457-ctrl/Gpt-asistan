@@ -308,7 +308,7 @@ adb shell getprop ro.product.model | tr -d "\r" > "${EVIDENCE_DIR}/model.txt"
 adb shell getprop ro.build.version.release | tr -d "\r" > "${EVIDENCE_DIR}/android-release.txt"
 adb shell getprop ro.build.version.sdk | tr -d "\r" > "${EVIDENCE_DIR}/android-sdk.txt"
 
-python3 - "${EVIDENCE_DIR}" "${GITHUB_SHA:-UNKNOWN}" "${APK_SHA256}" <<'PY'
+python3 - "${EVIDENCE_DIR}" "${EXPECTED_HEAD_SHA:-${GITHUB_SHA:-UNKNOWN}}" "${APK_SHA256}" <<'PY'
 import json, pathlib, sys, xml.etree.ElementTree as ET
 root = pathlib.Path(sys.argv[1])
 head = sys.argv[2]
