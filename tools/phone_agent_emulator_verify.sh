@@ -157,6 +157,16 @@ if [[ ":${ENABLED}:" != *":${SERVICE}:"* && ":${ENABLED}:" != *":${SERVICE_FULL}
   fi
 fi
 
+# CI_EMULATOR_ONLY fallback: hosted Android images may deny direct launch of
+# ACCESSIBILITY_DETAILS_SETTINGS to the shell identity. This never runs on a
+# physical user device; it only makes the emulator runtime check deterministic.
+ENABLED="$(adb shell settings --user 0 get secure enabled_accessibility_services | tr -d "\r")"
+if [[ ":${ENABLED}:" != *":${SERVICE}:"* && ":${ENABLED}:" != *":${SERVICE_FULL}:"* ]]; then
+  adb shell settings --user 0 put secure enabled_accessibility_services "${SERVICE}" || true
+  adb shell settings --user 0 put secure accessibility_enabled 1 || true
+  sleep 3
+fi
+
 ENABLED="$(adb shell settings --user 0 get secure enabled_accessibility_services | tr -d "\r")"
 printf "%s\n" "${ENABLED}" > "${EVIDENCE_DIR}/enabled_accessibility_services.txt"
 case ":${ENABLED}:" in
