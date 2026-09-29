@@ -350,7 +350,7 @@ status = "EMULATOR_HARDENED_RUNTIME_PASS" if all([
 pkg = (root/"dumpsys-package.txt").read_text(errors="replace")
 if "versionName=1.5.0" not in pkg:
     raise SystemExit("versionName mismatch")
-if "versionCode=7" not in pkg:
+if "versionCode=8" not in pkg:
     raise SystemExit("versionCode mismatch")
 
 data = {
@@ -359,7 +359,7 @@ data = {
     "git_head": head,
     "package_name": "com.mehmetcerdik.ownerai",
     "version_name": "1.5.0",
-    "version_code": "7",
+    "version_code": "8",
     "apk_sha256": apk_sha,
     "device": {
         "manufacturer": (root/"manufacturer.txt").read_text().strip(),
