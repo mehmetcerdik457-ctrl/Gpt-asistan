@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <permission
+        android:name="com.mehmetcerdik.ownerai.permission.BRIDGE"
+        android:protectionLevel="signature" />
+    <uses-permission android:name="com.mehmetcerdik.ownerai.permission.BRIDGE" />
+
+    <queries>
+        <package android:name="com.codespaceapps.aichat" />
+        <package android:name="com.mehmetcerdik.ownerbridge" />
+        <provider android:authorities="com.mehmetcerdik.ownerbridge.control" />
+    </queries>
+
+    <application
+        android:allowBackup="false"
+        android:usesCleartextTraffic="false"
+        android:label="MEHMET OWNER"
+        android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
