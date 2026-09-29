@@ -30,8 +30,8 @@ public final class RealtimeVoicePolicy {
     }
 
     public static boolean acceptEphemeralToken(String token) {
-        if (token == null) return false;
+        if (token == null || token.contains("\n") || token.contains("\r")) return false;
         String t = token.trim();
-        return t.length() >= 20 && t.length() <= 4096 && !t.contains("\n") && !t.contains("\r");
+        return t.length() >= 20 && t.length() <= 4096;
     }
 }
