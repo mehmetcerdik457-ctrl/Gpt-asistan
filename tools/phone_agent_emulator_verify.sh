@@ -63,7 +63,7 @@ safe_install() {
   local candidate existing remote pulled
   candidate="$(candidate_signer "${apk}")"
   [[ "${candidate}" =~ ^[0-9a-f]{64}$ ]] || { echo "FAIL:CANDIDATE_SIGNER_UNREADABLE:${pkg}" >&2; exit 17; }
-  remote="$(adb shell pm path "${pkg}" 2>/dev/null | tr -d "\r" | sed -n 's/^package://p' | head -1)"
+  remote="$(adb shell pm path "${pkg}" 2>/dev/null | tr -d "\r" | sed -n 's/^package://p' | head -1 || true)"
   if [[ -n "${remote}" ]]; then
     pulled="${EVIDENCE_DIR}/preinstall-${pkg}.apk"
     adb pull "${remote}" "${pulled}" >/dev/null
