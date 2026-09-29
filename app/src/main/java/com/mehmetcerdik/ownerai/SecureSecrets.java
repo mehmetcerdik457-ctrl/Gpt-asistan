@@ -26,7 +26,7 @@ public final class SecureSecrets {
     private static final String PREFS = "owner_secure_config";
     private static final String KEY_SECRET_V2 = "provider_secret_v2";
     private static final String KEY_SECRET_LEGACY = "provider_secret";
-    private static final int AUTH_VALIDITY_SECONDS = 120;
+    private static final int AUTH_VALIDITY_SECONDS = 30;
 
     private SecureSecrets() {}
 
@@ -50,6 +50,9 @@ public final class SecureSecrets {
                     KeyProperties.AUTH_BIOMETRIC_STRONG | KeyProperties.AUTH_DEVICE_CREDENTIAL);
         } else {
             b.setUserAuthenticationValidityDurationSeconds(AUTH_VALIDITY_SECONDS);
+        }
+        if (Build.VERSION.SDK_INT >= 28) {
+            b.setUnlockedDeviceRequired(true);
         }
         kg.init(b.build());
         return kg.generateKey();
