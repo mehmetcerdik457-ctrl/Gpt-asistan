@@ -14,6 +14,7 @@ public final class CihatSemanticAdapter {
         CIHAT_DETECT_SCREEN,
         CIHAT_FIND_CHAT_INPUT,
         CIHAT_TYPE_PROMPT,
+        CIHAT_CAPTURE_TYPED_STATE,
         CIHAT_FIND_SEND,
         CIHAT_SEND,
         CIHAT_WAIT_RESPONSE,
@@ -53,6 +54,15 @@ public final class CihatSemanticAdapter {
                     executor.execute(ownerRequest, "TYPE_TEXT",
                             new JSONObject().put("selector", "").put("text", prompt))));
 
+            JSONObject typedState = step(trace, Step.CIHAT_CAPTURE_TYPED_STATE,
+                    executor.execute(ownerRequest, "READ_SCREEN", new JSONObject()));
+            require(typedState);
+            String typedHash = bridgeString(typedState, "snapshot_hash");
+            if (typedHash.isEmpty()) return fail(trace, "CIHAT_TYPED_STATE_HASH_MISSING");
+            if (!beforeHash.isEmpty() && beforeHash.equals(typedHash)) {
+                return fail(trace, "CIHAT_TYPE_POSTCONDITION_NOT_OBSERVED");
+            }
+
             String sendLabel = findSend(ownerRequest, trace);
             if (sendLabel == null) return fail(trace, "CIHAT_SEND_CONTROL_NOT_FOUND");
 
@@ -60,8 +70,8 @@ public final class CihatSemanticAdapter {
                     executor.execute(ownerRequest, "CLICK_ELEMENT",
                             new JSONObject().put("target", sendLabel))));
 
-            JSONObject waitArgs = new JSONObject().put("timeout_ms", 10_000L);
-            if (!beforeHash.isEmpty()) waitArgs.put("different_from_hash", beforeHash);
+            JSONObject waitArgs = new JSONObject().put("timeout_ms", 10_000L)
+                    .put("different_from_hash", typedHash);
             require(step(trace, Step.CIHAT_WAIT_RESPONSE,
                     executor.execute(ownerRequest, "WAIT_FOR_STATE", waitArgs)));
 
@@ -69,8 +79,8 @@ public final class CihatSemanticAdapter {
                     executor.execute(ownerRequest, "READ_SCREEN", new JSONObject()));
             require(response);
 
-            JSONObject verifyArgs = new JSONObject();
-            if (!beforeHash.isEmpty()) verifyArgs.put("different_from_hash", beforeHash);
+            JSONObject verifyArgs = new JSONObject()
+                    .put("different_from_hash", typedHash);
             require(step(trace, Step.CIHAT_VERIFY_RESPONSE,
                     executor.execute(ownerRequest, "VERIFY_STATE", verifyArgs)));
 
