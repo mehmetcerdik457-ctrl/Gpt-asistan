@@ -129,7 +129,7 @@ jobs:
           "${AAPT}" dump xmltree "${BRIDGE_ALIGNED}" AndroidManifest.xml > hardened-evidence/bridge-manifest-tree.txt
 
           grep -q "package: name='com.mehmetcerdik.ownerai'" hardened-evidence/owner-badging.txt
-          grep -q "versionCode='7'" hardened-evidence/owner-badging.txt
+          grep -q "versionCode='8'" hardened-evidence/owner-badging.txt
           grep -q "versionName='1.5.0'" hardened-evidence/owner-badging.txt
           ! grep -q "application-debuggable" hardened-evidence/owner-badging.txt
           ! grep -q "PhoneAgentAccessibilityService" hardened-evidence/owner-manifest-tree.txt
