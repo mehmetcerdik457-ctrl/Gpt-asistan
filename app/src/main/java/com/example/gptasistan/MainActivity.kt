@@ -40,7 +40,7 @@ class MainActivity : AppCompatActivity() {
             setPadding(32, 48, 32, 48)
         }
         container.addView(TextView(this).apply {
-            text = "MEHMET Owner Companion · Brain + Phone Runtime v1.3"
+            text = "MEHMET Owner Companion · Brain + Phone Runtime v1.4 Feature Parity"
             textSize = 20f
         })
         statusView = TextView(this).apply { textSize = 16f; setPadding(0, 20, 0, 20) }
@@ -230,7 +230,7 @@ class MainActivity : AppCompatActivity() {
         val signerHash = signerSha256()
         val signerMatch = signerHash.equals(BuildConfig.EXPECTED_SIGNER_SHA256, ignoreCase = true)
         val packageMatch = packageName == "com.mehmetcerdik.ownerai"
-        val versionMatch = versionCode == 5L && info.versionName == "1.3.0"
+        val versionMatch = versionCode == 6L && info.versionName == "1.4.0"
         val devicePostcondition = if (
             apkHash.matches(Regex("^[0-9a-f]{64}$")) &&
             signerMatch && packageMatch && versionMatch
