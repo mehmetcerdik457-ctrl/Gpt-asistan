@@ -69,14 +69,7 @@ jobs:
           ! grep -q 'BIOMETRIC_WEAK' app/src/main/java/com/mehmetcerdik/ownerai/OwnerAuth.java
           grep -q 'DEVICE_BOUND_LOCAL_SECURE_SESSION' app/src/main/java/com/mehmetcerdik/ownerai/OwnerSession.java
           grep -q 'ACTION_TARGET_NOT_BOUND_TO_OWNER_INTENT' app/src/main/java/com/mehmetcerdik/ownerai/OwnerBrainPolicy.java
-          python3 - <<'PY'
-from pathlib import Path
-s = Path("app/src/main/java/com/mehmetcerdik/ownerai/OwnerToolBus.java").read_text()
-policy = s.index("OwnerBrainPolicy.authorize(")
-arm = s.index("BridgeClient.arm(")
-if not policy < arm:
-    raise SystemExit("Bridge is armed before policy authorization")
-PY
+          python3 -c 'from pathlib import Path; s=Path("app/src/main/java/com/mehmetcerdik/ownerai/OwnerToolBus.java").read_text(); policy=s.index("OwnerBrainPolicy.authorize("); arm=s.index("BridgeClient.arm("); assert policy < arm, "Bridge is armed before policy authorization"'
           grep -q 'CIHAT_VERIFY_RESPONSE' app/src/main/java/com/mehmetcerdik/ownerai/CihatSemanticAdapter.java
           grep -q 'previous_record_hash' app/src/main/java/com/mehmetcerdik/ownerai/OwnerMemory.java
           grep -q 'HmacSHA256' app/src/main/java/com/mehmetcerdik/ownerai/AuditIntegrity.java
