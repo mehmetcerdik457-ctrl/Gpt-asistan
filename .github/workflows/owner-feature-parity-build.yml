@@ -1,0 +1,111 @@
+name: MEHMET OWNER feature parity build
+
+on:
+  push:
+    branches:
+      - owner-v4-1-feature-parity-20260929
+    paths:
+      - 'owner_v4_1_extracted/**'
+      - '.github/workflows/owner-feature-parity-build.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      ROOT: owner_v4_1_extracted/MEHMET_OWNER_V4_1_CONTROL_PLANE_SOURCE
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+      BUILD_TOOLS: "35.0.0"
+      EXPECTED_SIGNER: "279084a36b7c17a1663bfba5fe1c5bdac974f8ef4ce56b21000d882493e39448"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Install Android SDK 35
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDKMANAGER="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0"
+      - name: Feature parity source truth-lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$ROOT"
+          python3 tests/owner_feature_parity_test.py
+          python3 tests/source_lexical_test.py
+          python3 tests/source_security_invariant_test.py
+          bash tests/run_pure_java_tests.sh
+      - name: Build release APKs
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$ROOT"
+          gradle wrapper --gradle-version 8.9 --distribution-type bin
+          chmod +x gradlew
+          ./gradlew clean :core:assembleRelease :bridge:assembleRelease --no-daemon --stacktrace
+      - name: Verify binaries and optionally sign Core
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          BT="${ANDROID_HOME}/build-tools/${BUILD_TOOLS}"
+          CORE="$ROOT/core/build/outputs/apk/release/core-release-unsigned.apk"
+          BRIDGE="$ROOT/bridge/build/outputs/apk/release/bridge-release-unsigned.apk"
+          OUT="$GITHUB_WORKSPACE/owner_feature_out"
+          mkdir -p "$OUT"
+          cp "$CORE" "$OUT/MEHMET_OWNER_FEATURE_PARITY_CORE_UNSIGNED.apk"
+          cp "$BRIDGE" "$OUT/MEHMET_OWNER_FEATURE_PARITY_BRIDGE_REGRESSION_UNSIGNED.apk"
+          "$BT/aapt2" dump badging "$CORE" > "$OUT/core_badging.txt"
+          "$BT/aapt2" dump permissions "$CORE" > "$OUT/core_permissions.txt"
+          "$BT/aapt2" dump badging "$BRIDGE" > "$OUT/bridge_badging.txt"
+          "$BT/aapt2" dump permissions "$BRIDGE" > "$OUT/bridge_permissions.txt"
+          grep -F "package: name='com.mehmetcerdik.ownerai' versionCode='5' versionName='1.3.0'" "$OUT/core_badging.txt"
+          grep -F "package: name='com.mehmetcerdik.ownerbridge' versionCode='2' versionName='1.1.0'" "$OUT/bridge_badging.txt"
+          ! grep -Fq "android.permission.INTERNET" "$OUT/core_permissions.txt"
+          ! grep -Fq "android.permission.INTERNET" "$OUT/bridge_permissions.txt"
+          sha256sum "$CORE" "$BRIDGE" > "$OUT/unsigned_sha256.txt"
+          {
+            echo "PUBLIC_WORKER_MUTATION=NO"
+            echo "CORE_VERSION=1.3.0"
+            echo "CORE_VERSION_CODE=5"
+            echo "BRIDGE_VERSION=1.1.0"
+            echo "BRIDGE_VERSION_CODE=2"
+            echo "FEATURE_PROFILE=LOCAL_DESIRED_PROFILE_ONLY"
+            echo "WORKER_APPLICATION=NOT_YET_VERIFIED_DEVICE_ADAPTER_REQUIRED"
+            echo "COMPILE_PASS=PASS"
+            echo "UNSIGNED_BUILD_PASS=PASS"
+          } > "$OUT/BUILD_EVIDENCE.txt"
+          if [ -n "${ANDROID_KEYSTORE_BASE64:-}" ] && [ -n "${ANDROID_KEY_ALIAS:-}" ] && [ -n "${ANDROID_STORE_PASSWORD:-}" ]; then
+            printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > /tmp/owner.keystore
+            "$BT/zipalign" -f 4 "$CORE" "$OUT/core-aligned.apk"
+            "$BT/apksigner" sign --ks /tmp/owner.keystore --ks-key-alias "$ANDROID_KEY_ALIAS" --ks-pass env:ANDROID_STORE_PASSWORD --key-pass env:ANDROID_KEY_PASSWORD --out "$OUT/MEHMET_OWNER_FEATURE_PARITY_CORE_SIGNED.apk" "$OUT/core-aligned.apk"
+            "$BT/apksigner" verify --verbose --print-certs "$OUT/MEHMET_OWNER_FEATURE_PARITY_CORE_SIGNED.apk" | tee "$OUT/core_signer.txt"
+            tr "A-Z" "a-z" < "$OUT/core_signer.txt" | grep -F "$EXPECTED_SIGNER"
+            sha256sum "$OUT/MEHMET_OWNER_FEATURE_PARITY_CORE_SIGNED.apk" > "$OUT/signed_core_sha256.txt"
+            echo "SIGNER_PASS=PASS_EXPECTED_OWNER_SIGNER" >> "$OUT/BUILD_EVIDENCE.txt"
+            rm -f /tmp/owner.keystore "$OUT/core-aligned.apk"
+          else
+            echo "SIGNER_PASS=NOT_TESTED_SIGNING_SECRET_NOT_AVAILABLE_TO_WORKFLOW" >> "$OUT/BUILD_EVIDENCE.txt"
+          fi
+          echo "DEVICE_PASS=NOT_TESTED" >> "$OUT/BUILD_EVIDENCE.txt"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MEHMET_OWNER_FEATURE_PARITY_BUILD
+          path: owner_feature_out/
+          if-no-files-found: error
+          retention-days: 7
