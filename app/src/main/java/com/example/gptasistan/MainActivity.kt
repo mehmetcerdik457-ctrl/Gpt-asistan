@@ -18,6 +18,7 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.mehmetcerdik.ownerai.BridgeClient
 import com.mehmetcerdik.ownerai.OwnerControlPlaneActivity
+import com.mehmetcerdik.ownerai.OwnerFeatureMatrixActivity
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -51,6 +52,11 @@ class MainActivity : AppCompatActivity() {
         container.addView(Button(this).apply {
             text = "OWNER Control Plane"
             setOnClickListener { startActivity(Intent(this@MainActivity, OwnerControlPlaneActivity::class.java)) }
+        })
+
+        container.addView(Button(this).apply {
+            text = "OWNER Edition Feature Matrix"
+            setOnClickListener { startActivity(Intent(this@MainActivity, OwnerFeatureMatrixActivity::class.java)) }
         })
 
         selfTestTarget = Button(this).apply {
@@ -209,7 +215,7 @@ class MainActivity : AppCompatActivity() {
         val signerHash = signerSha256()
         val signerMatch = signerHash.equals(BuildConfig.EXPECTED_SIGNER_SHA256, ignoreCase = true)
         val packageMatch = packageName == "com.mehmetcerdik.ownerai"
-        val versionMatch = versionCode == 4L && info.versionName == "1.2.0"
+        val versionMatch = versionCode == 5L && info.versionName == "1.3.0"
         val devicePostcondition = if (
             apkHash.matches(Regex("^[0-9a-f]{64}$")) &&
             signerMatch && packageMatch && versionMatch
