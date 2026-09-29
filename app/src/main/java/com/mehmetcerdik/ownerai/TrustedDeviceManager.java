@@ -153,16 +153,12 @@ public final class TrustedDeviceManager {
             verifier.initVerify(kp.getPublic());
             verifier.update(payload.getBytes(StandardCharsets.UTF_8));
             if (!verifier.verify(signature)) throw new SecurityException("DEVICE_POSSESSION_PROOF_INVALID");
-            if (Math.abs(System.currentTimeMillis() - timestamp) > PROOF_MAX_AGE_MS) {
-                throw new SecurityException("DEVICE_PROOF_STALE");
-            }
 
             String nonceHash = sha256(nonce);
             long lastVerified = p.getLong("last_verified_counter", 0L);
             String lastNonceHash = p.getString("last_nonce_hash", "");
-            if (counter <= lastVerified || nonceHash.equals(lastNonceHash)) {
-                throw new SecurityException("DEVICE_PROOF_REPLAY");
-            }
+            validateFreshAndNotReplay(
+                    timestamp, System.currentTimeMillis(), counter, lastVerified, nonceHash, lastNonceHash);
             if (!p.edit()
                     .putLong("counter", counter)
                     .putLong("last_verified_counter", counter)
@@ -175,6 +171,24 @@ public final class TrustedDeviceManager {
             throw e;
         } catch (Exception e) {
             throw new SecurityException("TRUSTED_DEVICE_PROOF_FAILED", e);
+        }
+    }
+
+    static void validateFreshAndNotReplay(
+            long timestampMs,
+            long nowMs,
+            long counter,
+            long lastVerifiedCounter,
+            String nonceHash,
+            String lastNonceHash) {
+        if (timestampMs <= 0L || timestampMs < nowMs - PROOF_MAX_AGE_MS || timestampMs > nowMs + 5_000L) {
+            throw new SecurityException("DEVICE_PROOF_STALE");
+        }
+        if (counter <= lastVerifiedCounter
+                || nonceHash == null
+                || nonceHash.isEmpty()
+                || nonceHash.equals(lastNonceHash == null ? "" : lastNonceHash)) {
+            throw new SecurityException("DEVICE_PROOF_REPLAY");
         }
     }
 
