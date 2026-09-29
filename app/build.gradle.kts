@@ -14,7 +14,7 @@ android {
     applicationId = "com.mehmetcerdik.ownerai"
     minSdk = 24
     targetSdk = 35
-    versionCode = 7
+    versionCode = 8
     versionName = "1.5.0"
     buildConfigField("String", "BUILD_GIT_SHA", "\"$gitSha\"")
     buildConfigField("String", "EXPECTED_SIGNER_SHA256", "\"$expectedSignerSha256\"")
