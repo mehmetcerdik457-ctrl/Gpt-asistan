@@ -12,14 +12,20 @@ import static org.junit.Assert.*;
 public final class CihatSemanticAdapterTest {
     @Test public void deterministicHappyPathIncludesMandatoryPostconditions() throws Exception {
         List<String> calls = new ArrayList<>();
+        List<String> responseBaselines = new ArrayList<>();
         final int[] reads = {0};
         CihatSemanticAdapter adapter = new CihatSemanticAdapter((owner, tool, args) -> {
             calls.add(tool);
             JSONObject out = new JSONObject().put("ok", true).put("status", "PASS");
+            if (("WAIT_FOR_STATE".equals(tool) || "VERIFY_STATE".equals(tool))
+                    && args.has("different_from_hash")) {
+                responseBaselines.add(args.optString("different_from_hash", ""));
+            }
             if ("READ_SCREEN".equals(tool)) {
                 reads[0]++;
+                String hash = reads[0] == 1 ? "before" : (reads[0] == 2 ? "typed" : "after");
                 out.put("bridge", new JSONObject()
-                        .put("snapshot_hash", reads[0] == 1 ? "before" : "after")
+                        .put("snapshot_hash", hash)
                         .put("snapshot", "chat state " + reads[0]));
             }
             if ("FIND_ELEMENT".equals(tool)) out.put("bridge", new JSONObject().put("exists", true));
@@ -34,10 +40,13 @@ public final class CihatSemanticAdapterTest {
         assertTrue(calls.contains("CLICK_ELEMENT"));
         assertTrue(calls.contains("WAIT_FOR_STATE"));
         assertTrue(calls.contains("VERIFY_STATE"));
+        assertEquals(2, responseBaselines.size());
+        assertEquals("typed", responseBaselines.get(0));
+        assertEquals("typed", responseBaselines.get(1));
 
         JSONArray trace = out.optJSONArray("trace");
         assertNotNull(trace);
-        assertTrue(trace.length() >= 9);
+        assertTrue(trace.length() >= 10);
     }
 
     @Test public void failedStepFailsClosed() throws Exception {
