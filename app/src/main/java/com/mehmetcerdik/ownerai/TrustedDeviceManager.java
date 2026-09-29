@@ -27,6 +27,7 @@ public final class TrustedDeviceManager {
     private static final String DEVICE_ALIAS = "mehmet_owner_device_identity_v1";
     private static final String PREFS = "owner_trusted_device_v1";
     private static final long PROOF_MAX_AGE_MS = 30_000L;
+    private static final int DEVICE_KEY_AUTH_VALIDITY_SECONDS = 30;
     private static final SecureRandom RNG = new SecureRandom();
 
     public static final class Proof {
@@ -71,8 +72,19 @@ public final class TrustedDeviceManager {
         KeyGenParameterSpec.Builder b = new KeyGenParameterSpec.Builder(
                 DEVICE_ALIAS, KeyProperties.PURPOSE_SIGN | KeyProperties.PURPOSE_VERIFY)
                 .setAlgorithmParameterSpec(new ECGenParameterSpec("secp256r1"))
-                .setDigests(KeyProperties.DIGEST_SHA256);
-        if (Build.VERSION.SDK_INT >= 28 && strongBox) b.setIsStrongBoxBacked(true);
+                .setDigests(KeyProperties.DIGEST_SHA256)
+                .setUserAuthenticationRequired(true);
+        if (Build.VERSION.SDK_INT >= 30) {
+            b.setUserAuthenticationParameters(
+                    DEVICE_KEY_AUTH_VALIDITY_SECONDS,
+                    KeyProperties.AUTH_BIOMETRIC_STRONG | KeyProperties.AUTH_DEVICE_CREDENTIAL);
+        } else {
+            b.setUserAuthenticationValidityDurationSeconds(DEVICE_KEY_AUTH_VALIDITY_SECONDS);
+        }
+        if (Build.VERSION.SDK_INT >= 28) {
+            b.setUnlockedDeviceRequired(true);
+            if (strongBox) b.setIsStrongBoxBacked(true);
+        }
         gen.initialize(b.build());
         return gen.generateKeyPair();
     }
@@ -123,7 +135,9 @@ public final class TrustedDeviceManager {
             }
             if (!deviceId.equals(registered)) throw new SecurityException("DEVICE_IDENTITY_MISMATCH");
 
-            long counter = p.getLong("counter", 0L) + 1L;
+            long previousCounter = p.getLong("counter", 0L);
+            if (previousCounter == Long.MAX_VALUE) throw new SecurityException("DEVICE_COUNTER_EXHAUSTED");
+            long counter = previousCounter + 1L;
             long timestamp = System.currentTimeMillis();
             byte[] nonce = new byte[32];
             RNG.nextBytes(nonce);
