@@ -55,6 +55,20 @@ public final class OwnerBrainPolicyTest {
         assertTrue(OwnerBrainPolicy.isHighRisk("Hesabı sil"));
     }
 
+
+    @Test public void crossPackageReadAlsoFailsClosed() throws Exception {
+        assertFalse(d("Ekranı oku", "READ_SCREEN",
+                new JSONObject(), "com.android.settings", true).allowed);
+        assertFalse(d("Gönder düğmesini bul", "FIND_ELEMENT",
+                new JSONObject().put("target", "Gönder"), "com.android.settings", true).allowed);
+    }
+
+    @Test public void globalSystemActionsFailClosedWithoutDeterministicPostcondition() throws Exception {
+        assertFalse(d("ana ekrana dön", "HOME", new JSONObject(), OwnerBrainPolicy.WORKER_PACKAGE, true).allowed);
+        assertFalse(d("son uygulamaları aç", "RECENTS", new JSONObject(), OwnerBrainPolicy.WORKER_PACKAGE, true).allowed);
+        assertFalse(d("bildirimleri aç", "NOTIFICATION_ACTION", new JSONObject(), OwnerBrainPolicy.WORKER_PACKAGE, true).allowed);
+    }
+
     @Test public void unknownToolFailsClosed() throws Exception {
         assertFalse(d("Bunu yap", "EXPORT_CREDENTIALS", new JSONObject(), OwnerBrainPolicy.WORKER_PACKAGE, true).allowed);
     }

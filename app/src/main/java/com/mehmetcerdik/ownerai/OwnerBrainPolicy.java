@@ -40,7 +40,12 @@ public final class OwnerBrainPolicy {
         JSONObject a = args == null ? new JSONObject() : args;
         String request = normalize(ownerRequest);
 
-        if (isReadOnlyTool(t)) return Decision.allow();
+        if (isReadOnlyTool(t)) {
+            if (!WORKER_PACKAGE.equals(currentPackage) && !OWNER_PACKAGE.equals(currentPackage)) {
+                return Decision.deny("READ_PACKAGE_DENIED");
+            }
+            return Decision.allow();
+        }
         if (isHighRisk(ownerRequest) && !freshOwnerAuth) return Decision.deny("FRESH_OWNER_AUTH_REQUIRED");
 
         switch (t) {
@@ -91,11 +96,9 @@ public final class OwnerBrainPolicy {
                     return Decision.deny("FOREGROUND_PACKAGE_DENIED");
                 return hasAny(request, "geri", "back", "ارجع") ? Decision.allow() : Decision.deny("OWNER_ACTION_VERB_REQUIRED");
             case "HOME":
-                return hasAny(request, "ana ekran", "home") ? Decision.allow() : Decision.deny("OWNER_ACTION_VERB_REQUIRED");
             case "RECENTS":
-                return hasAny(request, "son uygulamalar", "recents") ? Decision.allow() : Decision.deny("OWNER_ACTION_VERB_REQUIRED");
             case "NOTIFICATION_ACTION":
-                return hasAny(request, "bildirim", "notification") ? Decision.allow() : Decision.deny("OWNER_ACTION_VERB_REQUIRED");
+                return Decision.deny("TRUSTED_SYSTEM_UI_POSTCONDITION_NOT_IMPLEMENTED");
             case "SCREENSHOT":
             case "SHARE":
             case "OPEN_FILE":
