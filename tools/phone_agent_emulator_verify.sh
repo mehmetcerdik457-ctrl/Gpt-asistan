@@ -48,7 +48,9 @@ package_state() {
 }
 
 candidate_signer() {
-  "${APKSIGNER}" verify --print-certs "$1" 2>/dev/null | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1 | tr 'A-F' 'a-f'
+  local certs
+  certs="$("${APKSIGNER}" verify --print-certs "$1" 2>/dev/null)" || return 1
+  printf '%s\n' "${certs}" | sed -nE 's/^.*certificate SHA-256 digest:[[:space:]]*//p' | sed -n '1p' | tr 'A-F' 'a-f'
 }
 
 safe_install() {
