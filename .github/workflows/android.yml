@@ -51,7 +51,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          grep -q 'versionCode = 7' app/build.gradle.kts
+          grep -q 'versionCode = 8' app/build.gradle.kts
           grep -q 'versionName = "1.5.0"' app/build.gradle.kts
           grep -q 'isDebuggable = false' app/build.gradle.kts
           grep -q 'android:allowBackup="false"' app/src/main/AndroidManifest.xml
@@ -116,7 +116,7 @@ jobs:
           AAPT="${BUILD_TOOLS}/aapt"
           ZIPALIGN="${BUILD_TOOLS}/zipalign"
 
-          OWNER_ALIGNED="hardened-evidence/MEHMET_OWNER_COMPANION_1.5.0_VC7_UNSIGNED_ALIGNED.apk"
+          OWNER_ALIGNED="hardened-evidence/MEHMET_OWNER_COMPANION_1.5.0_VC8_UNSIGNED_ALIGNED.apk"
           BRIDGE_ALIGNED="hardened-evidence/MEHMET_OWNER_BRIDGE_1.2.0_VC3_UNSIGNED_ALIGNED.apk"
           "${ZIPALIGN}" -f -p 4 "${OWNER_APK}" "${OWNER_ALIGNED}"
           "${ZIPALIGN}" -f -p 4 "${BRIDGE_APK}" "${BRIDGE_ALIGNED}"
@@ -153,7 +153,7 @@ jobs:
             "owner": {
               "package": "com.mehmetcerdik.ownerai",
               "version_name": "1.5.0",
-              "version_code": 7,
+              "version_code": 8,
               "unsigned_aligned_sha256": "${OWNER_HASH}",
               "expected_production_signer_sha256": "279084a36b7c17a1663bfba5fe1c5bdac974f8ef4ce56b21000d882493e39448"
             },
