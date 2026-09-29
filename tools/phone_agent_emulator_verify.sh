@@ -2,11 +2,14 @@
 set -euo pipefail
 
 PACKAGE="com.mehmetcerdik.ownerai"
+BRIDGE_PACKAGE="com.mehmetcerdik.ownerbridge"
+WORKER_PACKAGE="com.codespaceapps.aichat"
 CLASS_PACKAGE="com.example.gptasistan"
 SERVICE="${PACKAGE}/${CLASS_PACKAGE}.PhoneAgentAccessibilityService"
 SERVICE_FULL="${SERVICE}"
 MAIN_ACTIVITY="${PACKAGE}/${CLASS_PACKAGE}.MainActivity"
 APK="${APK_PATH:-app/build/outputs/apk/debug/app-debug.apk}"
+BRIDGE_APK="${BRIDGE_APK_PATH:-bridge/build/outputs/apk/debug/bridge-debug.apk}"
 EVIDENCE_DIR="${EVIDENCE_DIR:-emulator-evidence}"
 mkdir -p "${EVIDENCE_DIR}"
 
@@ -15,7 +18,70 @@ APK_SHA256="$(sha256sum "${APK}" | awk '{print $1}')"
 printf "%s  %s\n" "${APK_SHA256}" "$(basename "${APK}")" > "${EVIDENCE_DIR}/APK_SHA256"
 
 adb wait-for-device
-adb install -r "${APK}" | tee "${EVIDENCE_DIR}/adb-install.txt"
+
+BUILD_TOOLS_VERSION="$(ls "${ANDROID_HOME}/build-tools" | sort -V | tail -1)"
+APKSIGNER="${ANDROID_HOME}/build-tools/${BUILD_TOOLS_VERSION}/apksigner"
+test -x "${APKSIGNER}"
+
+package_state() {
+  local pkg="$1" label="$2"
+  local out="${EVIDENCE_DIR}/${label}"
+  mkdir -p "${out}"
+  adb shell dumpsys package "${pkg}" > "${out}/dumpsys.txt" 2>/dev/null || true
+  adb shell pm path "${pkg}" 2>/dev/null | tr -d "\r" > "${out}/pm-path.txt" || true
+  local remote
+  remote="$(sed -n 's/^package://p' "${out}/pm-path.txt" | head -1)"
+  if [[ -n "${remote}" ]]; then
+    if adb pull "${remote}" "${out}/installed-base.apk" >/dev/null 2>&1; then
+      sha256sum "${out}/installed-base.apk" > "${out}/installed-base.sha256"
+      "${APKSIGNER}" verify --print-certs "${out}/installed-base.apk" > "${out}/signer.txt" 2>&1 || true
+    fi
+  fi
+}
+
+candidate_signer() {
+  "${APKSIGNER}" verify --print-certs "$1" 2>/dev/null | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1 | tr 'A-F' 'a-f'
+}
+
+safe_install() {
+  local pkg="$1" apk="$2" log="$3"
+  test -f "${apk}"
+  local candidate existing remote pulled
+  candidate="$(candidate_signer "${apk}")"
+  [[ "${candidate}" =~ ^[0-9a-f]{64}$ ]] || { echo "FAIL:CANDIDATE_SIGNER_UNREADABLE:${pkg}" >&2; exit 17; }
+  remote="$(adb shell pm path "${pkg}" 2>/dev/null | tr -d "\r" | sed -n 's/^package://p' | head -1)"
+  if [[ -n "${remote}" ]]; then
+    pulled="${EVIDENCE_DIR}/preinstall-${pkg}.apk"
+    adb pull "${remote}" "${pulled}" >/dev/null
+    existing="$(candidate_signer "${pulled}")"
+    if [[ "${existing}" != "${candidate}" ]]; then
+      printf 'package=%s\ninstalled_signer=%s\ncandidate_signer=%s\n' "${pkg}" "${existing}" "${candidate}" | tee "${EVIDENCE_DIR}/SIGNER_CONFLICT.txt"
+      echo "FAIL:EXACT_SIGNER_CONFLICT_NO_INSTALL_NO_UNINSTALL:${pkg}" >&2
+      exit 18
+    fi
+  fi
+  adb install -r "${apk}" | tee "${EVIDENCE_DIR}/${log}"
+}
+
+package_state "${PACKAGE}" "before-owner"
+package_state "${BRIDGE_PACKAGE}" "before-bridge"
+package_state "${WORKER_PACKAGE}" "before-public-cihat"
+
+if [[ -f "${BRIDGE_APK}" ]]; then
+  safe_install "${BRIDGE_PACKAGE}" "${BRIDGE_APK}" "adb-install-bridge.txt"
+fi
+safe_install "${PACKAGE}" "${APK}" "adb-install-owner.txt"
+
+package_state "${PACKAGE}" "after-owner"
+package_state "${BRIDGE_PACKAGE}" "after-bridge"
+package_state "${WORKER_PACKAGE}" "after-public-cihat"
+
+if [[ -f "${EVIDENCE_DIR}/before-public-cihat/installed-base.sha256" || -f "${EVIDENCE_DIR}/after-public-cihat/installed-base.sha256" ]]; then
+  diff -u "${EVIDENCE_DIR}/before-public-cihat/installed-base.sha256" "${EVIDENCE_DIR}/after-public-cihat/installed-base.sha256" > "${EVIDENCE_DIR}/public-cihat-sha.diff" || {
+    echo "FAIL:PUBLIC_CIHAT_CHANGED" >&2
+    exit 19
+  }
+fi
 
 adb shell cmd appops set "${PACKAGE}" ACCESS_RESTRICTED_SETTINGS allow || true
 adb shell cmd appops get "${PACKAGE}" ACCESS_RESTRICTED_SETTINGS | tee "${EVIDENCE_DIR}/restricted-settings-appop.txt" || true
@@ -174,6 +240,22 @@ if [[ ":${ENABLED}:" != *":${SERVICE}:"* && ":${ENABLED}:" != *":${SERVICE_FULL}
   fi
 fi
 
+BRIDGE_SERVICE="${BRIDGE_PACKAGE}/.BridgeAccessibilityService"
+QEMU="$(adb shell getprop ro.kernel.qemu | tr -d "\r")"
+if [[ "${QEMU}" == "1" && -f "${BRIDGE_APK}" ]]; then
+  ENABLED_NOW="$(adb shell settings --user 0 get secure enabled_accessibility_services | tr -d "\r")"
+  if [[ ":${ENABLED_NOW}:" != *":${BRIDGE_SERVICE}:"* ]]; then
+    if [[ -z "${ENABLED_NOW}" || "${ENABLED_NOW}" == "null" ]]; then
+      ENABLED_NOW="${BRIDGE_SERVICE}"
+    else
+      ENABLED_NOW="${ENABLED_NOW}:${BRIDGE_SERVICE}"
+    fi
+    adb shell settings --user 0 put secure enabled_accessibility_services "${ENABLED_NOW}"
+    adb shell settings --user 0 put secure accessibility_enabled 1
+    sleep 2
+  fi
+fi
+
 ENABLED="$(adb shell settings --user 0 get secure enabled_accessibility_services | tr -d "\r")"
 printf "%s\n" "${ENABLED}" > "${EVIDENCE_DIR}/enabled_accessibility_services.txt"
 case ":${ENABLED}:" in
@@ -200,6 +282,7 @@ grep -q "PhoneAgentAccessibilityService" "${EVIDENCE_DIR}/dumpsys-accessibility.
 
 adb shell run-as "${PACKAGE}" cat shared_prefs/phone_agent_events.xml > "${EVIDENCE_DIR}/phone_agent_events.xml"
 adb shell run-as "${PACKAGE}" cat shared_prefs/phone_agent_self_test.xml > "${EVIDENCE_DIR}/phone_agent_self_test.xml"
+adb shell run-as "${PACKAGE}" cat shared_prefs/bridge_self_test.xml > "${EVIDENCE_DIR}/bridge_self_test.xml"
 
 adb shell getprop ro.product.manufacturer | tr -d "\r" > "${EVIDENCE_DIR}/manufacturer.txt"
 adb shell getprop ro.product.model | tr -d "\r" > "${EVIDENCE_DIR}/model.txt"
@@ -227,12 +310,24 @@ service_ready = any(e.get("action") == "SERVICE" and e.get("status") == "READY" 
 tap_pass = has_pass("TAP")
 click_pass = has_pass("CLICK_TEXT")
 scroll_pass = has_pass("SCROLL_FORWARD")
-status = "EMULATOR_PHONE_AGENT_RUNTIME_PASS" if all([service_ready, hits > 0, tap_pass, click_pass, scroll_pass]) else "EMULATOR_PHONE_AGENT_RUNTIME_FAIL"
+bridge_root = ET.parse(root/"bridge_self_test.xml").getroot()
+def pref_bool(name):
+    n = bridge_root.find("./boolean[@name='%s']" % name)
+    return n is not None and n.attrib.get("value") == "true"
+bridge_signer = pref_bool("signer_match")
+bridge_arm = pref_bool("arm_ok")
+bridge_core = pref_bool("core_ok")
+bridge_service = pref_bool("service_connected")
+bridge_read = pref_bool("screen_read_ok")
+status = "EMULATOR_HARDENED_RUNTIME_PASS" if all([
+    service_ready, hits > 0, tap_pass, click_pass, scroll_pass,
+    bridge_signer, bridge_arm, bridge_core, bridge_service, bridge_read
+]) else "EMULATOR_HARDENED_RUNTIME_FAIL"
 
 pkg = (root/"dumpsys-package.txt").read_text(errors="replace")
-if "versionName=1.4.0" not in pkg:
+if "versionName=1.5.0" not in pkg:
     raise SystemExit("versionName mismatch")
-if "versionCode=6" not in pkg:
+if "versionCode=7" not in pkg:
     raise SystemExit("versionCode mismatch")
 
 data = {
@@ -240,8 +335,8 @@ data = {
     "status": status,
     "git_head": head,
     "package_name": "com.mehmetcerdik.ownerai",
-    "version_name": "1.4.0",
-    "version_code": "6",
+    "version_name": "1.5.0",
+    "version_code": "7",
     "apk_sha256": apk_sha,
     "device": {
         "manufacturer": (root/"manufacturer.txt").read_text().strip(),
@@ -260,11 +355,18 @@ data = {
         "click_text_pass": click_pass,
         "scroll_forward_pass": scroll_pass,
     },
+    "bridge": {
+        "signer_match": bridge_signer,
+        "arm_ok": bridge_arm,
+        "core_ok": bridge_core,
+        "service_connected": bridge_service,
+        "screen_read_ok": bridge_read,
+    },
     "events": events,
 }
 (root/"phone-agent-emulator-evidence.json").write_text(json.dumps(data,sort_keys=True,indent=2)+"\n")
 print(json.dumps(data,sort_keys=True))
-if status != "EMULATOR_PHONE_AGENT_RUNTIME_PASS":
+if status != "EMULATOR_HARDENED_RUNTIME_PASS":
     raise SystemExit(30)
 PY
 

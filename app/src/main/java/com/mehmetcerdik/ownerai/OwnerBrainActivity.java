@@ -85,7 +85,9 @@ public final class OwnerBrainActivity extends AppCompatActivity {
         note.setText("Public CİHAT worker değişmez. Owner ayarları bu ayrı uygulamada tutulur. API anahtarı Android Keystore ile şifrelenir; kalıcı memory provider'a yalnız açık opt-in ile gönderilir.");
         root.addView(note);
 
-        endpoint = field("Provider endpoint", initial.optString("endpoint", "https://api.openai.com/v1/responses"));
+        endpoint = field("Provider endpoint (production canonical, read-only)", ProviderEndpointPolicy.CANONICAL);
+        endpoint.setEnabled(false);
+        endpoint.setFocusable(false);
         model = field("Seçili / varsayılan model", feature.optString("selected_model", ""));
         fastModel = field("Auto-route hızlı model slotu", feature.optString("fast_model", ""));
         reasoningModel = field("Auto-route reasoning model slotu", feature.optString("reasoning_model", ""));
@@ -117,7 +119,7 @@ public final class OwnerBrainActivity extends AppCompatActivity {
         root.addView(secret);
 
         Button save = new Button(this); save.setText("Owner Ayarlarını Güvenli Kaydet");
-        save.setOnClickListener(v -> OwnerAuth.require(this, () -> {
+        save.setOnClickListener(v -> OwnerAuth.requireFresh(this, () -> {
             engine.saveConfig(endpoint.getText().toString(), model.getText().toString(), secret.getText().toString());
             engine.saveFeatures(
                     model.getText().toString(),
@@ -161,7 +163,7 @@ public final class OwnerBrainActivity extends AppCompatActivity {
         root.addView(speech);
 
         Button run = new Button(this); run.setText("Beyne Sor / Planla / Gerekirse Tool Çalıştır");
-        run.setOnClickListener(v -> OwnerAuth.require(this, () -> runBrain(prompt.getText().toString()), s -> output.setText(s)));
+        run.setOnClickListener(v -> requireForRequest(prompt.getText().toString(), () -> runBrain(prompt.getText().toString())));
         root.addView(run);
 
         Button speak = new Button(this); speak.setText("Son Cevabı Seslendir");
@@ -253,9 +255,9 @@ public final class OwnerBrainActivity extends AppCompatActivity {
             if (mime == null) mime = "application/octet-stream";
             String name = displayName(uri);
             if (mime.startsWith("video/")) {
-                attachment = null;
-                attachmentStatus.setText("Attachment: VIDEO_DIRECT_INPUT_NOT_IMPLEMENTED_FAIL_CLOSED");
-                output.setText("VIDEO_DIRECT_INPUT_NOT_IMPLEMENTED_FAIL_CLOSED");
+                attachment = VideoPipeline.sampleToImage(getContentResolver(), uri, name);
+                attachmentStatus.setText("Attachment: VIDEO_SAMPLED_FRAMES · " + name);
+                output.setText("VIDEO_PIPELINE_SAMPLED_FRAMES_SOURCE_IMPLEMENTED_NOT_RUNTIME_VERIFIED");
                 return;
             }
 
@@ -357,6 +359,14 @@ public final class OwnerBrainActivity extends AppCompatActivity {
         }
         int result = tts.speak(lastReply, TextToSpeech.QUEUE_FLUSH, null, "owner-reply");
         output.setText(result == TextToSpeech.SUCCESS ? "VOICE_OUTPUT_STARTED" : "VOICE_OUTPUT_FAILED:" + result);
+    }
+
+    private void requireForRequest(String request, Runnable action) {
+        if (OwnerBrainPolicy.isHighRisk(request)) {
+            OwnerAuth.requireFresh(this, action, status -> output.setText(status));
+        } else {
+            OwnerAuth.require(this, action, status -> output.setText(status));
+        }
     }
 
     private void runBrain(String text) {

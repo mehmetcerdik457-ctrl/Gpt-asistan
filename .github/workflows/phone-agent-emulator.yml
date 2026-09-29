@@ -1,24 +1,21 @@
-name: Phone Agent Emulator Validation
+name: Hardened Owner Emulator Validation
 
 on:
   push:
     branches:
-      - phone-agent/runtime-v1
-      - owner/stable-companion-v1
-      - owner/full-brain-v1-20260924
-      - owner/feature-parity-v1-20260929
+      - owner/final-hardening-v1-20260929
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
-  phone-agent-emulator:
+  hardened-emulator:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - name: Checkout exact revision
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -27,11 +24,7 @@ jobs:
           persist-credentials: false
 
       - name: Verify exact checkout
-        shell: bash
-        run: |
-          ACTUAL="$(git rev-parse HEAD)"
-          test "${ACTUAL}" = "${GITHUB_SHA}"
-          printf "expected_sha=%s\nactual_sha=%s\n" "${GITHUB_SHA}" "${ACTUAL}"
+        run: test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
 
       - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
@@ -44,10 +37,31 @@ jobs:
           gradle-version: "8.7"
           cache-provider: basic
 
-      - name: Unit test and build exact-head APK
+      - name: Unit tests and bootstrap debug signer
+        shell: bash
         run: |
-          gradle :app:testDebugUnitTest
-          gradle :app:assembleDebug
+          set -euo pipefail
+          gradle :app:testDebugUnitTest :app:assembleDebug
+          BUILD_TOOLS_VERSION="$(ls "${ANDROID_HOME}/build-tools" | sort -V | tail -1)"
+          APKSIGNER="${ANDROID_HOME}/build-tools/${BUILD_TOOLS_VERSION}/apksigner"
+          SIGNER="$("${APKSIGNER}" verify --print-certs app/build/outputs/apk/debug/app-debug.apk | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1 | tr 'A-F' 'a-f')"
+          test -n "${SIGNER}"
+          echo "OWNER_EXPECTED_SIGNER_SHA256=${SIGNER}" >> "${GITHUB_ENV}"
+          printf 'debug_signer_sha256=%s\n' "${SIGNER}" > /tmp/debug-signer.txt
+
+      - name: Rebuild app and bridge with exact debug signer pin
+        shell: bash
+        run: |
+          set -euo pipefail
+          export OWNER_BUILD_GIT_SHA="$(git rev-parse HEAD)"
+          gradle :app:clean :bridge:clean :app:assembleDebug :bridge:assembleDebug
+          BUILD_TOOLS_VERSION="$(ls "${ANDROID_HOME}/build-tools" | sort -V | tail -1)"
+          APKSIGNER="${ANDROID_HOME}/build-tools/${BUILD_TOOLS_VERSION}/apksigner"
+          APP_SIGNER="$("${APKSIGNER}" verify --print-certs app/build/outputs/apk/debug/app-debug.apk | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1 | tr 'A-F' 'a-f')"
+          BRIDGE_SIGNER="$("${APKSIGNER}" verify --print-certs bridge/build/outputs/apk/debug/bridge-debug.apk | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1 | tr 'A-F' 'a-f')"
+          test "${APP_SIGNER}" = "${OWNER_EXPECTED_SIGNER_SHA256}"
+          test "${BRIDGE_SIGNER}" = "${OWNER_EXPECTED_SIGNER_SHA256}"
+          printf 'app_signer=%s\nbridge_signer=%s\n' "${APP_SIGNER}" "${BRIDGE_SIGNER}" > /tmp/debug-pair-signers.txt
 
       - name: Enable KVM
         run: |
@@ -55,8 +69,11 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      - name: Execute phone-agent runtime in Android emulator
+      - name: Execute hardened runtime in Android emulator
         uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+        env:
+          APK_PATH: app/build/outputs/apk/debug/app-debug.apk
+          BRIDGE_APK_PATH: bridge/build/outputs/apk/debug/bridge-debug.apk
         with:
           api-level: 34
           target: google_apis
@@ -69,15 +86,20 @@ jobs:
       - name: Verify emulator evidence
         shell: bash
         run: |
+          set -euo pipefail
           test -s emulator-evidence/phone-agent-emulator-evidence.json
-          grep -q '"status": "EMULATOR_PHONE_AGENT_RUNTIME_PASS"' emulator-evidence/phone-agent-emulator-evidence.json
-          grep -q "\"git_head\": \"${GITHUB_SHA}\"" emulator-evidence/phone-agent-emulator-evidence.json
+          grep -q '"status": "EMULATOR_HARDENED_RUNTIME_PASS"' emulator-evidence/phone-agent-emulator-evidence.json
+          grep -Fq '"git_head": "'"${GITHUB_SHA}"'"' emulator-evidence/phone-agent-emulator-evidence.json
+          grep -q '"signer_match": true' emulator-evidence/phone-agent-emulator-evidence.json
+          grep -q '"screen_read_ok": true' emulator-evidence/phone-agent-emulator-evidence.json
           (cd emulator-evidence && sha256sum -c SHA256SUMS)
+          cp /tmp/debug-signer.txt emulator-evidence/
+          cp /tmp/debug-pair-signers.txt emulator-evidence/
 
-      - name: Upload emulator runtime evidence
+      - name: Upload hardened emulator evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4.6.2
         with:
-          name: phone-agent-emulator-evidence
+          name: hardened-owner-emulator-evidence
           path: emulator-evidence/
           if-no-files-found: warn

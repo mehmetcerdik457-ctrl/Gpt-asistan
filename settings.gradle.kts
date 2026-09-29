@@ -17,4 +17,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "GPTAsistan"
-include(":app")
+include(":app", ":bridge")

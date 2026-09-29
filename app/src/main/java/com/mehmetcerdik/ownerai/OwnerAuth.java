@@ -16,12 +16,20 @@ public final class OwnerAuth {
     private OwnerAuth() {}
 
     public static void require(FragmentActivity activity, Runnable onSuccess, Consumer<String> onFailure) {
-        if (OwnerSession.isAuthorized()) {
+        if (OwnerSession.isAuthorized(activity)) {
             onSuccess.run();
             return;
         }
+        prompt(activity, onSuccess, onFailure);
+    }
+
+    public static void requireFresh(FragmentActivity activity, Runnable onSuccess, Consumer<String> onFailure) {
+        prompt(activity, onSuccess, onFailure);
+    }
+
+    private static void prompt(FragmentActivity activity, Runnable onSuccess, Consumer<String> onFailure) {
         if (isDebugEmulator()) {
-            OwnerSession.authorize();
+            OwnerSession.authorizeDebug();
             onSuccess.run();
             return;
         }
@@ -41,11 +49,17 @@ public final class OwnerAuth {
                 ContextCompat.getMainExecutor(activity),
                 new BiometricPrompt.AuthenticationCallback() {
                     @Override public void onAuthenticationSucceeded(BiometricPrompt.AuthenticationResult result) {
-                        OwnerSession.authorize();
-                        onSuccess.run();
+                        try {
+                            OwnerSession.authorize(activity);
+                            onSuccess.run();
+                        } catch (Throwable t) {
+                            OwnerSession.clear();
+                            onFailure.accept("TRUSTED_DEVICE_SESSION_FAILED");
+                        }
                     }
 
                     @Override public void onAuthenticationError(int errorCode, CharSequence errString) {
+                        OwnerSession.clear();
                         onFailure.accept("OWNER_AUTH_ERROR:" + errorCode);
                     }
 
@@ -56,7 +70,7 @@ public final class OwnerAuth {
 
         BiometricPrompt.PromptInfo info = new BiometricPrompt.PromptInfo.Builder()
                 .setTitle("MEHMET Owner doğrulaması")
-                .setSubtitle("Devam etmek için biyometri veya cihaz kilidi ile doğrula")
+                .setSubtitle("Owner kimliği + kayıtlı cihaz kanıtı için doğrula")
                 .setAllowedAuthenticators(authenticators)
                 .setConfirmationRequired(true)
                 .build();

@@ -101,8 +101,8 @@ public final class OwnerFeatureConfig {
             o.put("personalization_configured", !personalization().isEmpty());
             o.put("language", language());
             o.put("voice", voice());
-            o.put("video_input", "NOT_IMPLEMENTED_FAIL_CLOSED");
-            o.put("realtime_voice", "NOT_IMPLEMENTED_FAIL_CLOSED");
+            o.put("video_input", "BOUNDED_SAMPLED_FRAMES_SOURCE_IMPLEMENTED_NOT_RUNTIME_VERIFIED");
+            o.put("realtime_voice", "WEBRTC_EPHEMERAL_TOKEN_SOURCE_IMPLEMENTED_NOT_RUNTIME_VERIFIED");
         } catch (Exception ignored) {}
         return o;
     }
