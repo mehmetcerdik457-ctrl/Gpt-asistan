@@ -142,7 +142,11 @@ public final class OwnerBrainPolicy {
     }
     private static String normalize(String request) {
         if (request == null) return " ";
-        return " " + request.toLowerCase(Locale.ROOT)
+        // Locale.ROOT lowercasing of U+0130 (Turkish capital dotted I) produces
+        // an i + combining dot sequence. Normalize Turkish I variants first so
+        // later punctuation/mark stripping cannot split "CİHAT" into "ci hat".
+        String stable = request.replace('\u0130', 'i').replace('\u0131', 'i');
+        return " " + stable.toLowerCase(Locale.ROOT)
                 .replaceAll("[^\\p{L}\\p{N}]+", " ")
                 .replaceAll("\\s+", " ").trim() + " ";
     }
