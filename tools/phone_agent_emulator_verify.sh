@@ -92,7 +92,11 @@ package_state "${WORKER_PACKAGE}" "after-public-cihat"
 
 BEFORE_CIHAT_SHA_FILE="${EVIDENCE_DIR}/before-public-cihat/installed-base.sha256"
 AFTER_CIHAT_SHA_FILE="${EVIDENCE_DIR}/after-public-cihat/installed-base.sha256"
-if [[ -f "${BEFORE_CIHAT_SHA_FILE}" != -f "${AFTER_CIHAT_SHA_FILE}" ]]; then
+BEFORE_CIHAT_PRESENT=0
+AFTER_CIHAT_PRESENT=0
+[[ -f "${BEFORE_CIHAT_SHA_FILE}" ]] && BEFORE_CIHAT_PRESENT=1
+[[ -f "${AFTER_CIHAT_SHA_FILE}" ]] && AFTER_CIHAT_PRESENT=1
+if [[ "${BEFORE_CIHAT_PRESENT}" != "${AFTER_CIHAT_PRESENT}" ]]; then
   echo "FAIL:PUBLIC_CIHAT_INSTALL_STATE_CHANGED" >&2
   exit 19
 fi
