@@ -32,6 +32,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var evidenceView: TextView
     private val handler = Handler(Looper.getMainLooper())
     private var selfTestTarget: Button? = null
+    private var emulatorSelfTestScheduled = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -122,16 +123,30 @@ class MainActivity : AppCompatActivity() {
 
         setContentView(ScrollView(this).apply { addView(container) })
 
-        if (BuildConfig.DEBUG && intent.getBooleanExtra("emulator_self_test", false)) {
-            handler.postDelayed({
-                OwnerAuth.require(this,
-                    Runnable {
-                        runBridgeSelfTest()
-                        runLocalSelfTest()
-                    },
-                    java.util.function.Consumer { showStatus(it) })
-            }, 2500)
-        }
+        scheduleDebugEmulatorSelfTest(intent)
+    }
+
+    override fun onNewIntent(newIntent: Intent) {
+        super.onNewIntent(newIntent)
+        setIntent(newIntent)
+        scheduleDebugEmulatorSelfTest(newIntent)
+    }
+
+    private fun scheduleDebugEmulatorSelfTest(sourceIntent: Intent?) {
+        if (!BuildConfig.DEBUG) return
+        if (sourceIntent?.getBooleanExtra("emulator_self_test", false) != true) return
+        if (emulatorSelfTestScheduled) return
+        emulatorSelfTestScheduled = true
+        showStatus("DEBUG_EMULATOR_SELF_TEST_SCHEDULED")
+        handler.postDelayed({
+            OwnerAuth.require(this,
+                Runnable {
+                    showStatus("DEBUG_EMULATOR_AUTH_OK")
+                    runBridgeSelfTest()
+                    runLocalSelfTest()
+                },
+                java.util.function.Consumer { showStatus(it) })
+        }, 1200)
     }
 
     override fun onResume() {
