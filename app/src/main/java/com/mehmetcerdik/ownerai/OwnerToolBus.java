@@ -71,17 +71,17 @@ public final class OwnerToolBus {
             case "TAP":
                 out = BridgeClient.clickText(context, safeArgs.optString("target", ""));
                 break;
-            case "SWIPE":
+            case "SWIPE": {
+                boolean backward = "backward".equalsIgnoreCase(safeArgs.optString("direction", ""));
                 out = BridgeClient.swipe(context,
-                        (float)safeArgs.optDouble("sx", .5),
-                        (float)safeArgs.optDouble("sy", .75),
-                        (float)safeArgs.optDouble("ex", .5),
-                        (float)safeArgs.optDouble("ey", .25),
-                        safeArgs.optLong("duration_ms", 400L));
+                        .5f, backward ? .25f : .75f,
+                        .5f, backward ? .75f : .25f,
+                        400L);
                 break;
+            }
             case "SCROLL":
                 out = BridgeClient.scroll(context,
-                        !"backward".equalsIgnoreCase(safeArgs.optString("direction", "forward")));
+                        "forward".equalsIgnoreCase(safeArgs.optString("direction", "")));
                 break;
             case "BACK": out = BridgeClient.globalAction(context, "BACK"); break;
             case "HOME": out = BridgeClient.globalAction(context, "HOME"); break;

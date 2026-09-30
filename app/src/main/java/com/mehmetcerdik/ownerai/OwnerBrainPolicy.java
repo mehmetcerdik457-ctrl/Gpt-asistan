@@ -87,10 +87,19 @@ public final class OwnerBrainPolicy {
                         ? Decision.allow() : Decision.deny("SEMANTIC_TAP_TARGET_REQUIRED");
             }
             case "SWIPE":
-            case "SCROLL":
+            case "SCROLL": {
                 if (!WORKER_PACKAGE.equals(currentPackage)) return Decision.deny("FOREGROUND_PACKAGE_DENIED");
-                return hasAny(request, "kaydır", "kaydir", "swipe", "scroll", "aşağı", "asagi", "yukarı", "yukari", "اسحب")
-                        ? Decision.allow() : Decision.deny("OWNER_ACTION_VERB_REQUIRED");
+                if (!hasAny(request, "kaydır", "kaydir", "swipe", "scroll", "aşağı", "asagi", "yukarı", "yukari", "down", "up", "forward", "backward", "اسحب"))
+                    return Decision.deny("OWNER_ACTION_VERB_REQUIRED");
+                String requestedDirection = requestedScrollDirection(request);
+                if (requestedDirection.isEmpty()) return Decision.deny("SCROLL_DIRECTION_NOT_BOUND_TO_OWNER_INTENT");
+                String suppliedDirection = normalizeDirection(a.optString("direction", ""));
+                if (suppliedDirection.isEmpty() || !requestedDirection.equals(suppliedDirection))
+                    return Decision.deny("SCROLL_DIRECTION_NOT_BOUND_TO_OWNER_INTENT");
+                if ("SWIPE".equals(t) && (a.has("sx") || a.has("sy") || a.has("ex") || a.has("ey") || a.has("duration_ms")))
+                    return Decision.deny("RAW_SWIPE_ARGUMENTS_NOT_OWNER_BOUND");
+                return Decision.allow();
+            }
             case "BACK":
                 if (!WORKER_PACKAGE.equals(currentPackage) && !OWNER_PACKAGE.equals(currentPackage))
                     return Decision.deny("FOREGROUND_PACKAGE_DENIED");
@@ -126,6 +135,20 @@ public final class OwnerBrainPolicy {
             case "CLICK_TEXT": return "CLICK_ELEMENT";
             default: return t;
         }
+    }
+
+    private static String requestedScrollDirection(String request) {
+        boolean forward = hasAny(request, "aşağı", "asagi", "down", "forward", "ileri");
+        boolean backward = hasAny(request, "yukarı", "yukari", "up", "backward", "geri");
+        if (forward == backward) return "";
+        return forward ? "forward" : "backward";
+    }
+
+    private static String normalizeDirection(String direction) {
+        String n = normalize(direction).trim();
+        if (hasAny(" " + n + " ", "forward", "down", "aşağı", "asagi", "ileri")) return "forward";
+        if (hasAny(" " + n + " ", "backward", "up", "yukarı", "yukari", "geri")) return "backward";
+        return "";
     }
 
     private static boolean mentionsWorker(String request) {

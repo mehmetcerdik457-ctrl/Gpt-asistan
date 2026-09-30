@@ -35,6 +35,25 @@ public final class OwnerBrainPolicyTest {
                 new JSONObject().put("text", "başka metin"), OwnerBrainPolicy.WORKER_PACKAGE, true).allowed);
     }
 
+
+    @Test public void scrollAndSwipeArgumentsMustMatchOwnerDirection() throws Exception {
+        assertTrue(d("CİHAT'ta aşağı kaydır", "SCROLL",
+                new JSONObject().put("direction", "forward"), OwnerBrainPolicy.WORKER_PACKAGE, true).allowed);
+        assertFalse(d("CİHAT'ta aşağı kaydır", "SCROLL",
+                new JSONObject().put("direction", "backward"), OwnerBrainPolicy.WORKER_PACKAGE, true).allowed);
+        assertTrue(d("CİHAT'ta yukarı kaydır", "SCROLL",
+                new JSONObject().put("direction", "backward"), OwnerBrainPolicy.WORKER_PACKAGE, true).allowed);
+        assertFalse(d("CİHAT'ta kaydır", "SCROLL",
+                new JSONObject().put("direction", "forward"), OwnerBrainPolicy.WORKER_PACKAGE, true).allowed);
+
+        assertTrue(d("CİHAT'ta aşağı kaydır", "SWIPE",
+                new JSONObject().put("direction", "forward"), OwnerBrainPolicy.WORKER_PACKAGE, true).allowed);
+        assertFalse(d("CİHAT'ta aşağı kaydır", "SWIPE",
+                new JSONObject().put("direction", "forward").put("sx", 0.1).put("sy", 0.1)
+                        .put("ex", 0.9).put("ey", 0.9),
+                OwnerBrainPolicy.WORKER_PACKAGE, true).allowed);
+    }
+
     @Test public void crossPackageStateChangeFailsClosed() throws Exception {
         assertFalse(d("Gönder düğmesine tıkla", "CLICK_ELEMENT",
                 new JSONObject().put("target", "Gönder"), "com.android.settings", true).allowed);
