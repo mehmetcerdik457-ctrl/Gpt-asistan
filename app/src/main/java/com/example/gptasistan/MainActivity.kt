@@ -171,9 +171,18 @@ class MainActivity : AppCompatActivity() {
             text = "DEBUG Self-Test"
             setOnClickListener {
                 OwnerAuth.require(this@MainActivity,
-                    Runnable { runLocalSelfTest() },
+                    Runnable {
+                        showStatus("DEBUG_SELF_TEST_MANUAL_TRIGGERED")
+                        runBridgeSelfTest()
+                        runLocalSelfTest()
+                    },
                     java.util.function.Consumer { showStatus(it) })
             }
+        })
+        container.addView(TextView(this).apply {
+            text = "DEBUG_SCROLL_TARGET"
+            minHeight = 1800
+            isFocusable = false
         })
     }
 

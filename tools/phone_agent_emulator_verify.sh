@@ -301,7 +301,16 @@ done
 # Do not force-stop here: on Android 14 the force-stop can tear down the
 # freshly consented accessibility service and clear the enabled-service state.
 adb shell am start -W -n "${MAIN_ACTIVITY}" --ez emulator_self_test true | tee "${EVIDENCE_DIR}/am-start.txt"
-sleep 7
+sleep 2
+
+# Deterministic debug-only trigger. The production manifest has no local
+# PhoneAgentAccessibilityService and this UI exists only under BuildConfig.DEBUG.
+# This avoids depending on Activity warm/cold lifecycle timing for CI evidence.
+if ! tap_text_once "DEBUG Self-Test"; then
+  echo "FAIL:DEBUG_SELF_TEST_CONTROL_NOT_FOUND" >&2
+  exit 21
+fi
+sleep 5
 
 adb shell dumpsys accessibility > "${EVIDENCE_DIR}/dumpsys-accessibility.txt"
 adb shell dumpsys package "${PACKAGE}" > "${EVIDENCE_DIR}/dumpsys-package.txt"
