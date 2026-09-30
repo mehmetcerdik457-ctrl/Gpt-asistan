@@ -227,7 +227,7 @@ class MainActivity : AppCompatActivity() {
         val signerHash = signerSha256()
         val signerMatch = signerHash.equals(BuildConfig.EXPECTED_SIGNER_SHA256, ignoreCase = true)
         val packageMatch = packageName == "com.mehmetcerdik.ownerai"
-        val versionMatch = versionCode == 7L && info.versionName == "1.5.0"
+        val versionMatch = versionCode == 8L && info.versionName == "1.5.0"
         val artifactPostcondition = if (
             apkHash.matches(Regex("^[0-9a-f]{64}$")) && signerMatch && packageMatch && versionMatch
         ) "PASS" else "FAIL"

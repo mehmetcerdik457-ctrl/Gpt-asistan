@@ -305,11 +305,28 @@ sleep 7
 
 adb shell dumpsys accessibility > "${EVIDENCE_DIR}/dumpsys-accessibility.txt"
 adb shell dumpsys package "${PACKAGE}" > "${EVIDENCE_DIR}/dumpsys-package.txt"
-grep -q "PhoneAgentAccessibilityService" "${EVIDENCE_DIR}/dumpsys-accessibility.txt"
 
-adb shell run-as "${PACKAGE}" cat shared_prefs/phone_agent_events.xml > "${EVIDENCE_DIR}/phone_agent_events.xml"
-adb shell run-as "${PACKAGE}" cat shared_prefs/phone_agent_self_test.xml > "${EVIDENCE_DIR}/phone_agent_self_test.xml"
-adb shell run-as "${PACKAGE}" cat shared_prefs/bridge_self_test.xml > "${EVIDENCE_DIR}/bridge_self_test.xml"
+RUNTIME_PRESENCE_FILE="${EVIDENCE_DIR}/runtime-evidence-presence.txt"
+: > "${RUNTIME_PRESENCE_FILE}"
+if grep -q "PhoneAgentAccessibilityService" "${EVIDENCE_DIR}/dumpsys-accessibility.txt"; then
+  echo "local_accessibility_service=present" >> "${RUNTIME_PRESENCE_FILE}"
+else
+  echo "local_accessibility_service=missing" >> "${RUNTIME_PRESENCE_FILE}"
+fi
+
+collect_pref() {
+  local remote="$1" local_name="$2" fallback="$3"
+  if adb shell run-as "${PACKAGE}" cat "${remote}" > "${EVIDENCE_DIR}/${local_name}" 2>/dev/null; then
+    echo "${local_name}=present" >> "${RUNTIME_PRESENCE_FILE}"
+  else
+    printf '%s\n' "${fallback}" > "${EVIDENCE_DIR}/${local_name}"
+    echo "${local_name}=missing" >> "${RUNTIME_PRESENCE_FILE}"
+  fi
+}
+
+collect_pref "shared_prefs/phone_agent_events.xml" "phone_agent_events.xml" '<map><string name="events">[]</string></map>'
+collect_pref "shared_prefs/phone_agent_self_test.xml" "phone_agent_self_test.xml" '<map />'
+collect_pref "shared_prefs/bridge_self_test.xml" "bridge_self_test.xml" '<map />'
 
 adb shell getprop ro.product.manufacturer | tr -d "\r" > "${EVIDENCE_DIR}/manufacturer.txt"
 adb shell getprop ro.product.model | tr -d "\r" > "${EVIDENCE_DIR}/model.txt"
