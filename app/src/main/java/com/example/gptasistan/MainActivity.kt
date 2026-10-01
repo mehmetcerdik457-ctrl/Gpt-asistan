@@ -151,7 +151,7 @@ class MainActivity : AppCompatActivity() {
         OwnerAuth.require(this,
             Runnable {
                 setDebugStatus("DEBUG_EMULATOR_AUTH_OK")
-                runBridgeSelfTest()
+                runBridgeSelfTestAsync()
                 runLocalSelfTest()
             },
             java.util.function.Consumer { setDebugStatus(it) })
@@ -181,7 +181,7 @@ class MainActivity : AppCompatActivity() {
                 OwnerAuth.require(this@MainActivity,
                     Runnable {
                         setDebugStatus("DEBUG_SELF_TEST_MANUAL_TRIGGERED")
-                        runBridgeSelfTest()
+                        runBridgeSelfTestAsync()
                         runLocalSelfTest()
                     },
                     java.util.function.Consumer { showStatus(it) })
@@ -194,28 +194,39 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
-    private fun runBridgeSelfTest() {
+    private fun runBridgeSelfTestAsync() {
         if (!BuildConfig.DEBUG) return
-        val arm = BridgeClient.arm(this, 60_000L)
-        val signerMatch = BridgeClient.verifyBridge(this)
-        getSharedPreferences("bridge_self_test", MODE_PRIVATE).edit().clear().commit()
-        runBridgeScreenReadAttempt(arm, signerMatch, 0)
-    }
-
-    private fun runBridgeScreenReadAttempt(arm: Bundle, signerMatch: Boolean, attempt: Int) {
-        val read = BridgeClient.screenRead(this)
-        val readOk = read.getBoolean("ok", false)
-        if (readOk || attempt >= 4) {
-            getSharedPreferences("bridge_self_test", MODE_PRIVATE).edit()
+        val appContext = applicationContext
+        val prefs = getSharedPreferences("bridge_self_test", MODE_PRIVATE)
+        prefs.edit().clear().putBoolean("complete", false).commit()
+        Thread({
+            val signerMatch = BridgeClient.verifyBridge(appContext)
+            val arm = BridgeClient.arm(appContext, 60_000L)
+            var readOk = false
+            for (attempt in 0..4) {
+                val read = BridgeClient.screenRead(appContext)
+                readOk = read.getBoolean("ok", false)
+                if (readOk || attempt >= 4) break
+                try {
+                    Thread.sleep(250L)
+                } catch (_: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    break
+                }
+            }
+            val finalStatus = BridgeClient.status(appContext)
+            prefs.edit()
                 .putBoolean("signer_match", signerMatch)
                 .putBoolean("arm_ok", arm.getBoolean("ok", false))
-                .putBoolean("core_ok", arm.getBoolean("core_ok", false))
-                .putBoolean("service_connected", arm.getBoolean("service_connected", false))
+                .putBoolean("core_ok", finalStatus.getBoolean("core_ok", arm.getBoolean("core_ok", false)))
+                .putBoolean(
+                    "service_connected",
+                    finalStatus.getBoolean("service_connected", arm.getBoolean("service_connected", false))
+                )
                 .putBoolean("screen_read_ok", readOk)
+                .putBoolean("complete", true)
                 .commit()
-            return
-        }
-        handler.postDelayed({ runBridgeScreenReadAttempt(arm, signerMatch, attempt + 1) }, 250)
+        }, "debug-bridge-self-test").start()
     }
 
     private fun runLocalSelfTest() {
