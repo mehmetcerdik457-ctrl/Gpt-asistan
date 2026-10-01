@@ -303,14 +303,10 @@ done
 adb shell am start -W -n "${MAIN_ACTIVITY}" --ez emulator_self_test true | tee "${EVIDENCE_DIR}/am-start.txt"
 sleep 2
 
-# Deterministic debug-only trigger. The production manifest has no local
-# PhoneAgentAccessibilityService and this UI exists only under BuildConfig.DEBUG.
-# This avoids depending on Activity warm/cold lifecycle timing for CI evidence.
-if ! scroll_find_and_tap "DEBUG Self-Test"; then
-  echo "FAIL:DEBUG_SELF_TEST_CONTROL_NOT_FOUND" >&2
-  exit 21
-fi
-sleep 5
+# Trigger through the debug-only intent path. MainActivity waits for both
+# local and Bridge Accessibility services before executing exactly one self-test.
+# No coordinate/UI-button tap is used for the CI trigger.
+sleep 8
 
 adb shell dumpsys accessibility > "${EVIDENCE_DIR}/dumpsys-accessibility.txt"
 adb shell dumpsys package "${PACKAGE}" > "${EVIDENCE_DIR}/dumpsys-package.txt"

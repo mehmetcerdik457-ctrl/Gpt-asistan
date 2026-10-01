@@ -32,6 +32,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var evidenceView: TextView
     private val handler = Handler(Looper.getMainLooper())
     private var selfTestTarget: Button? = null
+    private var emulatorSelfTestScheduled = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -122,6 +123,39 @@ class MainActivity : AppCompatActivity() {
 
         setContentView(ScrollView(this).apply { addView(container) })
 
+        scheduleDebugEmulatorSelfTest(intent)
+    }
+
+    override fun onNewIntent(newIntent: Intent) {
+        super.onNewIntent(newIntent)
+        setIntent(newIntent)
+        scheduleDebugEmulatorSelfTest(newIntent)
+    }
+
+    private fun scheduleDebugEmulatorSelfTest(sourceIntent: Intent?) {
+        if (!BuildConfig.DEBUG) return
+        if (sourceIntent?.getBooleanExtra("emulator_self_test", false) != true) return
+        if (emulatorSelfTestScheduled) return
+        emulatorSelfTestScheduled = true
+        setDebugStatus("DEBUG_EMULATOR_SELF_TEST_SCHEDULED")
+        handler.postDelayed({ runScheduledDebugSelfTest(0) }, 1000)
+    }
+
+    private fun runScheduledDebugSelfTest(attempt: Int) {
+        if (!BuildConfig.DEBUG) return
+        val localReady = PhoneAgentAccessibilityService.instance != null
+        val bridgeReady = BridgeClient.status(this).getBoolean("service_connected", false)
+        if ((!localReady || !bridgeReady) && attempt < 10) {
+            handler.postDelayed({ runScheduledDebugSelfTest(attempt + 1) }, 250)
+            return
+        }
+        OwnerAuth.require(this,
+            Runnable {
+                setDebugStatus("DEBUG_EMULATOR_AUTH_OK")
+                runBridgeSelfTest()
+                runLocalSelfTest()
+            },
+            java.util.function.Consumer { setDebugStatus(it) })
     }
 
     override fun onResume() {
