@@ -303,10 +303,10 @@ done
 adb shell am start -W -n "${MAIN_ACTIVITY}" --ez emulator_self_test true | tee "${EVIDENCE_DIR}/am-start.txt"
 sleep 2
 
-# Trigger through the debug-only intent path. MainActivity waits for both
-# local and Bridge Accessibility services before executing exactly one self-test.
+# Trigger through the debug-only intent path. MainActivity waits for the local
+# debug Accessibility service; Bridge screen-read has its own bounded retry.
 # No coordinate/UI-button tap is used for the CI trigger.
-sleep 8
+sleep 12
 
 adb shell dumpsys accessibility > "${EVIDENCE_DIR}/dumpsys-accessibility.txt"
 adb shell dumpsys package "${PACKAGE}" > "${EVIDENCE_DIR}/dumpsys-package.txt"

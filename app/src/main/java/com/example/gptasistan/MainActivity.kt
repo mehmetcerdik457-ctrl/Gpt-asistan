@@ -144,8 +144,7 @@ class MainActivity : AppCompatActivity() {
     private fun runScheduledDebugSelfTest(attempt: Int) {
         if (!BuildConfig.DEBUG) return
         val localReady = PhoneAgentAccessibilityService.instance != null
-        val bridgeReady = BridgeClient.status(this).getBoolean("service_connected", false)
-        if ((!localReady || !bridgeReady) && attempt < 10) {
+        if (!localReady && attempt < 10) {
             handler.postDelayed({ runScheduledDebugSelfTest(attempt + 1) }, 250)
             return
         }
