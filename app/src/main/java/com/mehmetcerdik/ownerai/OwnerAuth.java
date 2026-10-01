@@ -16,19 +16,29 @@ public final class OwnerAuth {
     private OwnerAuth() {}
 
     public static void require(FragmentActivity activity, Runnable onSuccess, Consumer<String> onFailure) {
-        if (OwnerSession.isAuthorized()) {
+        if (OwnerSession.isAuthorized(activity)) {
             onSuccess.run();
             return;
         }
+        prompt(activity, onSuccess, onFailure);
+    }
+
+    public static void requireFresh(FragmentActivity activity, Runnable onSuccess, Consumer<String> onFailure) {
+        prompt(activity, onSuccess, onFailure);
+    }
+
+    private static void prompt(FragmentActivity activity, Runnable onSuccess, Consumer<String> onFailure) {
         if (isDebugEmulator()) {
-            OwnerSession.authorize();
+            OwnerSession.authorizeDebug();
             onSuccess.run();
             return;
         }
 
+        // API 30+ supports the secure STRONG-or-device-credential combination.
+        // Older releases use BIOMETRIC_STRONG only; never downgrade release auth to WEAK.
         int authenticators = Build.VERSION.SDK_INT >= 30
                 ? BiometricManager.Authenticators.BIOMETRIC_STRONG | BiometricManager.Authenticators.DEVICE_CREDENTIAL
-                : BiometricManager.Authenticators.BIOMETRIC_WEAK | BiometricManager.Authenticators.DEVICE_CREDENTIAL;
+                : BiometricManager.Authenticators.BIOMETRIC_STRONG;
 
         int availability = BiometricManager.from(activity).canAuthenticate(authenticators);
         if (availability != BiometricManager.BIOMETRIC_SUCCESS) {
@@ -41,11 +51,17 @@ public final class OwnerAuth {
                 ContextCompat.getMainExecutor(activity),
                 new BiometricPrompt.AuthenticationCallback() {
                     @Override public void onAuthenticationSucceeded(BiometricPrompt.AuthenticationResult result) {
-                        OwnerSession.authorize();
-                        onSuccess.run();
+                        try {
+                            OwnerSession.authorize(activity);
+                            onSuccess.run();
+                        } catch (Throwable t) {
+                            OwnerSession.clear();
+                            onFailure.accept("TRUSTED_DEVICE_SESSION_FAILED");
+                        }
                     }
 
                     @Override public void onAuthenticationError(int errorCode, CharSequence errString) {
+                        OwnerSession.clear();
                         onFailure.accept("OWNER_AUTH_ERROR:" + errorCode);
                     }
 
@@ -54,13 +70,16 @@ public final class OwnerAuth {
                     }
                 });
 
-        BiometricPrompt.PromptInfo info = new BiometricPrompt.PromptInfo.Builder()
+        BiometricPrompt.PromptInfo.Builder infoBuilder = new BiometricPrompt.PromptInfo.Builder()
                 .setTitle("MEHMET Owner doğrulaması")
-                .setSubtitle("Devam etmek için biyometri veya cihaz kilidi ile doğrula")
+                .setSubtitle("Owner kimliği + kayıtlı cihaz kanıtı için doğrula")
                 .setAllowedAuthenticators(authenticators)
-                .setConfirmationRequired(true)
-                .build();
-        prompt.authenticate(info);
+                .setConfirmationRequired(true);
+        if (Build.VERSION.SDK_INT < 30) {
+            // Required when DEVICE_CREDENTIAL is not one of the allowed authenticators.
+            infoBuilder.setNegativeButtonText("İptal");
+        }
+        prompt.authenticate(infoBuilder.build());
     }
 
     private static boolean isDebugEmulator() {

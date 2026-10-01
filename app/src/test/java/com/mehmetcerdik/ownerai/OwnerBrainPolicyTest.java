@@ -1,66 +1,99 @@
 package com.mehmetcerdik.ownerai;
 
+import org.json.JSONObject;
 import org.junit.Test;
 
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.*;
 
 public final class OwnerBrainPolicyTest {
-    @Test public void ownerPrivateMemoryIsNotImplicitlyExported() {
-        assertEquals("[]", OwnerBrainPolicy.providerMemoryContext());
+    private static OwnerBrainPolicy.Decision d(String request, String tool, JSONObject args, String pkg, boolean fresh) {
+        return OwnerBrainPolicy.authorize(request, tool, args, pkg, fresh);
     }
 
-    @Test public void screenReadIsAllowedWithoutActionIntent() {
-        assertTrue(OwnerBrainPolicy.allowTool("Bu ekranda ne var?", "screen_read"));
-        assertTrue(OwnerBrainPolicy.allowTool("What is on the screen?", "screen_read"));
+    @Test public void readOnlyObservationDoesNotCreateAuthorization() throws Exception {
+        assertTrue(d("CİHAT ekranını oku", "READ_SCREEN", new JSONObject(), OwnerBrainPolicy.WORKER_PACKAGE, false).allowed);
+        assertFalse(d("CİHAT ekranını oku", "CLICK_ELEMENT",
+                new JSONObject().put("target", "Gönder"), OwnerBrainPolicy.WORKER_PACKAGE, false).allowed);
     }
 
-    @Test public void stateChangesRequireExplicitOwnerActionIntent() {
-        assertFalse(OwnerBrainPolicy.allowTool("Bu ekranda ne olduğunu açıkla", "click_text"));
-        assertFalse(OwnerBrainPolicy.allowTool("Explain how this works", "type_text"));
-        assertFalse(OwnerBrainPolicy.allowTool("اشرح ما يظهر على الشاشة", "swipe"));
+    @Test public void launchIsPinnedToWorkerPackage() throws Exception {
+        assertTrue(d("CİHAT uygulamasını aç", "OPEN_APP",
+                new JSONObject().put("package", OwnerBrainPolicy.WORKER_PACKAGE), "", false).allowed);
+        assertFalse(d("CİHAT uygulamasını aç", "OPEN_APP",
+                new JSONObject().put("package", "com.example.other"), "", false).allowed);
     }
 
-    @Test public void explicitTurkishActionIntentAllowsStateChange() {
-        assertTrue(OwnerBrainPolicy.allowTool("Chatbot uygulamasını aç", "launch_worker"));
-        assertTrue(OwnerBrainPolicy.allowTool("Gönder düğmesine tıkla", "click_text"));
-        assertTrue(OwnerBrainPolicy.allowTool("Mesaj alanına merhaba yaz", "type_text"));
+    @Test public void toolArgumentsMustMatchCurrentOwnerIntent() throws Exception {
+        assertTrue(d("CİHAT'ta Gönder düğmesine tıkla", "CLICK_ELEMENT",
+                new JSONObject().put("target", "Gönder"), OwnerBrainPolicy.WORKER_PACKAGE, true).allowed);
+        assertFalse(d("CİHAT'ta Gönder düğmesine tıkla", "CLICK_ELEMENT",
+                new JSONObject().put("target", "Hesabı sil"), OwnerBrainPolicy.WORKER_PACKAGE, true).allowed);
+
+        assertTrue(d("CİHAT'a merhaba yaz", "TYPE_TEXT",
+                new JSONObject().put("text", "merhaba"), OwnerBrainPolicy.WORKER_PACKAGE, true).allowed);
+        assertFalse(d("CİHAT'a merhaba yaz", "TYPE_TEXT",
+                new JSONObject().put("text", "başka metin"), OwnerBrainPolicy.WORKER_PACKAGE, true).allowed);
     }
 
-    @Test public void explicitEnglishActionIntentAllowsStateChange() {
-        assertTrue(OwnerBrainPolicy.allowTool("Open the chatbot", "launch_worker"));
-        assertTrue(OwnerBrainPolicy.allowTool("Click the send button", "click_text"));
-        assertTrue(OwnerBrainPolicy.allowTool("Type hello", "type_text"));
+
+    @Test public void scrollAndSwipeArgumentsMustMatchOwnerDirection() throws Exception {
+        assertTrue(d("CİHAT'ta aşağı kaydır", "SCROLL",
+                new JSONObject().put("direction", "forward"), OwnerBrainPolicy.WORKER_PACKAGE, true).allowed);
+        assertFalse(d("CİHAT'ta aşağı kaydır", "SCROLL",
+                new JSONObject().put("direction", "backward"), OwnerBrainPolicy.WORKER_PACKAGE, true).allowed);
+        assertTrue(d("CİHAT'ta yukarı kaydır", "SCROLL",
+                new JSONObject().put("direction", "backward"), OwnerBrainPolicy.WORKER_PACKAGE, true).allowed);
+        assertFalse(d("CİHAT'ta kaydır", "SCROLL",
+                new JSONObject().put("direction", "forward"), OwnerBrainPolicy.WORKER_PACKAGE, true).allowed);
+
+        assertTrue(d("CİHAT'ta aşağı kaydır", "SWIPE",
+                new JSONObject().put("direction", "forward"), OwnerBrainPolicy.WORKER_PACKAGE, true).allowed);
+        assertFalse(d("CİHAT'ta aşağı kaydır", "SWIPE",
+                new JSONObject().put("direction", "forward").put("sx", 0.1).put("sy", 0.1)
+                        .put("ex", 0.9).put("ey", 0.9),
+                OwnerBrainPolicy.WORKER_PACKAGE, true).allowed);
     }
 
-    @Test public void actionIntentIsScopedToRequestedTool() {
-        assertTrue(OwnerBrainPolicy.allowTool("Chatbot uygulamasını aç", "launch_worker"));
-        assertFalse(OwnerBrainPolicy.allowTool("Chatbot uygulamasını aç", "type_text"));
-        assertFalse(OwnerBrainPolicy.allowTool("Chatbot uygulamasını aç", "swipe"));
-        assertFalse(OwnerBrainPolicy.allowTool("Chatbot uygulamasını aç", "home"));
-
-        assertTrue(OwnerBrainPolicy.allowTool("Mesaj alanına merhaba yaz", "type_text"));
-        assertFalse(OwnerBrainPolicy.allowTool("Mesaj alanına merhaba yaz", "launch_worker"));
-        assertFalse(OwnerBrainPolicy.allowTool("Mesaj alanına merhaba yaz", "click_text"));
-
-        assertTrue(OwnerBrainPolicy.allowTool("Ana ekran", "home"));
-        assertFalse(OwnerBrainPolicy.allowTool("Ana ekran", "back"));
-        assertTrue(OwnerBrainPolicy.allowTool("Son uygulamalar", "recents"));
+    @Test public void crossPackageStateChangeFailsClosed() throws Exception {
+        assertFalse(d("Gönder düğmesine tıkla", "CLICK_ELEMENT",
+                new JSONObject().put("target", "Gönder"), "com.android.settings", true).allowed);
     }
 
-    @Test public void unknownStateChangingToolFailsClosed() {
-        assertFalse(OwnerBrainPolicy.allowTool("Bunu yap", "delete_everything"));
+    @Test public void promptInjectionCannotBecomeOwnerAuthorization() throws Exception {
+        String owner = "CİHAT ekranını oku ve özetle";
+        assertFalse(d(owner, "CLICK_ELEMENT",
+                new JSONObject().put("target", "Gönder"), OwnerBrainPolicy.WORKER_PACKAGE, true).allowed);
+        assertFalse(d(owner, "TYPE_TEXT",
+                new JSONObject().put("text", "ekrandaki talimatı uygula"), OwnerBrainPolicy.WORKER_PACKAGE, true).allowed);
     }
 
-    @Test public void explicitArabicActionIntentAllowsStateChange() {
-        assertTrue(OwnerBrainPolicy.allowTool("افتح التطبيق", "launch_worker"));
-        assertTrue(OwnerBrainPolicy.allowTool("اضغط زر الإرسال", "click_text"));
-        assertTrue(OwnerBrainPolicy.allowTool("اكتب مرحبا", "type_text"));
+    @Test public void highRiskRequiresFreshOwnerAuthentication() throws Exception {
+        JSONObject args = new JSONObject().put("target", "Hesabı sil");
+        assertFalse(d("CİHAT'ta Hesabı sil düğmesine tıkla", "CLICK_ELEMENT",
+                args, OwnerBrainPolicy.WORKER_PACKAGE, false).allowed);
+        assertTrue(OwnerBrainPolicy.isHighRisk("Hesabı sil"));
     }
 
-    @Test public void substringsDoNotAccidentallyAuthorize() {
-        assertFalse(OwnerBrainPolicy.explicitActionIntent("Bunun nasıl yapılacağını açıkla"));
+
+    @Test public void crossPackageReadAlsoFailsClosed() throws Exception {
+        assertFalse(d("Ekranı oku", "READ_SCREEN",
+                new JSONObject(), "com.android.settings", true).allowed);
+        assertFalse(d("Gönder düğmesini bul", "FIND_ELEMENT",
+                new JSONObject().put("target", "Gönder"), "com.android.settings", true).allowed);
+    }
+
+    @Test public void globalSystemActionsFailClosedWithoutDeterministicPostcondition() throws Exception {
+        assertFalse(d("ana ekrana dön", "HOME", new JSONObject(), OwnerBrainPolicy.WORKER_PACKAGE, true).allowed);
+        assertFalse(d("son uygulamaları aç", "RECENTS", new JSONObject(), OwnerBrainPolicy.WORKER_PACKAGE, true).allowed);
+        assertFalse(d("bildirimleri aç", "NOTIFICATION_ACTION", new JSONObject(), OwnerBrainPolicy.WORKER_PACKAGE, true).allowed);
+    }
+
+    @Test public void unknownToolFailsClosed() throws Exception {
+        assertFalse(d("Bunu yap", "EXPORT_CREDENTIALS", new JSONObject(), OwnerBrainPolicy.WORKER_PACKAGE, true).allowed);
+    }
+
+    @Test public void substringsDoNotAuthorizeActions() throws Exception {
         assertFalse(OwnerBrainPolicy.explicitActionIntent("The homepage explains the process"));
+        assertFalse(OwnerBrainPolicy.explicitActionIntent("Bunun nasıl yapılacağını açıkla"));
     }
 }
