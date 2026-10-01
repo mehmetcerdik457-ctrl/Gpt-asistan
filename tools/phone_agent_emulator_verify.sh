@@ -306,7 +306,7 @@ sleep 2
 # Deterministic debug-only trigger. The production manifest has no local
 # PhoneAgentAccessibilityService and this UI exists only under BuildConfig.DEBUG.
 # This avoids depending on Activity warm/cold lifecycle timing for CI evidence.
-if ! tap_text_once "DEBUG Self-Test"; then
+if ! scroll_find_and_tap "DEBUG Self-Test"; then
   echo "FAIL:DEBUG_SELF_TEST_CONTROL_NOT_FOUND" >&2
   exit 21
 fi

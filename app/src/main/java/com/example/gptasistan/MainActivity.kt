@@ -32,7 +32,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var evidenceView: TextView
     private val handler = Handler(Looper.getMainLooper())
     private var selfTestTarget: Button? = null
-    private var emulatorSelfTestScheduled = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -123,30 +122,6 @@ class MainActivity : AppCompatActivity() {
 
         setContentView(ScrollView(this).apply { addView(container) })
 
-        scheduleDebugEmulatorSelfTest(intent)
-    }
-
-    override fun onNewIntent(newIntent: Intent) {
-        super.onNewIntent(newIntent)
-        setIntent(newIntent)
-        scheduleDebugEmulatorSelfTest(newIntent)
-    }
-
-    private fun scheduleDebugEmulatorSelfTest(sourceIntent: Intent?) {
-        if (!BuildConfig.DEBUG) return
-        if (sourceIntent?.getBooleanExtra("emulator_self_test", false) != true) return
-        if (emulatorSelfTestScheduled) return
-        emulatorSelfTestScheduled = true
-        showStatus("DEBUG_EMULATOR_SELF_TEST_SCHEDULED")
-        handler.postDelayed({
-            OwnerAuth.require(this,
-                Runnable {
-                    showStatus("DEBUG_EMULATOR_AUTH_OK")
-                    runBridgeSelfTest()
-                    runLocalSelfTest()
-                },
-                java.util.function.Consumer { showStatus(it) })
-        }, 1200)
     }
 
     override fun onResume() {
@@ -172,7 +147,7 @@ class MainActivity : AppCompatActivity() {
             setOnClickListener {
                 OwnerAuth.require(this@MainActivity,
                     Runnable {
-                        showStatus("DEBUG_SELF_TEST_MANUAL_TRIGGERED")
+                        setDebugStatus("DEBUG_SELF_TEST_MANUAL_TRIGGERED")
                         runBridgeSelfTest()
                         runLocalSelfTest()
                     },
@@ -189,27 +164,38 @@ class MainActivity : AppCompatActivity() {
     private fun runBridgeSelfTest() {
         if (!BuildConfig.DEBUG) return
         val arm = BridgeClient.arm(this, 60_000L)
+        val signerMatch = BridgeClient.verifyBridge(this)
+        getSharedPreferences("bridge_self_test", MODE_PRIVATE).edit().clear().commit()
+        runBridgeScreenReadAttempt(arm, signerMatch, 0)
+    }
+
+    private fun runBridgeScreenReadAttempt(arm: Bundle, signerMatch: Boolean, attempt: Int) {
         val read = BridgeClient.screenRead(this)
-        getSharedPreferences("bridge_self_test", MODE_PRIVATE).edit()
-            .putBoolean("signer_match", BridgeClient.verifyBridge(this))
-            .putBoolean("arm_ok", arm.getBoolean("ok", false))
-            .putBoolean("core_ok", arm.getBoolean("core_ok", false))
-            .putBoolean("service_connected", arm.getBoolean("service_connected", false))
-            .putBoolean("screen_read_ok", read.getBoolean("ok", false))
-            .commit()
+        val readOk = read.getBoolean("ok", false)
+        if (readOk || attempt >= 4) {
+            getSharedPreferences("bridge_self_test", MODE_PRIVATE).edit()
+                .putBoolean("signer_match", signerMatch)
+                .putBoolean("arm_ok", arm.getBoolean("ok", false))
+                .putBoolean("core_ok", arm.getBoolean("core_ok", false))
+                .putBoolean("service_connected", arm.getBoolean("service_connected", false))
+                .putBoolean("screen_read_ok", readOk)
+                .commit()
+            return
+        }
+        handler.postDelayed({ runBridgeScreenReadAttempt(arm, signerMatch, attempt + 1) }, 250)
     }
 
     private fun runLocalSelfTest() {
         if (!BuildConfig.DEBUG) {
-            showStatus("DEBUG_SELF_TEST_DISABLED_IN_RELEASE")
+            setDebugStatus("DEBUG_SELF_TEST_DISABLED_IN_RELEASE")
             return
         }
         val service = PhoneAgentAccessibilityService.instance ?: run {
-            showStatus("DEBUG_ACCESSIBILITY_SERVICE_NOT_CONNECTED")
+            setDebugStatus("DEBUG_ACCESSIBILITY_SERVICE_NOT_CONNECTED")
             return
         }
         val target = selfTestTarget ?: run {
-            showStatus("DEBUG_SELF_TEST_TARGET_MISSING")
+            setDebugStatus("DEBUG_SELF_TEST_TARGET_MISSING")
             return
         }
         val location = IntArray(2)
@@ -217,9 +203,29 @@ class MainActivity : AppCompatActivity() {
         val x = location[0] + target.width / 2f
         val y = location[1] + target.height / 2f
         val tapAccepted = service.execute(PhoneActionType.TAP, x = x, y = y)
-        handler.postDelayed({ service.execute(PhoneActionType.CLICK_TEXT, text = "SELF_TEST_TARGET") }, 450)
-        handler.postDelayed({ service.execute(PhoneActionType.SCROLL_FORWARD) }, 900)
-        showStatus("DEBUG_SELF_TEST_STARTED tapAccepted=" + tapAccepted)
+        handler.postDelayed({
+            retryDebugAction(service, PhoneActionType.CLICK_TEXT, "SELF_TEST_TARGET", 0) {
+                retryDebugAction(service, PhoneActionType.SCROLL_FORWARD, null, 0) {}
+            }
+        }, 450)
+        setDebugStatus("DEBUG_SELF_TEST_STARTED tapAccepted=" + tapAccepted)
+    }
+
+    private fun retryDebugAction(
+        service: PhoneAgentAccessibilityService,
+        action: PhoneActionType,
+        text: String?,
+        attempt: Int,
+        onDone: () -> Unit
+    ) {
+        val ok = service.execute(action, text = text)
+        if (ok || attempt >= 4) {
+            onDone()
+            return
+        }
+        handler.postDelayed({
+            retryDebugAction(service, action, text, attempt + 1, onDone)
+        }, 250)
     }
 
     private fun refreshAuthenticatedStatus() {
@@ -231,6 +237,10 @@ class MainActivity : AppCompatActivity() {
         statusView.text = "secureSession=" + OwnerSession.classification() +
             " · remainingMs=" + OwnerSession.remainingMs() +
             " · bridgeSignerMatch=" + BridgeClient.verifyBridge(this)
+    }
+
+    private fun setDebugStatus(status: String) {
+        if (::statusView.isInitialized) statusView.text = status
     }
 
     private fun showStatus(status: String) {
