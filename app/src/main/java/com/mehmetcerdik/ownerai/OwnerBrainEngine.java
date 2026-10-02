@@ -13,7 +13,6 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
-import java.text.Normalizer;
 import java.util.Locale;
 
 public final class OwnerBrainEngine {
@@ -243,10 +242,7 @@ public final class OwnerBrainEngine {
         String stable = input == null ? "" : input
                 .replace('\u0130', 'i')
                 .replace('\u0131', 'i');
-        String decomposed = Normalizer.normalize(stable, Normalizer.Form.NFKD);
-        return decomposed.replaceAll("\\p{M}+", "")
-                .toLowerCase(Locale.ROOT)
-                .trim();
+        return stable.toLowerCase(Locale.ROOT).trim();
     }
 
     private JSONObject offlineCommand(String input) {
