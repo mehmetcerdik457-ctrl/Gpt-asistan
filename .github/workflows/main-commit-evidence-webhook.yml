@@ -2,9 +2,7 @@ name: Main Commit Evidence Webhook
 
 on:
   push:
-    branches:
-      - main
-      - automation/main-commit-evidence-webhook-v1
+    branches: [main]
   pull_request:
     branches: [main]
   workflow_dispatch:
