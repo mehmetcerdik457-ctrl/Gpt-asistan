@@ -1,0 +1,98 @@
+name: Main Commit Evidence Webhook
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  evidence:
+    runs-on: ubuntu-latest
+    env:
+      MEHMET_WEBHOOK_URL: ${{ secrets.MEHMET_WEBHOOK_URL }}
+      MEHMET_WEBHOOK_SECRET: ${{ secrets.MEHMET_WEBHOOK_SECRET }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build immutable evidence payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+
+          payload = {
+              "schema": "mehmet.main_commit_evidence.v1",
+              "repository": os.environ["GITHUB_REPOSITORY"],
+              "ref": os.environ["GITHUB_REF"],
+              "sha": os.environ["GITHUB_SHA"],
+              "actor": os.environ["GITHUB_ACTOR"],
+              "event_name": os.environ["GITHUB_EVENT_NAME"],
+              "run_id": os.environ["GITHUB_RUN_ID"],
+              "run_attempt": os.environ["GITHUB_RUN_ATTEMPT"],
+              "server_url": os.environ["GITHUB_SERVER_URL"],
+              "commit_url": f'{os.environ["GITHUB_SERVER_URL"]}/{os.environ["GITHUB_REPOSITORY"]}/commit/{os.environ["GITHUB_SHA"]}',
+          }
+          Path("evidence/main-commit.json").write_text(
+              json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          PY
+          sha256sum evidence/main-commit.json > evidence/main-commit.sha256
+
+      - name: Upload evidence artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: main-commit-evidence-${{ github.sha }}
+          path: evidence/
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Deliver webhook when endpoint is configured
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && env.MEHMET_WEBHOOK_URL != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          SIGNATURE=""
+          if [ -n "${MEHMET_WEBHOOK_SECRET}" ]; then
+            SIGNATURE="$(python - <<'PY'
+          import hashlib, hmac, os
+          from pathlib import Path
+          body = Path("evidence/main-commit.json").read_bytes()
+          key = os.environ["MEHMET_WEBHOOK_SECRET"].encode()
+          print("sha256=" + hmac.new(key, body, hashlib.sha256).hexdigest())
+          PY
+          )"
+          fi
+
+          args=(
+            --fail-with-body
+            --silent
+            --show-error
+            --retry 3
+            --retry-all-errors
+            --connect-timeout 10
+            --max-time 30
+            -H "Content-Type: application/json"
+            -H "User-Agent: MEHMET-AI-GitHub-Evidence/1.0"
+            -H "X-MEHMET-Event: main_commit"
+            -H "X-MEHMET-SHA: ${GITHUB_SHA}"
+          )
+
+          if [ -n "${SIGNATURE}" ]; then
+            args+=( -H "X-MEHMET-Signature-256: ${SIGNATURE}" )
+          fi
+
+          curl "${args[@]}" \
+            --data-binary @evidence/main-commit.json \
+            "${MEHMET_WEBHOOK_URL}"
