@@ -115,6 +115,11 @@ public final class BridgeControlProvider extends ContentProvider {
         b.putBoolean("service_connected", s != null);
         b.putBoolean("armed", BridgeSecurity.isArmed(c));
         b.putBoolean("emergency_stop", BridgeSecurity.isEmergencyStopped(c));
+        b.putBoolean("worker_installed", BridgeSecurity.packageInstalled(c, BridgeSecurity.WORKER_PACKAGE));
+        b.putBoolean("worker_signer_match",
+                BridgeSecurity.signerHistoryContains(c, BridgeSecurity.WORKER_PACKAGE, BridgeSecurity.WORKER_SIGNER));
+        b.putString("worker_expected_signer", BridgeSecurity.WORKER_SIGNER);
+        b.putString("worker_observed_signers", BridgeSecurity.signerDiagnostics(c, BridgeSecurity.WORKER_PACKAGE));
         b.putString("status", s == null ? "SERVICE_NOT_CONNECTED" : "READY");
         if (s != null) b.putAll(s.status());
         return b;
