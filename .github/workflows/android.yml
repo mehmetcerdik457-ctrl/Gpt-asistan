@@ -153,14 +153,14 @@ jobs:
             "owner": {
               "package": "com.mehmetcerdik.ownerai",
               "version_name": "1.5.1",
-              "version_code": 8,
+              "version_code": 9,
               "unsigned_aligned_sha256": "${OWNER_HASH}",
               "expected_production_signer_sha256": "279084a36b7c17a1663bfba5fe1c5bdac974f8ef4ce56b21000d882493e39448"
             },
             "bridge": {
               "package": "com.mehmetcerdik.ownerbridge",
               "version_name": "1.2.1",
-              "version_code": 3,
+              "version_code": 4,
               "unsigned_aligned_sha256": "${BRIDGE_HASH}",
               "expected_production_signer_sha256": "279084a36b7c17a1663bfba5fe1c5bdac974f8ef4ce56b21000d882493e39448"
             },
