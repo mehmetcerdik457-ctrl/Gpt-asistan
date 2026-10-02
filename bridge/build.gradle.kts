@@ -11,8 +11,8 @@ android {
         applicationId = "com.mehmetcerdik.ownerbridge"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
-        versionName = "1.2.0"
+        versionCode = 4
+        versionName = "1.2.1"
         buildConfigField("String", "EXPECTED_CORE_SIGNER_SHA256", "\"$expectedOwnerSigner\"")
         buildConfigField("String", "BUILD_GIT_SHA", "\"$gitSha\"")
     }
