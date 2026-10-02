@@ -2,7 +2,9 @@ name: Main Commit Evidence Webhook
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+      - automation/main-commit-evidence-webhook-v1
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -58,7 +60,7 @@ jobs:
           retention-days: 90
 
       - name: Deliver webhook when endpoint is configured
-        if: ${{ github.event_name == 'push' && env.MEHMET_WEBHOOK_URL != '' }}
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && env.MEHMET_WEBHOOK_URL != '' }}
         shell: bash
         run: |
           set -euo pipefail
