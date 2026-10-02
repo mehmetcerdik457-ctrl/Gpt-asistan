@@ -9,6 +9,15 @@ import java.util.Locale;
 
 public final class OwnerFeatureConfig {
     private static final String PREFS = "owner_brain_config";
+
+    // Safe capability defaults for an unconfigured Owner install.
+    // Secrets are never embedded; memory sharing remains opt-in.
+    static final String DEFAULT_SELECTED_MODEL = "gpt-6-astra";
+    static final String DEFAULT_FAST_MODEL = "gpt-6-luna";
+    static final String DEFAULT_REASONING_MODEL = "gpt-6-astra";
+    static final String DEFAULT_DEEP_RESEARCH_MODEL = "gpt-6-astra";
+    static final String DEFAULT_REASONING_EFFORT = "xhigh";
+    static final String DEFAULT_LANGUAGE = "tr-TR";
     private final SharedPreferences prefs;
 
     public OwnerFeatureConfig(Context context) {
@@ -47,18 +56,18 @@ public final class OwnerFeatureConfig {
                 .apply();
     }
 
-    public String selectedModel() { return prefs.getString("model", ""); }
-    public String fastModel() { return prefs.getString("fast_model", ""); }
-    public String reasoningModel() { return prefs.getString("reasoning_model", ""); }
-    public String deepResearchModel() { return prefs.getString("deep_research_model", ""); }
-    public boolean autoRouting() { return prefs.getBoolean("auto_routing", false); }
-    public String reasoningEffort() { return normalizeReasoningEffort(prefs.getString("reasoning_effort", "provider_default")); }
-    public boolean webSearch() { return prefs.getBoolean("web_search", false); }
-    public boolean deepResearch() { return prefs.getBoolean("deep_research", false); }
+    public String selectedModel() { return valueOrDefault(prefs.getString("model", ""), DEFAULT_SELECTED_MODEL); }
+    public String fastModel() { return valueOrDefault(prefs.getString("fast_model", ""), DEFAULT_FAST_MODEL); }
+    public String reasoningModel() { return valueOrDefault(prefs.getString("reasoning_model", ""), DEFAULT_REASONING_MODEL); }
+    public String deepResearchModel() { return valueOrDefault(prefs.getString("deep_research_model", ""), DEFAULT_DEEP_RESEARCH_MODEL); }
+    public boolean autoRouting() { return prefs.getBoolean("auto_routing", true); }
+    public String reasoningEffort() { return normalizeReasoningEffort(valueOrDefault(prefs.getString("reasoning_effort", ""), DEFAULT_REASONING_EFFORT)); }
+    public boolean webSearch() { return prefs.getBoolean("web_search", true); }
+    public boolean deepResearch() { return prefs.getBoolean("deep_research", true); }
     public boolean shareMemory() { return prefs.getBoolean("share_memory", false); }
     public String customInstructions() { return prefs.getString("custom_instructions", ""); }
     public String personalization() { return prefs.getString("personalization", ""); }
-    public String language() { return prefs.getString("language", ""); }
+    public String language() { return valueOrDefault(prefs.getString("language", ""), DEFAULT_LANGUAGE); }
     public String voice() { return prefs.getString("voice", ""); }
 
     public String chooseModel(String input) {
@@ -159,6 +168,11 @@ public final class OwnerFeatureConfig {
     private static String bounded(String value, int max) {
         String x = clean(value);
         return x.length() <= max ? x : x.substring(0, max);
+    }
+
+    private static String valueOrDefault(String value, String fallback) {
+        String x = clean(value);
+        return x.isEmpty() ? fallback : x;
     }
 
     private static String clean(String value) {

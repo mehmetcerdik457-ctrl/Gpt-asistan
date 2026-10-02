@@ -7,6 +7,15 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 public final class OwnerFeatureConfigTest {
+    @Test public void capabilityDefaultsAreExplicitAndCurrent() {
+        assertEquals("gpt-6-astra", OwnerFeatureConfig.DEFAULT_SELECTED_MODEL);
+        assertEquals("gpt-6-luna", OwnerFeatureConfig.DEFAULT_FAST_MODEL);
+        assertEquals("gpt-6-astra", OwnerFeatureConfig.DEFAULT_REASONING_MODEL);
+        assertEquals("gpt-6-astra", OwnerFeatureConfig.DEFAULT_DEEP_RESEARCH_MODEL);
+        assertEquals("xhigh", OwnerFeatureConfig.DEFAULT_REASONING_EFFORT);
+        assertEquals("tr-TR", OwnerFeatureConfig.DEFAULT_LANGUAGE);
+    }
+
     @Test public void manualModelWinsWhenAutoOff() {
         assertEquals("manual", OwnerFeatureConfig.routeModel(false, false, "manual", "fast", "reason", "deep", "analyze"));
     }

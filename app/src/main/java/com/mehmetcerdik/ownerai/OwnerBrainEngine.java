@@ -169,8 +169,8 @@ public final class OwnerBrainEngine {
                 JSONObject toolResult;
                 if ("cihat_send_prompt".equalsIgnoreCase(name)) {
                     String prompt = args.optString("prompt", "").trim();
-                    String normalizedInput = input.toLowerCase(Locale.ROOT);
-                    if (prompt.isEmpty() || !normalizedInput.contains(prompt.toLowerCase(Locale.ROOT))
+                    String normalizedInput = normalizeCommandText(input);
+                    if (prompt.isEmpty() || !normalizedInput.contains(normalizeCommandText(prompt))
                             || !OwnerBrainPolicy.explicitActionIntent(input)) {
                         toolResult = fail("CIHAT_PROMPT_NOT_BOUND_TO_OWNER_INTENT");
                     } else {
@@ -238,8 +238,15 @@ public final class OwnerBrainEngine {
         return x.contains("hatırla") || x.contains("unutma") || x.contains("remember");
     }
 
+    static String normalizeCommandText(String input) {
+        String stable = input == null ? "" : input
+                .replace('\u0130', 'i')
+                .replace('\u0131', 'i');
+        return stable.toLowerCase(Locale.ROOT).trim();
+    }
+
     private JSONObject offlineCommand(String input) {
-        String x = input.toLowerCase(Locale.ROOT).trim();
+        String x = normalizeCommandText(input);
         String tool = null;
         JSONObject args = new JSONObject();
         try {

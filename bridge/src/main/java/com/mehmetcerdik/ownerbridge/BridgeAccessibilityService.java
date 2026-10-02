@@ -243,7 +243,15 @@ public final class BridgeAccessibilityService extends AccessibilityService {
 
     Bundle launchApp(String packageName) {
         if (!BridgeSecurity.WORKER_PACKAGE.equals(packageName)) return fail("PACKAGE_NOT_APPROVED");
-        if (!BridgeSecurity.isPackageApproved(this, packageName)) return fail("WORKER_SIGNER_MISMATCH_OR_NOT_INSTALLED");
+        if (!BridgeSecurity.packageInstalled(this, packageName)) {
+            return fail("WORKER_NOT_INSTALLED_OR_NOT_VISIBLE");
+        }
+        if (!BridgeSecurity.signerHistoryContains(this, packageName, BridgeSecurity.WORKER_SIGNER)) {
+            Bundle mismatch = fail("WORKER_SIGNER_MISMATCH");
+            mismatch.putString("expected_signer", BridgeSecurity.WORKER_SIGNER);
+            mismatch.putString("observed_signers", BridgeSecurity.signerDiagnostics(this, packageName));
+            return mismatch;
+        }
         Intent i = getPackageManager().getLaunchIntentForPackage(packageName);
         if (i == null) return fail("NO_LAUNCH_INTENT");
         i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);

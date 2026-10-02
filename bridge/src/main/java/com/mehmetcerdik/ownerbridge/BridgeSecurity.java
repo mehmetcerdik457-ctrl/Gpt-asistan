@@ -11,6 +11,8 @@ import android.os.Process;
 import android.os.SystemClock;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
 
@@ -43,28 +45,74 @@ final class BridgeSecurity {
         }
     }
 
-    static String getSigner(Context c, String pkg) {
+    static List<String> getSignerDigests(Context c, String pkg) {
+        ArrayList<String> out = new ArrayList<>();
         try {
             PackageManager pm = c.getPackageManager();
-            Signature[] sigs;
             if (Build.VERSION.SDK_INT >= 28) {
                 PackageInfo pi = pm.getPackageInfo(pkg, PackageManager.GET_SIGNING_CERTIFICATES);
                 SigningInfo si = pi.signingInfo;
-                if (si == null) return null;
-                sigs = si.getApkContentsSigners();
+                if (si == null) return out;
+
+                Signature[] current = si.getApkContentsSigners();
+                addSignerDigests(out, current);
+
+                // Android signing-key rotation: accept only a certificate that Android
+                // itself reports in this package's authenticated signing lineage.
+                if (!si.hasMultipleSigners()) {
+                    Signature[] history = si.getSigningCertificateHistory();
+                    addSignerDigests(out, history);
+                }
             } else {
-                @SuppressWarnings("deprecation") PackageInfo pi = pm.getPackageInfo(pkg, PackageManager.GET_SIGNATURES);
-                @SuppressWarnings("deprecation") Signature[] legacy = pi.signatures;
-                sigs = legacy;
+                @SuppressWarnings("deprecation")
+                PackageInfo pi = pm.getPackageInfo(pkg, PackageManager.GET_SIGNATURES);
+                @SuppressWarnings("deprecation")
+                Signature[] legacy = pi.signatures;
+                addSignerDigests(out, legacy);
             }
-            if (sigs == null || sigs.length != 1) return null;
-            return sha256Bytes(sigs[0].toByteArray());
-        } catch (Throwable t) { return null; }
+        } catch (Throwable ignored) {}
+        return out;
+    }
+
+    private static void addSignerDigests(List<String> out, Signature[] sigs) {
+        if (sigs == null) return;
+        for (Signature sig : sigs) {
+            if (sig == null) continue;
+            String digest = sha256Bytes(sig.toByteArray());
+            if (!out.contains(digest)) out.add(digest);
+        }
+    }
+
+    static String getSigner(Context c, String pkg) {
+        List<String> digests = getSignerDigests(c, pkg);
+        return digests.isEmpty() ? null : digests.get(0);
+    }
+
+    static boolean packageInstalled(Context c, String pkg) {
+        try {
+            c.getPackageManager().getPackageInfo(pkg, 0);
+            return true;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    static boolean signerHistoryContains(Context c, String pkg, String expected) {
+        if (expected == null || expected.isEmpty()) return false;
+        for (String digest : getSignerDigests(c, pkg)) {
+            if (expected.equalsIgnoreCase(digest)) return true;
+        }
+        return false;
+    }
+
+    static String signerDiagnostics(Context c, String pkg) {
+        List<String> digests = getSignerDigests(c, pkg);
+        if (digests.isEmpty()) return "";
+        return String.join(",", digests);
     }
 
     static boolean verifyCore(Context c) {
-        String signer = getSigner(c, CORE_PACKAGE);
-        return signer != null && CORE_SIGNER.equalsIgnoreCase(signer);
+        return signerHistoryContains(c, CORE_PACKAGE, CORE_SIGNER);
     }
 
     static boolean isEmergencyStopped(Context c) {
@@ -96,22 +144,21 @@ final class BridgeSecurity {
     }
 
     static String approveInstalledPackage(Context c, String pkg) {
-        if (!isFixedApprovedPackage(pkg)) return null;
-        String signer = getSigner(c, pkg);
-        if (signer == null) return null;
+        if (!isFixedApprovedPackage(pkg) || !packageInstalled(c, pkg)) return null;
         String expected = CORE_PACKAGE.equals(pkg) ? CORE_SIGNER : WORKER_SIGNER;
-        if (!expected.equalsIgnoreCase(signer)) return null;
-        BridgeEvidenceStore.record(c, "VERIFY_FIXED_PACKAGE", "PASS", pkg + "|" + signer);
-        return signer;
+        if (!signerHistoryContains(c, pkg, expected)) return null;
+        String signer = getSigner(c, pkg);
+        BridgeEvidenceStore.record(c, "VERIFY_FIXED_PACKAGE", "PASS",
+                pkg + "|current=" + (signer == null ? "" : signer) + "|expected_in_lineage=true");
+        return signer == null ? expected : signer;
     }
 
     static boolean revokePackage(Context c, String pkg) { return false; }
 
     static boolean isPackageApproved(Context c, String pkg) {
-        if (!isFixedApprovedPackage(pkg)) return false;
-        String signer = getSigner(c, pkg);
-        if (signer == null) return false;
-        return (CORE_PACKAGE.equals(pkg) ? CORE_SIGNER : WORKER_SIGNER).equalsIgnoreCase(signer);
+        if (!isFixedApprovedPackage(pkg) || !packageInstalled(c, pkg)) return false;
+        String expected = CORE_PACKAGE.equals(pkg) ? CORE_SIGNER : WORKER_SIGNER;
+        return signerHistoryContains(c, pkg, expected);
     }
 
     static boolean isFixedApprovedPackage(String pkg) {
