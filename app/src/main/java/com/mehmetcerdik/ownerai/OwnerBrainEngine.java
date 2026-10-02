@@ -239,7 +239,7 @@ public final class OwnerBrainEngine {
         return x.contains("hatırla") || x.contains("unutma") || x.contains("remember");
     }
 
-    private static String normalizeCommandText(String input) {
+    static String normalizeCommandText(String input) {
         String stable = input == null ? "" : input
                 .replace('\u0130', 'i')
                 .replace('\u0131', 'i');
