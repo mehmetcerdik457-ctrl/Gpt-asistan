@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.graphics.Rect
 import android.os.Handler
 import android.os.Looper
 import android.widget.Button
@@ -203,10 +204,12 @@ class MainActivity : AppCompatActivity() {
             val signerMatch = BridgeClient.verifyBridge(appContext)
             val arm = BridgeClient.arm(appContext, 60_000L)
             var readOk = false
-            for (attempt in 0..4) {
+            // Emulator/UI focus can lag Accessibility connection by a few seconds.
+            // Keep this bounded and evidence-driven; never mark PASS without a real screen read.
+            for (attempt in 0..19) {
                 val read = BridgeClient.screenRead(appContext)
                 readOk = read.getBoolean("ok", false)
-                if (readOk || attempt >= 4) break
+                if (readOk || attempt >= 19) break
                 try {
                     Thread.sleep(250L)
                 } catch (_: InterruptedException) {
@@ -242,17 +245,25 @@ class MainActivity : AppCompatActivity() {
             setDebugStatus("DEBUG_SELF_TEST_TARGET_MISSING")
             return
         }
-        val location = IntArray(2)
-        target.getLocationOnScreen(location)
-        val x = location[0] + target.width / 2f
-        val y = location[1] + target.height / 2f
-        val tapAccepted = service.execute(PhoneActionType.TAP, x = x, y = y)
-        handler.postDelayed({
-            retryDebugAction(service, PhoneActionType.CLICK_TEXT, "SELF_TEST_TARGET", 0) {
-                retryDebugAction(service, PhoneActionType.SCROLL_FORWARD, null, 0) {}
-            }
-        }, 450)
-        setDebugStatus("DEBUG_SELF_TEST_STARTED tapAccepted=" + tapAccepted)
+        // SELF_TEST_TARGET lives inside a ScrollView. Ensure it is actually in the
+        // visible accessibility tree before exercising TAP/CLICK/SCROLL; otherwise
+        // a gesture may be accepted at an off-screen coordinate without hitting it.
+        target.post {
+            target.requestRectangleOnScreen(Rect(0, 0, target.width, target.height), true)
+            handler.postDelayed({
+                val location = IntArray(2)
+                target.getLocationOnScreen(location)
+                val x = location[0] + target.width / 2f
+                val y = location[1] + target.height / 2f
+                val tapAccepted = service.execute(PhoneActionType.TAP, x = x, y = y)
+                handler.postDelayed({
+                    retryDebugAction(service, PhoneActionType.CLICK_TEXT, "SELF_TEST_TARGET", 0) {
+                        retryDebugAction(service, PhoneActionType.SCROLL_FORWARD, null, 0) {}
+                    }
+                }, 450)
+                setDebugStatus("DEBUG_SELF_TEST_STARTED tapAccepted=" + tapAccepted)
+            }, 300)
+        }
     }
 
     private fun retryDebugAction(
