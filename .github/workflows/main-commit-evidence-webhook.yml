@@ -3,6 +3,8 @@ name: Main Commit Evidence Webhook
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -56,7 +58,7 @@ jobs:
           retention-days: 90
 
       - name: Deliver webhook when endpoint is configured
-        if: ${{ env.MEHMET_WEBHOOK_URL != '' }}
+        if: ${{ github.event_name == 'push' && env.MEHMET_WEBHOOK_URL != '' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -91,4 +93,6 @@ jobs:
             args+=( -H "X-MEHMET-Signature-256: ${SIGNATURE}" )
           fi
 
-          curl "${args[@]}"             --data-binary @evidence/main-commit.json             "${MEHMET_WEBHOOK_URL}"
+          curl "${args[@]}" \
+            --data-binary @evidence/main-commit.json \
+            "${MEHMET_WEBHOOK_URL}"
