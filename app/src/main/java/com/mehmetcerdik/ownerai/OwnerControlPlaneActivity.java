@@ -7,6 +7,10 @@ import android.content.pm.PackageManager;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.os.RemoteException;
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.security.MessageDigest;
+import java.util.Locale;
 import android.provider.Settings;
 import android.widget.Button;
 import android.widget.LinearLayout;
@@ -19,6 +23,9 @@ import rikka.shizuku.Shizuku;
 
 public final class OwnerControlPlaneActivity extends AppCompatActivity {
     private static final int SHIZUKU_PERMISSION_REQUEST = 5101;
+    private static final String EMBEDDED_BRIDGE_ASSET = "MEHMET_OWNER_BRIDGE_1.2.1_VC4_GEN2_SIGNED.apk";
+    private static final String EMBEDDED_BRIDGE_SHA256 = "b3d950746e92bf09fdb9730cbe1a7d770e7363a104852182cc3b1d80542b33b4";
+    private static final int MAX_EMBEDDED_BRIDGE_BYTES = 2 * 1024 * 1024;
 
     private TextView status;
     private TextView result;
@@ -36,10 +43,12 @@ public final class OwnerControlPlaneActivity extends AppCompatActivity {
             }
             IShizukuShellService service = IShizukuShellService.Stub.asInterface(binder);
             try {
-                String evidence = service.unlockBridgeAccessibility();
+                byte[] bridgeApk = readAndVerifyEmbeddedBridge();
+                String evidence = service.bootstrapBridge(bridgeApk);
                 result.setText(evidence);
-            } catch (RemoteException e) {
-                result.setText("SHIZUKU_REMOTE_ERROR: " + e.getClass().getSimpleName());
+            } catch (Throwable e) {
+                result.setText("ONE_TAP_BOOTSTRAP_ERROR:" + e.getClass().getSimpleName()
+                        + ":" + (e.getMessage() == null ? "" : e.getMessage()));
             } finally {
                 try {
                     Shizuku.unbindUserService(
@@ -93,10 +102,10 @@ public final class OwnerControlPlaneActivity extends AppCompatActivity {
         root.addView(access);
 
         Button shizukuUnlock = new Button(this);
-        shizukuUnlock.setText("Shizuku ile Bridge Kilidini Aç ve Accessibility'yi Etkinleştir");
+        shizukuUnlock.setText("TEK DOKUNUŞ KURULUM: Bridge 1.2.1 + İzinler");
         shizukuUnlock.setOnClickListener(v -> OwnerAuth.requireFresh(
                 this,
-                this::unlockBridgeAccessibilityWithShizuku,
+                this::bootstrapBridgeWithShizuku,
                 s -> result.setText(s)));
         root.addView(shizukuUnlock);
 
@@ -153,7 +162,7 @@ public final class OwnerControlPlaneActivity extends AppCompatActivity {
         }
     }
 
-    private void unlockBridgeAccessibilityWithShizuku() {
+    private void bootstrapBridgeWithShizuku() {
         try {
             ensureShizukuObjects();
             if (!Shizuku.pingBinder()) {
@@ -176,6 +185,34 @@ public final class OwnerControlPlaneActivity extends AppCompatActivity {
         } catch (Throwable t) {
             result.setText("SHIZUKU_UNAVAILABLE: " + t.getClass().getSimpleName());
         }
+    }
+
+    private byte[] readAndVerifyEmbeddedBridge() throws Exception {
+        try (InputStream in = getAssets().open(EMBEDDED_BRIDGE_ASSET);
+             ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            byte[] buffer = new byte[8192];
+            int total = 0;
+            for (int n; (n = in.read(buffer)) > 0; ) {
+                total += n;
+                if (total > MAX_EMBEDDED_BRIDGE_BYTES) {
+                    throw new SecurityException("EMBEDDED_BRIDGE_TOO_LARGE");
+                }
+                out.write(buffer, 0, n);
+            }
+            byte[] bytes = out.toByteArray();
+            String actual = sha256(bytes);
+            if (!EMBEDDED_BRIDGE_SHA256.equals(actual)) {
+                throw new SecurityException("EMBEDDED_BRIDGE_HASH_MISMATCH");
+            }
+            return bytes;
+        }
+    }
+
+    private static String sha256(byte[] bytes) throws Exception {
+        byte[] digest = MessageDigest.getInstance("SHA-256").digest(bytes);
+        StringBuilder out = new StringBuilder();
+        for (byte b : digest) out.append(String.format(Locale.ROOT, "%02x", b & 0xff));
+        return out.toString();
     }
 
     private void bindShizukuUnlockService() {
