@@ -10,6 +10,7 @@
   <queries>
     <package android:name="com.codespaceapps.aichat" />
     <package android:name="com.mehmetcerdik.ownerbridge" />
+    <package android:name="moe.shizuku.privileged.api" />
     <provider android:authorities="com.mehmetcerdik.ownerbridge.control" />
   </queries>
 
@@ -19,6 +20,13 @@
     android:label="@string/app_name"
     android:supportsRtl="true"
     android:theme="@style/Theme.GPTAsistan">
+    <provider
+      android:name="rikka.shizuku.ShizukuProvider"
+      android:authorities="${applicationId}.shizuku"
+      android:multiprocess="false"
+      android:enabled="true"
+      android:exported="true"
+      android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
     <activity android:name=".MainActivity" android:exported="true">
       <intent-filter>
         <action android:name="android.intent.action.MAIN" />
