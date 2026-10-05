@@ -298,8 +298,30 @@ for attempt in 1 2 3 4 5; do
   sleep 1
 done
 
-# Do not force-stop here: on Android 14 the force-stop can tear down the
-# freshly consented accessibility service and clear the enabled-service state.
+# Emulator system UI can occasionally leave a launcher ANR dialog over the
+# target app. Clear only launcher/system blockers before the deterministic
+# self-test; never force-stop the Owner or Bridge accessibility services.
+QEMU="$(adb shell getprop ro.kernel.qemu | tr -d "\r")"
+if [[ "${QEMU}" == "1" ]]; then
+  {
+    adb shell am force-stop com.google.android.apps.nexuslauncher || true
+    adb shell am force-stop com.android.launcher3 || true
+  } > "${EVIDENCE_DIR}/system-blocker-cleanup.txt" 2>&1
+  for attempt in 1 2 3; do
+    if tap_text_once "Wait"; then
+      echo "dismissed=Wait" >> "${EVIDENCE_DIR}/system-blocker-cleanup.txt"
+      continue
+    fi
+    if tap_text_once "Close app"; then
+      echo "dismissed=Close app" >> "${EVIDENCE_DIR}/system-blocker-cleanup.txt"
+      continue
+    fi
+    break
+  done
+fi
+
+# Do not force-stop Owner here: on Android 14 it can tear down the freshly
+# consented accessibility service and clear the enabled-service state.
 adb shell am start -W -n "${MAIN_ACTIVITY}" --ez emulator_self_test true | tee "${EVIDENCE_DIR}/am-start.txt"
 sleep 2
 
