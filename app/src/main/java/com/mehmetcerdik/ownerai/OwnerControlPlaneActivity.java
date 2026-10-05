@@ -1,7 +1,12 @@
 package com.mehmetcerdik.ownerai;
 
+import android.content.ComponentName;
 import android.content.Intent;
+import android.content.ServiceConnection;
+import android.content.pm.PackageManager;
 import android.os.Bundle;
+import android.os.IBinder;
+import android.os.RemoteException;
 import android.provider.Settings;
 import android.widget.Button;
 import android.widget.LinearLayout;
@@ -10,12 +15,61 @@ import android.widget.TextView;
 
 import androidx.appcompat.app.AppCompatActivity;
 
+import rikka.shizuku.Shizuku;
+
 public final class OwnerControlPlaneActivity extends AppCompatActivity {
+    private static final int SHIZUKU_PERMISSION_REQUEST = 5101;
+
     private TextView status;
     private TextView result;
 
+    private final Shizuku.OnRequestPermissionResultListener shizukuPermissionListener =
+            this::onShizukuPermissionResult;
+
+    private final Shizuku.UserServiceArgs shizukuServiceArgs =
+            new Shizuku.UserServiceArgs(
+                    new ComponentName(
+                            "com.mehmetcerdik.ownerai",
+                            ShizukuShellService.class.getName()))
+                    .daemon(false)
+                    .processNameSuffix("restricted_settings_unlock")
+                    .debuggable(false)
+                    .version(1);
+
+    private final ServiceConnection shizukuServiceConnection = new ServiceConnection() {
+        @Override
+        public void onServiceConnected(ComponentName name, IBinder binder) {
+            if (binder == null || !binder.pingBinder()) {
+                result.setText("SHIZUKU_USER_SERVICE_INVALID_BINDER");
+                return;
+            }
+            IShizukuShellService service = IShizukuShellService.Stub.asInterface(binder);
+            try {
+                String evidence = service.unlockBridgeAccessibility();
+                result.setText(evidence);
+            } catch (RemoteException e) {
+                result.setText("SHIZUKU_REMOTE_ERROR: " + e.getClass().getSimpleName());
+            } finally {
+                try {
+                    Shizuku.unbindUserService(
+                            shizukuServiceArgs,
+                            shizukuServiceConnection,
+                            true);
+                } catch (Throwable ignored) {
+                }
+            }
+            status.postDelayed(() -> OwnerControlPlaneActivity.this.refresh(), 1000L);
+        }
+
+        @Override
+        public void onServiceDisconnected(ComponentName name) {
+        }
+    };
+
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
+        Shizuku.addRequestPermissionResultListener(shizukuPermissionListener);
+
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         int p = (int)(16 * getResources().getDisplayMetrics().density);
@@ -48,6 +102,14 @@ public final class OwnerControlPlaneActivity extends AppCompatActivity {
                 s -> result.setText(s)));
         root.addView(access);
 
+        Button shizukuUnlock = new Button(this);
+        shizukuUnlock.setText("Shizuku ile Bridge Kilidini Aç ve Accessibility'yi Etkinleştir");
+        shizukuUnlock.setOnClickListener(v -> OwnerAuth.requireFresh(
+                this,
+                this::unlockBridgeAccessibilityWithShizuku,
+                s -> result.setText(s)));
+        root.addView(shizukuUnlock);
+
         Button arm = new Button(this);
         arm.setText("Secure Session ile Bridge'i Kısa Süreli Arm Et");
         arm.setOnClickListener(v -> OwnerAuth.requireFresh(this, () -> {
@@ -77,9 +139,56 @@ public final class OwnerControlPlaneActivity extends AppCompatActivity {
         redactUnlessAuthorized();
     }
 
+    @Override protected void onDestroy() {
+        Shizuku.removeRequestPermissionResultListener(shizukuPermissionListener);
+        super.onDestroy();
+    }
+
     @Override protected void onResume() {
         super.onResume();
         redactUnlessAuthorized();
+    }
+
+    private void onShizukuPermissionResult(int requestCode, int grantResult) {
+        if (requestCode != SHIZUKU_PERMISSION_REQUEST) return;
+        if (grantResult == PackageManager.PERMISSION_GRANTED) {
+            bindShizukuUnlockService();
+        } else {
+            result.setText("SHIZUKU_PERMISSION_DENIED");
+        }
+    }
+
+    private void unlockBridgeAccessibilityWithShizuku() {
+        try {
+            if (!Shizuku.pingBinder()) {
+                result.setText("SHIZUKU_NOT_RUNNING");
+                return;
+            }
+            if (Shizuku.isPreV11()) {
+                result.setText("SHIZUKU_PRE_V11_UNSUPPORTED");
+                return;
+            }
+            if (Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED) {
+                bindShizukuUnlockService();
+                return;
+            }
+            if (Shizuku.shouldShowRequestPermissionRationale()) {
+                result.setText("SHIZUKU_PERMISSION_DENIED_DONT_ASK");
+                return;
+            }
+            Shizuku.requestPermission(SHIZUKU_PERMISSION_REQUEST);
+        } catch (Throwable t) {
+            result.setText("SHIZUKU_UNAVAILABLE: " + t.getClass().getSimpleName());
+        }
+    }
+
+    private void bindShizukuUnlockService() {
+        try {
+            result.setText("SHIZUKU_UNLOCK_RUNNING");
+            Shizuku.bindUserService(shizukuServiceArgs, shizukuServiceConnection);
+        } catch (Throwable t) {
+            result.setText("SHIZUKU_BIND_FAILED: " + t.getClass().getSimpleName());
+        }
     }
 
     private void redactUnlessAuthorized() {
