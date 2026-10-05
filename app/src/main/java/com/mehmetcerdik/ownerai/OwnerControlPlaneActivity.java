@@ -23,18 +23,9 @@ public final class OwnerControlPlaneActivity extends AppCompatActivity {
     private TextView status;
     private TextView result;
 
-    private final Shizuku.OnRequestPermissionResultListener shizukuPermissionListener =
-            this::onShizukuPermissionResult;
-
-    private final Shizuku.UserServiceArgs shizukuServiceArgs =
-            new Shizuku.UserServiceArgs(
-                    new ComponentName(
-                            "com.mehmetcerdik.ownerai",
-                            ShizukuShellService.class.getName()))
-                    .daemon(false)
-                    .processNameSuffix("restricted_settings_unlock")
-                    .debuggable(false)
-                    .version(1);
+    private Shizuku.OnRequestPermissionResultListener shizukuPermissionListener;
+    private Shizuku.UserServiceArgs shizukuServiceArgs;
+    private boolean shizukuListenerRegistered;
 
     private final ServiceConnection shizukuServiceConnection = new ServiceConnection() {
         @Override
@@ -68,7 +59,6 @@ public final class OwnerControlPlaneActivity extends AppCompatActivity {
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
-        Shizuku.addRequestPermissionResultListener(shizukuPermissionListener);
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -140,7 +130,12 @@ public final class OwnerControlPlaneActivity extends AppCompatActivity {
     }
 
     @Override protected void onDestroy() {
-        Shizuku.removeRequestPermissionResultListener(shizukuPermissionListener);
+        if (shizukuListenerRegistered && shizukuPermissionResultListenerReady()) {
+            try {
+                Shizuku.removeRequestPermissionResultListener(shizukuPermissionListener);
+            } catch (Throwable ignored) {
+            }
+        }
         super.onDestroy();
     }
 
@@ -160,6 +155,7 @@ public final class OwnerControlPlaneActivity extends AppCompatActivity {
 
     private void unlockBridgeAccessibilityWithShizuku() {
         try {
+            ensureShizukuObjects();
             if (!Shizuku.pingBinder()) {
                 result.setText("SHIZUKU_NOT_RUNNING");
                 return;
@@ -184,11 +180,36 @@ public final class OwnerControlPlaneActivity extends AppCompatActivity {
 
     private void bindShizukuUnlockService() {
         try {
+            ensureShizukuObjects();
             result.setText("SHIZUKU_UNLOCK_RUNNING");
             Shizuku.bindUserService(shizukuServiceArgs, shizukuServiceConnection);
         } catch (Throwable t) {
             result.setText("SHIZUKU_BIND_FAILED: " + t.getClass().getSimpleName());
         }
+    }
+
+    private void ensureShizukuObjects() {
+        if (shizukuServiceArgs == null) {
+            shizukuServiceArgs = new Shizuku.UserServiceArgs(
+                    new ComponentName(
+                            getPackageName(),
+                            ShizukuShellService.class.getName()))
+                    .daemon(false)
+                    .processNameSuffix("restricted_settings_unlock")
+                    .debuggable(false)
+                    .version(1);
+        }
+        if (shizukuPermissionListener == null) {
+            shizukuPermissionListener = this::onShizukuPermissionResult;
+        }
+        if (!shizukuListenerRegistered) {
+            Shizuku.addRequestPermissionResultListener(shizukuPermissionListener);
+            shizukuListenerRegistered = true;
+        }
+    }
+
+    private boolean shizukuPermissionResultListenerReady() {
+        return shizukuPermissionListener != null;
     }
 
     private void redactUnlessAuthorized() {
@@ -202,7 +223,12 @@ public final class OwnerControlPlaneActivity extends AppCompatActivity {
     }
 
     private void refresh() {
-        show(BridgeClient.status(this));
+        try {
+            show(BridgeClient.status(this));
+        } catch (Throwable t) {
+            status.setText("CONTROL_PLANE_STATUS_ERROR");
+            result.setText("CONTROL_PLANE_STATUS_ERROR:" + t.getClass().getSimpleName());
+        }
     }
 
     private void show(Bundle b) {
