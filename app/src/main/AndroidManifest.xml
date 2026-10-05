@@ -21,7 +21,7 @@
     android:supportsRtl="true"
     android:theme="@style/Theme.GPTAsistan">
     <provider
-      android:name="rikka.shizuku.ShizukuProvider"
+      android:name="com.mehmetcerdik.ownerai.OwnerShizukuProvider"
       android:authorities="${applicationId}.shizuku"
       android:multiprocess="false"
       android:enabled="true"
