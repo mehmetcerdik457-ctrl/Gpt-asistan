@@ -166,7 +166,12 @@ public final class OwnerControlPlaneActivity extends AppCompatActivity {
         try {
             ensureShizukuObjects();
             if (!Shizuku.pingBinder()) {
-                result.setText("SHIZUKU_NOT_RUNNING");
+                try {
+                    Intent launch = getPackageManager().getLaunchIntentForPackage("moe.shizuku.privileged.api");
+                    if (launch != null) startActivity(launch);
+                } catch (Throwable ignored) {
+                }
+                result.setText("SHIZUKU_NOT_RUNNING_OPENED_IF_AVAILABLE");
                 return;
             }
             if (Shizuku.isPreV11()) {
