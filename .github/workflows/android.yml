@@ -1,4 +1,4 @@
-name: Hardened Owner 1.5.2 Shizuku Build
+name: Hardened Owner 1.5.3 One-Tap Build
 
 on:
   push:
@@ -51,8 +51,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          grep -q 'versionCode = 10' app/build.gradle.kts
-          grep -q 'versionName = "1.5.2"' app/build.gradle.kts
+          grep -q 'versionCode = 11' app/build.gradle.kts
+          grep -q 'versionName = "1.5.3"' app/build.gradle.kts
           grep -q 'isDebuggable = false' app/build.gradle.kts
           grep -q 'android:allowBackup="false"' app/src/main/AndroidManifest.xml
           grep -q 'android:usesCleartextTraffic="false"' app/src/main/AndroidManifest.xml
@@ -116,7 +116,7 @@ jobs:
           AAPT="${BUILD_TOOLS}/aapt"
           ZIPALIGN="${BUILD_TOOLS}/zipalign"
 
-          OWNER_ALIGNED="hardened-evidence/MEHMET_OWNER_COMPANION_1.5.2_VC10_UNSIGNED_ALIGNED.apk"
+          OWNER_ALIGNED="hardened-evidence/MEHMET_OWNER_COMPANION_1.5.3_VC11_UNSIGNED_ALIGNED.apk"
           BRIDGE_ALIGNED="hardened-evidence/MEHMET_OWNER_BRIDGE_1.2.1_VC4_UNSIGNED_ALIGNED.apk"
           "${ZIPALIGN}" -f -p 4 "${OWNER_APK}" "${OWNER_ALIGNED}"
           "${ZIPALIGN}" -f -p 4 "${BRIDGE_APK}" "${BRIDGE_ALIGNED}"
@@ -129,8 +129,8 @@ jobs:
           "${AAPT}" dump xmltree "${BRIDGE_ALIGNED}" AndroidManifest.xml > hardened-evidence/bridge-manifest-tree.txt
 
           grep -q "package: name='com.mehmetcerdik.ownerai'" hardened-evidence/owner-badging.txt
-          grep -q "versionCode='10'" hardened-evidence/owner-badging.txt
-          grep -q "versionName='1.5.2'" hardened-evidence/owner-badging.txt
+          grep -q "versionCode='11'" hardened-evidence/owner-badging.txt
+          grep -q "versionName='1.5.3'" hardened-evidence/owner-badging.txt
           ! grep -q "application-debuggable" hardened-evidence/owner-badging.txt
           ! grep -q "PhoneAgentAccessibilityService" hardened-evidence/owner-manifest-tree.txt
 
@@ -152,8 +152,8 @@ jobs:
             "git_head": "${HEAD_SHA}",
             "owner": {
               "package": "com.mehmetcerdik.ownerai",
-              "version_name": "1.5.2",
-              "version_code": 10,
+              "version_name": "1.5.3",
+              "version_code": 11,
               "unsigned_aligned_sha256": "${OWNER_HASH}",
               "expected_production_signer_sha256": "279084a36b7c17a1663bfba5fe1c5bdac974f8ef4ce56b21000d882493e39448"
             },
@@ -178,7 +178,7 @@ jobs:
           import json
           from pathlib import Path
           manifest = json.loads(Path("hardened-evidence/release-manifest.json").read_text())
-          assert (manifest["owner"]["version_name"], manifest["owner"]["version_code"]) == ("1.5.2", 10)
+          assert (manifest["owner"]["version_name"], manifest["owner"]["version_code"]) == ("1.5.3", 11)
           assert (manifest["bridge"]["version_name"], manifest["bridge"]["version_code"]) == ("1.2.1", 4)
           assert manifest["git_head"] == Path("/tmp/android-exact-head.txt").read_text().split("actual_sha=", 1)[1].strip()
           PY
@@ -187,6 +187,6 @@ jobs:
       - name: Upload hardened unsigned release and evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4.6.2
         with:
-          name: hardened-owner-1-5-2-shizuku-release-evidence
+          name: hardened-owner-1-5-3-one-tap-release-evidence
           path: hardened-evidence/
           if-no-files-found: error
