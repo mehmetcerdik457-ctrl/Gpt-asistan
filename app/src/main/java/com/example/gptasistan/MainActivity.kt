@@ -43,7 +43,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         container.addView(TextView(this).apply {
-            text = "MEHMET Owner Companion · Hardened 1.5.1"
+            text = "MEHMET Owner Companion · Hardened ${BuildConfig.VERSION_NAME}"
             textSize = 20f
         })
         statusView = TextView(this).apply {
@@ -316,7 +316,7 @@ class MainActivity : AppCompatActivity() {
         val signerHash = signerSha256()
         val signerMatch = signerHash.equals(BuildConfig.EXPECTED_SIGNER_SHA256, ignoreCase = true)
         val packageMatch = packageName == "com.mehmetcerdik.ownerai"
-        val versionMatch = versionCode == 9L && info.versionName == "1.5.1"
+        val versionMatch = versionCode == BuildConfig.VERSION_CODE.toLong() && info.versionName == BuildConfig.VERSION_NAME
         val artifactPostcondition = if (
             apkHash.matches(Regex("^[0-9a-f]{64}$")) && signerMatch && packageMatch && versionMatch
         ) "PASS" else "FAIL"
