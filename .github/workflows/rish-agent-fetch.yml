@@ -1,0 +1,29 @@
+name: Verify rish-mcp Android agent
+
+on:
+  push:
+    branches:
+      - tooling/rish-agent-fetch-20261006
+
+permissions:
+  contents: read
+
+jobs:
+  verify-agent:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Fetch exact upstream preview APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3             https://github.com/turin-dev/rish-mcp/releases/download/agent-v0.1.0/rish-mcp-agent-0.1.0.apk             -o rish-mcp-agent-0.1.0.apk
+          echo "210fb90f4abcdf37b8483e3df4144c40edb9f173ff5cdfbc7ce7c35338162220  rish-mcp-agent-0.1.0.apk" | sha256sum -c -
+          stat -c '%s' rish-mcp-agent-0.1.0.apk
+
+      - name: Upload verified APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: rish-mcp-agent-0.1.0-verified
+          path: rish-mcp-agent-0.1.0.apk
+          if-no-files-found: error
