@@ -14,13 +14,13 @@ android {
     applicationId = "com.mehmetcerdik.ownerai"
     minSdk = 24
     targetSdk = 35
-    versionCode = 9
-    versionName = "1.5.1"
+    versionCode = 10
+    versionName = "1.5.2"
     buildConfigField("String", "BUILD_GIT_SHA", "\"$gitSha\"")
     buildConfigField("String", "EXPECTED_SIGNER_SHA256", "\"$expectedSignerSha256\"")
     buildConfigField("String", "PRODUCTION_SIGNER_SHA256", "\"$productionSignerSha256\"")
   }
-  buildFeatures { buildConfig = true }
+  buildFeatures {\n    buildConfig = true\n    aidl = true\n  }
   compileOptions {
     sourceCompatibility = JavaVersion.VERSION_17
     targetCompatibility = JavaVersion.VERSION_17
@@ -42,6 +42,8 @@ dependencies {
   implementation("androidx.appcompat:appcompat:1.7.0")
   implementation("androidx.biometric:biometric:1.1.0")
   implementation("com.google.android.material:material:1.12.0")
+  implementation("dev.rikka.shizuku:api:13.1.5")
+  implementation("dev.rikka.shizuku:provider:13.1.5")
   testImplementation("junit:junit:4.13.2")
   testImplementation("org.json:json:20240303")
 }
