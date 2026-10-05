@@ -20,7 +20,10 @@ android {
     buildConfigField("String", "EXPECTED_SIGNER_SHA256", "\"$expectedSignerSha256\"")
     buildConfigField("String", "PRODUCTION_SIGNER_SHA256", "\"$productionSignerSha256\"")
   }
-  buildFeatures {\n    buildConfig = true\n    aidl = true\n  }
+  buildFeatures {
+    buildConfig = true
+    aidl = true
+  }
   compileOptions {
     sourceCompatibility = JavaVersion.VERSION_17
     targetCompatibility = JavaVersion.VERSION_17
