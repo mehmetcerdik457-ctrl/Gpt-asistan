@@ -1,9 +1,6 @@
 name: Diagnose Owner Bridge Pair Android 15
 
 on:
-  push:
-    branches:
-      - diagnostic/owner-bridge-pair-api35-20260924
   workflow_dispatch:
 
 permissions:
