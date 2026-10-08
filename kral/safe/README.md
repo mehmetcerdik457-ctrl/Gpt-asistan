@@ -92,3 +92,12 @@ Son konuşma bağlamının modele gönderilen miktarı \`KRAL_CONTEXT_TURNS\` il
 - AI sağlayıcısı yapılandırılmamışsa uygulama fail-closed olur.
 - Yerel hafıza public repository içine yazılmaz.
 - Hiçbir ücretli plan, trial veya GPU otomatik başlatılmaz.
+
+
+## Çoklu model ekibi
+
+`./kral-ai --fleet-config /özel/dizin/fleet.json --fleet "Görevin" --task general`
+ile yapılandırılmış modellerin paralel görüşlerini bir koordinatörde birleştir.
+Model listesi, bağlantı denetimi, kaynak sınırları ve kanıtların anlamı için
+[model ekibi kılavuzuna](../../docs/MODEL_FLEET.md) bak.
+Bu özellik gerçek model sunucularının ayrıca kurulmasını gerektirir.

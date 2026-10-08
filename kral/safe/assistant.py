@@ -288,7 +288,31 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Kral Asistan private AI console")
     parser.add_argument("--ask", help="Tek seferlik prompt")
     parser.add_argument("--status", action="store_true", help="Secret değerlerini göstermeden durum")
+    parser.add_argument("--fleet-config", help="Model ekibi JSON yapılandırması")
+    parser.add_argument("--fleet", help="Model ekibine tek seferlik görev")
+    parser.add_argument("--task", choices=["general", "code", "research", "writing"], default="general")
+    parser.add_argument("--models", action="store_true", help="Yapılandırılmış model listesi")
+    parser.add_argument("--probe-models", action="store_true", help="Sunucularda model listesini kontrol et")
     args = parser.parse_args()
+    if args.fleet is not None or args.models or args.probe_models:
+        from fleet import FleetError, inventory, load_config, run
+        path = args.fleet_config or os.getenv("KRAL_FLEET_CONFIG")
+        if not path:
+            parser.error("--fleet-config veya KRAL_FLEET_CONFIG gerekli")
+        if sum([args.fleet is not None, args.models, args.probe_models]) != 1 or args.ask is not None or args.status:
+            parser.error("Tek bir işlem seç: --fleet, --models veya --probe-models")
+        try:
+            config = load_config(path)
+            if args.fleet is not None:
+                report = run(config, args.fleet, args.task)
+                print(json.dumps(report, ensure_ascii=False, indent=2))
+                return {"success": 0, "partial": 3, "failed": 2}[report["status"]]
+            rows = inventory(config, probe=args.probe_models)
+            print(json.dumps(rows, ensure_ascii=False, indent=2))
+            return 2 if args.probe_models and any(r["status"] != "listed" for r in rows) else 0
+        except FleetError as exc:
+            print(f"HATA: {exc}", file=sys.stderr)
+            return 2
     if args.status:
         print_status()
         return 0
