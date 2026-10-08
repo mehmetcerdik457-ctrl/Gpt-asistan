@@ -48,3 +48,14 @@ Offline API tests:
 Android CI builds the APK on the PR. A successful Gradle build validates compilation
 only; installing, logging in, sending a real question and receiving a model answer
 are separate gates with separate evidence.
+
+## Multiple model specialist mode
+
+Android offers a **Tek model / Uzman ekip** selector and a task category.
+In Uzman ekip mode the backend uses the existing bounded Python model
+council from kral/safe/fleet.py. To enable it, point KRAL_FLEET_CONFIG to a
+**private** JSON fleet definition (see docs/MODEL_FLEET.md). A missing or
+unavailable council causes HTTP 503, not a fabricated reply. Every selected
+specialist can receive the task input and configured coordinators receive
+specialist opinions: send only data approved for those providers.
+A fleet response means text inference, not verified research or tool execution.

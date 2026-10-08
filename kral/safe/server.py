@@ -15,6 +15,17 @@ from urllib.parse import urlsplit
 
 from assistant import ask_model
 
+def run_fleet(prompt, task):
+    from fleet import load_config, run
+    path = os.environ.get("KRAL_FLEET_CONFIG")
+    if not path:
+        raise RuntimeError("fleet_not_configured")
+    report = run(load_config(path), prompt, task)
+    if not report.get("answer"):
+        raise RuntimeError("fleet_failed")
+    return report["answer"], "fleet", report.get("coordinator", "unknown")
+
+
 MAX_REQUEST_BYTES = 16_384
 MAX_RESPONSE_BYTES = 256_000
 
@@ -38,6 +49,8 @@ class OwnerHandler(BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Cache-Control", "no-store")
+        self.send_header("Connection", "close")
+        self.close_connection = True
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Content-Length", str(len(raw)))
         self.end_headers()
@@ -76,7 +89,16 @@ class OwnerHandler(BaseHTTPRequestHandler):
         except (ValueError, UnicodeError):
             self.respond(400, {"error": "invalid_json"})
             return
-        if not isinstance(body, dict) or set(body) != {"prompt"}:
+        if (not isinstance(body, dict) or "prompt" not in body
+                or set(body) - {"prompt", "mode", "task"}):
+            self.respond(400, {"error": "prompt_required"})
+            return
+        mode = body.get("mode", "single")
+        task = body.get("task", "general")
+        if mode not in ("single", "fleet") or task not in ("general", "code", "research", "writing"):
+            self.respond(400, {"error": "invalid_route"})
+            return
+        if "prompt" not in body:
             self.respond(400, {"error": "prompt_required"})
             return
         prompt = body["prompt"]
@@ -87,7 +109,8 @@ class OwnerHandler(BaseHTTPRequestHandler):
             self.respond(429, {"error": "server_busy"})
             return
         try:
-            answer, provider, model = self.server.answer(prompt)
+            answer, provider, model = (self.server.fleet_answer(prompt, task) if mode == "fleet"
+                                       else self.server.answer(prompt))
             self.respond(200, {"answer": answer, "provider": provider, "model": model})
         except (RuntimeError, ValueError):
             # Provider error bodies and environment details are never exposed.
@@ -98,7 +121,7 @@ class OwnerHandler(BaseHTTPRequestHandler):
             self.server.capacity.release()
 
 
-def make_server(host="127.0.0.1", port=8765, token=None, answer=None, remote=False):
+def make_server(host="127.0.0.1", port=8765, token=None, answer=None, remote=False, fleet_answer=None):
     key = token if token is not None else os.environ.get("KRAL_OWNER_TOKEN", "")
     if not isinstance(key, str) or len(key) < 32 or len(key) > 512:
         raise ValueError("KRAL_OWNER_TOKEN must be a strong 32-512 character secret")
@@ -109,6 +132,7 @@ def make_server(host="127.0.0.1", port=8765, token=None, answer=None, remote=Fal
     httpd = OwnerHTTPServer((host, port), OwnerHandler)
     httpd.owner_token = key
     httpd.answer = answer or ask_model
+    httpd.fleet_answer = fleet_answer or run_fleet
     httpd.capacity = BoundedSemaphore(4)
     return httpd
 

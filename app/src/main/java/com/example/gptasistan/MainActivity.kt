@@ -3,6 +3,8 @@ package com.example.gptasistan
 import android.os.Bundle
 import android.text.InputType
 import android.view.ViewGroup
+import android.widget.ArrayAdapter
+import android.widget.Spinner
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -20,6 +22,8 @@ class MainActivity : AppCompatActivity() {
     private val executor = Executors.newSingleThreadExecutor()
     private lateinit var address: EditText
     private lateinit var token: EditText
+    private lateinit var mode: Spinner
+    private lateinit var task: Spinner
     private lateinit var prompt: EditText
     private lateinit var result: TextView
     private lateinit var send: Button
@@ -51,6 +55,18 @@ class MainActivity : AppCompatActivity() {
         token = field("Owner oturum anahtarı").apply {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
         }
+        mode = Spinner(this).apply {
+            adapter = ArrayAdapter(
+                this@MainActivity, android.R.layout.simple_spinner_dropdown_item,
+                arrayOf("Tek model", "Uzman ekip (fleet)")
+            )
+        }
+        task = Spinner(this).apply {
+            adapter = ArrayAdapter(
+                this@MainActivity, android.R.layout.simple_spinner_dropdown_item,
+                arrayOf("Genel", "Kod", "Araştırma", "Yazı")
+            )
+        }
         prompt = field("Yapay zekâya sor", 4)
         send = Button(this).apply { text = "Gönder" }
         result = TextView(this).apply {
@@ -61,6 +77,8 @@ class MainActivity : AppCompatActivity() {
         column.addView(heading)
         column.addView(address)
         column.addView(token)
+        column.addView(mode)
+        column.addView(task)
         column.addView(prompt)
         column.addView(send)
         column.addView(result)
@@ -76,6 +94,8 @@ class MainActivity : AppCompatActivity() {
         val endpoint = address.text.toString().trim().trimEnd('/')
         val accessKey = token.text.toString()
         val question = prompt.text.toString().trim()
+        val selectedMode = if (mode.selectedItemPosition == 1) "fleet" else "single"
+        val selectedTask = arrayOf("general", "code", "research", "writing")[task.selectedItemPosition]
         val url = try { URL(endpoint) } catch (_: Exception) { null }
         if (url == null || url.protocol != "https" || url.host.isNullOrBlank() ||
             url.userInfo != null || url.query != null || url.ref != null ||
@@ -97,7 +117,8 @@ class MainActivity : AppCompatActivity() {
                     connection.setRequestProperty("Accept", "application/json")
                     connection.instanceFollowRedirects = false
                     connection.doOutput = true
-                    val body = JSONObject().put("prompt", question).toString().toByteArray(Charsets.UTF_8)
+                    val body = JSONObject().put("prompt", question).put("mode", selectedMode)
+                        .put("task", selectedTask).toString().toByteArray(Charsets.UTF_8)
                     if (body.size > 16_384) throw IllegalArgumentException("Soru çok uzun")
                     connection.outputStream.use { it.write(body) }
                     val status = connection.responseCode

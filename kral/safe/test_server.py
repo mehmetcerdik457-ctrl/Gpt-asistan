@@ -71,6 +71,26 @@ class OwnerApiTests(unittest.TestCase):
                 self.assertEqual(status, expected)
         self.assertEqual(self.seen, [])
 
+    def test_fleet_route(self):
+        self.srv.fleet_answer = lambda prompt, task: ("council:" + task, "fleet", "reviewer")
+        status, value, _ = self.call(
+            "POST", "/v1/ask",
+            json.dumps({"prompt": "Test", "mode": "fleet", "task": "code"}),
+            "Bearer " + TOKEN,
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(value, {
+            "answer": "council:code", "provider": "fleet", "model": "reviewer"
+        })
+        self.assertEqual(self.seen, [])
+
+    def test_invalid_routing(self):
+        for mode, task in [("admin", "code"), ("fleet", "unknown"), (1, "code")]:
+            body = json.dumps({"prompt": "x", "mode": mode, "task": task})
+            status, _, _ = self.call("POST", "/v1/ask", body, "Bearer " + TOKEN)
+            self.assertEqual(status, 400)
+        self.assertEqual(self.seen, [])
+
     def test_health_and_unknown_path(self):
         self.assertEqual(self.call("GET", "/health")[0], 200)
         self.assertEqual(self.call("GET", "/missing")[0], 404)
