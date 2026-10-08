@@ -49,7 +49,7 @@ class MainActivity : AppCompatActivity() {
             text = "MEHMET AI — Owner Client"
             textSize = 22f
         }
-        address = field("Sunucu kökü: https://ai.example.com").apply {
+        address = field("Owner API HTTPS kökü (PWA adresi değil)").apply {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
         }
         token = field("Owner oturum anahtarı").apply {
@@ -69,8 +69,9 @@ class MainActivity : AppCompatActivity() {
         }
         prompt = field("Yapay zekâya sor", 4)
         send = Button(this).apply { text = "Gönder" }
+        val checkConnection = Button(this).apply { text = "Owner API bağlantısını kontrol et" }
         result = TextView(this).apply {
-            text = "Bağlantı için kendi HTTPS sunucunuzu ve oturum anahtarınızı girin. Bilgiler telefona kaydedilmez."
+            text = "Bu istemci /v1/ask Bearer API kullanır; Railway PWA kullanıcı adı/şifresi bu alanlara ait değildir. Anahtar telefona kaydedilmez. /health testi model yanıtını doğrulamaz."
             textSize = 16f
             setTextIsSelectable(true)
         }
@@ -81,6 +82,7 @@ class MainActivity : AppCompatActivity() {
         column.addView(task)
         column.addView(prompt)
         column.addView(send)
+        column.addView(checkConnection)
         column.addView(result)
         val scroll = ScrollView(this)
         scroll.addView(column, ViewGroup.LayoutParams(
@@ -88,18 +90,84 @@ class MainActivity : AppCompatActivity() {
         ))
         setContentView(scroll)
         send.setOnClickListener { sendPrompt() }
+        checkConnection.setOnClickListener { checkOwnerApiHealth(checkConnection) }
+    }
+
+
+    private fun ownerRoot(): String? {
+        val candidate = address.text.toString().trim().trimEnd('/')
+        val parsed = try { URL(candidate) } catch (_: Exception) { return null }
+        if (parsed.protocol != "https" || parsed.host.isBlank() ||
+            parsed.userInfo != null || parsed.query != null || parsed.ref != null ||
+            (parsed.path.isNotEmpty() && parsed.path != "/")) {
+            return null
+        }
+        return candidate
+    }
+
+    /** An unauthenticated liveness probe only; never sends the owner token. */
+    private fun checkOwnerApiHealth(button: Button) {
+        val endpoint = ownerRoot()
+        if (endpoint == null) {
+            result.text = "Geçerli HTTPS Owner API kökü girin; PWA adresini burada kullanmayın."
+            return
+        }
+        button.isEnabled = false
+        result.text = "Owner API /health kontrol ediliyor (anahtar gönderilmiyor)..."
+        executor.execute {
+            val output = try {
+                val connection = URL("$endpoint/health").openConnection() as HttpURLConnection
+                try {
+                    connection.requestMethod = "GET"
+                    connection.connectTimeout = 10_000
+                    connection.readTimeout = 10_000
+                    connection.instanceFollowRedirects = false
+                    connection.setRequestProperty("Accept", "application/json")
+                    when (val status = connection.responseCode) {
+                        200 -> {
+                            val payload = ByteArrayOutputStream()
+                            connection.inputStream.use { stream ->
+                                val buffer = ByteArray(512)
+                                while (true) {
+                                    val n = stream.read(buffer)
+                                    if (n < 0) break
+                                    if (payload.size() + n > 4_096) {
+                                        throw IllegalStateException("health_response_too_large")
+                                    }
+                                    payload.write(buffer, 0, n)
+                                }
+                            }
+                            val mediaType = connection.contentType.orEmpty().substringBefore(';').trim()
+                            val alive = mediaType.equals("application/json", ignoreCase = true) &&
+                                JSONObject(payload.toString("UTF-8")).optString("status") == "alive"
+                            if (alive) "OWNER_API_HEALTH=OBSERVED. Sunucu canlı; model ve kimlik doğrulaması henüz test edilmedi."
+                            else "Bu adres beklenen Owner API /health sözleşmesini karşılamıyor."
+                        }
+                        401, 403 -> "HTTP $status: Bu adres oturum istiyor; PWA ile Owner API farklıdır."
+                        404 -> "HTTP 404: /health bulunamadı. Yanlış sunucu veya farklı API."
+                        301, 302, 303, 307, 308 -> "Yönlendirme reddedildi. Doğrudan HTTPS Owner API kökü gerekli."
+                        else -> "Owner API sağlık kontrolü HTTP $status döndürdü."
+                    }
+                } finally {
+                    connection.disconnect()
+                }
+            } catch (_: Exception) {
+                "Owner API sağlık kontrolü başarısız: HTTPS, DNS veya /health yanıtını doğrulayın."
+            }
+            runOnUiThread {
+                result.text = output
+                button.isEnabled = true
+            }
+        }
     }
 
     private fun sendPrompt() {
-        val endpoint = address.text.toString().trim().trimEnd('/')
+        val endpoint = ownerRoot()
         val accessKey = token.text.toString()
         val question = prompt.text.toString().trim()
         val selectedMode = if (mode.selectedItemPosition == 1) "fleet" else "single"
         val selectedTask = arrayOf("general", "code", "research", "writing")[task.selectedItemPosition]
-        val url = try { URL(endpoint) } catch (_: Exception) { null }
-        if (url == null || url.protocol != "https" || url.host.isNullOrBlank() ||
-            url.userInfo != null || url.query != null || url.ref != null ||
-            (url.path.isNotEmpty() && url.path != "/") || accessKey.length < 32 || question.isEmpty()) {
+        if (endpoint == null || accessKey.length !in 32..512 || question.isEmpty()) {
             result.text = "HTTPS sunucu kökü, geçerli owner anahtarı ve soru gereklidir."
             return
         }
@@ -123,7 +191,14 @@ class MainActivity : AppCompatActivity() {
                     connection.outputStream.use { it.write(body) }
                     val status = connection.responseCode
                     if (status != 200) {
-                        "Sunucu HTTP " + status + " döndürdü."
+                        when (status) {
+                            401 -> "HTTP 401: Owner Bearer anahtarı reddedildi; PWA parolası geçerli değildir."
+                            403 -> "HTTP 403: Bu Owner istemcisine erişim engellendi."
+                            404 -> "HTTP 404: /v1/ask yok; sunucu farklı bir API kullanıyor."
+                            429 -> "HTTP 429: Owner API yoğun. Güvenli aralıkla tekrar deneyin."
+                            503 -> "HTTP 503: Model sağlayıcısı veya fleet hazır değil."
+                            else -> "Sunucu HTTP $status döndürdü."
+                        }
                     } else {
                         val bytes = ByteArrayOutputStream()
                         connection.inputStream.use { stream ->
