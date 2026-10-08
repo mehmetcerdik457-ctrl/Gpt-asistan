@@ -1,0 +1,34 @@
+name: Feature request
+description: Propose a capability with scope, evidence, and security impact.
+title: "[FEATURE] "
+labels:
+  - feature
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or goal
+      description: What concrete problem should this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed capability
+      description: Describe the smallest useful implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance evidence
+      description: What tests, runtime evidence, logs, hashes, or observable behavior will prove completion?
+    validations:
+      required: true
+  - type: textarea
+    id: security
+    attributes:
+      label: Security and permission impact
+      description: Note secrets, permissions, network access, signing, authentication, data handling, or supply-chain impact.
+    validations:
+      required: true

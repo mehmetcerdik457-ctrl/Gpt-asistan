@@ -1,0 +1,93 @@
+name: Gate 0 Fallback Diagnostic
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: Successful Build APK workflow run ID for the exact commit being diagnosed
+        required: true
+        type: string
+      source_artifact_name:
+        description: Artifact name produced by the Build APK workflow
+        required: false
+        default: app-debug
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  fallback:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Acquire existing verified build artifact
+        env:
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          SOURCE_ARTIFACT_NAME: ${{ inputs.source_artifact_name }}
+        run: |
+          set -euo pipefail
+          test -n "${SOURCE_RUN_ID}"
+          mkdir -p incoming fallback-evidence
+          gh run download "${SOURCE_RUN_ID}" -n "${SOURCE_ARTIFACT_NAME}" -D incoming
+          APK="$(find incoming -type f -name '*.apk' | sort | head -1)"
+          test -f "${APK}"
+          cp "${APK}" fallback-evidence/source.apk
+          chmod 0444 fallback-evidence/source.apk
+          {
+            echo "SOURCE_RUN_ID=${SOURCE_RUN_ID}"
+            echo "SOURCE_ARTIFACT_NAME=${SOURCE_ARTIFACT_NAME}"
+            echo "SOURCE_APK_BYTES=$(stat -c%s fallback-evidence/source.apk)"
+            echo "SOURCE_APK_SHA256=$(sha256sum fallback-evidence/source.apk | awk '{print $1}')"
+            echo "SOURCE_APK_SHA512=$(sha512sum fallback-evidence/source.apk | awk '{print $1}')"
+          } | tee fallback-evidence/source-evidence.txt
+
+      - name: Verify JADX fallback and Blutter availability
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/jadx
+          curl -fsSL https://github.com/skylot/jadx/releases/download/v1.5.6/jadx-1.5.6.zip -o /tmp/jadx.zip
+          echo '545ea2be9c242511bc145755cf4bda2485ade42966e096f8b4d3da2a230e8974  /tmp/jadx.zip' | sha256sum -c -
+          unzip -q /tmp/jadx.zip -d /tmp/jadx
+          /tmp/jadx/bin/jadx --version | tee fallback-evidence/jadx-version.txt
+
+          git init -q /tmp/blutter
+          git -C /tmp/blutter remote add origin https://github.com/worawit/blutter.git
+          git -C /tmp/blutter fetch --depth 1 origin 4a60ac648bf448c5a7596437243bcd0b9376fdf0 > fallback-evidence/blutter-clone.log 2>&1
+          git -C /tmp/blutter checkout --detach FETCH_HEAD >> fallback-evidence/blutter-clone.log 2>&1
+          test "$(git -C /tmp/blutter rev-parse HEAD)" = "4a60ac648bf448c5a7596437243bcd0b9376fdf0"
+          test -f /tmp/blutter/blutter.py
+          git -C /tmp/blutter rev-parse HEAD | tee fallback-evidence/blutter-head.txt
+
+          if unzip -l fallback-evidence/source.apk | grep -Eq 'libapp\.so|libflutter\.so|flutter_assets'; then
+            echo "FLUTTER_AOT=PRESENT" | tee fallback-evidence/fallback-report.txt
+          else
+            echo "FLUTTER_AOT=ABSENT_TARGET_NOT_APPLICABLE" | tee fallback-evidence/fallback-report.txt
+          fi
+
+      - name: Prove diagnostic did not modify source artifact
+        run: |
+          set -euo pipefail
+          before256="$(grep '^SOURCE_APK_SHA256=' fallback-evidence/source-evidence.txt | cut -d= -f2-)"
+          before512="$(grep '^SOURCE_APK_SHA512=' fallback-evidence/source-evidence.txt | cut -d= -f2-)"
+          after256="$(sha256sum fallback-evidence/source.apk | awk '{print $1}')"
+          after512="$(sha512sum fallback-evidence/source.apk | awk '{print $1}')"
+          test "${before256}" = "${after256}"
+          test "${before512}" = "${after512}"
+          echo "SOURCE_IMMUTABLE=PASS" | tee -a fallback-evidence/fallback-report.txt
+
+      - name: Upload fallback evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: gate0-fallback-evidence-${{ github.sha }}
+          path: fallback-evidence/**
+          if-no-files-found: error
+          retention-days: 30

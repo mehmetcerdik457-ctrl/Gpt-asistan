@@ -1,0 +1,88 @@
+name: Repository Backup and Restore Drill
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: repository-backup-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backup-restore:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout full history without persisted credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Fetch all public branches and tags
+        shell: bash
+        run: |
+          set -euo pipefail
+          git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --prune origin '+refs/heads/*:refs/remotes/origin/*' '+refs/tags/*:refs/tags/*'
+
+      - name: Create full Git bundle and checksum manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p backup-evidence
+          main_sha="$(git rev-parse refs/remotes/origin/main)"
+          head_sha="${GITHUB_SHA}"
+          commit_count="$(git rev-list --all --count)"
+          git bundle create backup-evidence/Gpt-asistan-full.bundle --all
+          git bundle verify backup-evidence/Gpt-asistan-full.bundle | tee backup-evidence/bundle-verify.txt
+          (cd backup-evidence && sha256sum Gpt-asistan-full.bundle | tee SHA256SUMS.txt)
+          (cd backup-evidence && sha512sum Gpt-asistan-full.bundle | tee SHA512SUMS.txt)
+          (cd backup-evidence && sha256sum -c SHA256SUMS.txt)
+          (cd backup-evidence && sha512sum -c SHA512SUMS.txt)
+          {
+            echo "SOURCE_HEAD=${head_sha}"
+            echo "SOURCE_MAIN=${main_sha}"
+            echo "SOURCE_COMMIT_COUNT=${commit_count}"
+            echo "SOURCE_REF_COUNT=$(git show-ref | wc -l | tr -d ' ')"
+            echo "CREATED_AT=$(date -u +%FT%TZ)"
+          } | tee backup-evidence/source-state.txt
+          git bundle list-heads backup-evidence/Gpt-asistan-full.bundle > backup-evidence/bundle-heads.txt
+
+      - name: Fresh mirror restore and integrity verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --mirror backup-evidence/Gpt-asistan-full.bundle backup-evidence/restored.git
+          git -C backup-evidence/restored.git fsck --full | tee backup-evidence/restore-fsck.txt
+          head_sha="${GITHUB_SHA}"
+          main_sha="$(grep '^SOURCE_MAIN=' backup-evidence/source-state.txt | cut -d= -f2-)"
+          git -C backup-evidence/restored.git cat-file -e "${head_sha}^{commit}"
+          git -C backup-evidence/restored.git cat-file -e "${main_sha}^{commit}"
+          {
+            echo "RESTORE_HEAD_OBJECT=PASS"
+            echo "RESTORE_MAIN_OBJECT=PASS"
+            echo "RESTORE_FSCK=PASS"
+            echo "BUNDLE_VERIFY=PASS"
+          } | tee backup-evidence/restore-result.txt
+
+      - name: Upload verified source-history backup
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: repository-backup-${{ github.sha }}
+          path: |
+            backup-evidence/Gpt-asistan-full.bundle
+            backup-evidence/SHA256SUMS.txt
+            backup-evidence/SHA512SUMS.txt
+            backup-evidence/source-state.txt
+            backup-evidence/bundle-heads.txt
+            backup-evidence/bundle-verify.txt
+            backup-evidence/restore-fsck.txt
+            backup-evidence/restore-result.txt
+          if-no-files-found: error
+          retention-days: 90

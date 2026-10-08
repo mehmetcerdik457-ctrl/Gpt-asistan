@@ -1,0 +1,181 @@
+name: Dependency Submission
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  dependency-submission:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      # Required by GitHub's Dependency Submission API to submit snapshots.
+      # Scope is intentionally limited to this job; workflow default remains read-only.
+      contents: write
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Setup Java
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Probe dependency graph feature state
+        id: graph
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p dependency-evidence
+          : > dependency-evidence/state.txt
+          for attempt in 1 2 3 4 5; do
+            code="000"
+            if ! code=$(curl --connect-timeout 10 --max-time 30 -sS -o /tmp/dependency-sbom.json -w '%{http_code}' \
+              -H 'Accept: application/vnd.github+json' \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H 'X-GitHub-Api-Version: 2026-03-10' \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/dependency-graph/sbom"); then
+              code="000"
+            fi
+            echo "DEPENDENCY_GRAPH_PROBE_ATTEMPT=${attempt} HTTP=${code}" | tee -a dependency-evidence/state.txt
+            case "$code" in
+              200)
+                echo 'DEPENDENCY_GRAPH=ENABLED' | tee -a dependency-evidence/state.txt
+                echo 'enabled=true' >> "$GITHUB_OUTPUT"
+                break
+                ;;
+              404)
+                echo 'DEPENDENCY_GRAPH=USER_ACTION_REQUIRED REASON=FEATURE_DISABLED' | tee -a dependency-evidence/state.txt
+                echo 'enabled=false' >> "$GITHUB_OUTPUT"
+                break
+                ;;
+              403)
+                echo 'DEPENDENCY_GRAPH=USER_ACTION_REQUIRED REASON=API_PERMISSION' | tee -a dependency-evidence/state.txt
+                echo 'enabled=false' >> "$GITHUB_OUTPUT"
+                break
+                ;;
+              429|5??|000)
+                if [ "$attempt" -lt 5 ]; then
+                  delay=$((attempt * 5))
+                  echo "DEPENDENCY_GRAPH_TRANSIENT_HTTP=${code} RETRY_IN_SECONDS=${delay}" | tee -a dependency-evidence/state.txt
+                  sleep "$delay"
+                  continue
+                fi
+                echo "DEPENDENCY_GRAPH=BLOCKED REASON=TRANSIENT_HTTP_EXHAUSTED_${code}" | tee -a dependency-evidence/state.txt
+                exit 1
+                ;;
+              *)
+                echo "DEPENDENCY_GRAPH=BLOCKED REASON=UNEXPECTED_HTTP_${code}" | tee -a dependency-evidence/state.txt
+                exit 1
+                ;;
+            esac
+          done
+
+      - name: Checkout exact PR base for differential baseline
+        if: github.event_name == 'pull_request' && steps.graph.outputs.enabled == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: dependency-base
+          persist-credentials: false
+
+      - name: Bootstrap exact PR base dependency resolution
+        if: github.event_name == 'pull_request' && steps.graph.outputs.enabled == 'true'
+        id: base
+        shell: bash
+        env:
+          EXPECTED_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          base_sha="$(git -C dependency-base rev-parse HEAD)"
+          echo "DEPENDENCY_REVIEW_BASE_SHA=${base_sha}" | tee -a dependency-evidence/state.txt
+          test "${base_sha}" = "${EXPECTED_BASE_SHA}"
+          if ! grep -q '^pluginManagement' dependency-base/settings.gradle.kts; then
+            tmp="$(mktemp)"
+            cat > "${tmp}" <<'EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+
+          EOF
+            cat dependency-base/settings.gradle.kts >> "${tmp}"
+            mv "${tmp}" dependency-base/settings.gradle.kts
+            echo 'DEPENDENCY_REVIEW_BASE_BOOTSTRAP=RESOLUTION_REPOSITORIES_ONLY' | tee -a dependency-evidence/state.txt
+          else
+            echo 'DEPENDENCY_REVIEW_BASE_BOOTSTRAP=NOT_REQUIRED' | tee -a dependency-evidence/state.txt
+          fi
+          echo "sha=${base_sha}" >> "$GITHUB_OUTPUT"
+
+      - name: Submit exact PR base dependency snapshot
+        if: github.event_name == 'pull_request' && steps.graph.outputs.enabled == 'true'
+        uses: gradle/actions/dependency-submission@9c971963bec38e04b3d30dcc455b5382be2fdbfb
+        env:
+          GITHUB_DEPENDENCY_GRAPH_REF: refs/heads/${{ github.base_ref }}
+          GITHUB_DEPENDENCY_GRAPH_SHA: ${{ steps.base.outputs.sha }}
+        with:
+          build-root-directory: dependency-base
+          gradle-version: '8.7'
+          cache-provider: basic
+          dependency-graph: generate-and-submit
+
+      - name: Generate and submit current dependency graph
+        if: steps.graph.outputs.enabled == 'true'
+        uses: gradle/actions/dependency-submission@9c971963bec38e04b3d30dcc455b5382be2fdbfb
+        with:
+          gradle-version: '8.7'
+          cache-provider: basic
+          dependency-graph: generate-and-submit
+
+      - name: Preserve dependency graph state evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: dependency-graph-state-${{ github.sha }}
+          path: dependency-evidence/state.txt
+          if-no-files-found: error
+          retention-days: 30
+
+  dependency-review:
+    name: Dependency Review
+    if: github.event_name == 'pull_request'
+    needs: dependency-submission
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Review the submitted dependency diff
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294
+        with:
+          retry-on-snapshot-warnings: true
+          retry-on-snapshot-warnings-timeout: 180

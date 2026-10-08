@@ -1,11 +1,29 @@
 name: CI
 on: [push, pull_request]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          python-version: '3.x'
-      - run: python -V
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - name: Python runtime
+        run: python -V
+      - name: Validate platform policy
+        run: python .github/scripts/validate_platform.py
+      - name: Test Kral private AI runtime
+        run: python -m unittest discover -s kral/safe -p 'test_*.py'
+      - name: Test Kral MCP integrations
+        run: python -m unittest discover -s kral/mcp -p 'test_*.py'

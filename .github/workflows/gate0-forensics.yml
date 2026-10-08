@@ -1,0 +1,319 @@
+name: Gate 0 Android APK Forensics
+
+on:
+  push:
+    branches: [main, copilot-agent-upgrade-20260917]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  gate0:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      EXPECTED_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.event.after || github.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.event.after || github.sha }}
+          persist-credentials: false
+
+      - name: Exact direct-head SHA guard
+        run: |
+          set -euo pipefail
+          actual="$(git rev-parse HEAD)"
+          echo "EXPECTED_SHA=${EXPECTED_SHA}"
+          echo "ACTUAL_GIT_SHA=${actual}"
+          test "${EXPECTED_SHA}" = "${actual}"
+
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Set up pinned Gradle
+        uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92
+        with:
+          gradle-version: '8.7'
+          cache-provider: basic
+
+      - name: Remote workspace identity
+        run: |
+          set -euxo pipefail
+          mkdir -p gate0-evidence
+          {
+            echo "UTC=$(date -u +%FT%TZ)"
+            echo "RUNNER_OS=$RUNNER_OS"
+            uname -a
+            id
+            pwd
+            python3 --version
+            java -version 2>&1
+          } | tee gate0-evidence/remote-workspace.txt
+
+      - name: Build Android APK with pinned Gradle
+        run: |
+          set +e
+          gradle :app:assembleDebug --stacktrace 2>&1 | tee gate0-evidence/android-build.log
+          rc=${PIPESTATUS[0]}
+          echo "$rc" > gate0-evidence/android-build.rc
+          echo "ANDROID_BUILD_RC=$rc"
+          exit 0
+
+      - name: Install APK forensic tools
+        run: |
+          set +e
+          mkdir -p "$HOME/bin" gate0-evidence /tmp/apktool-out /tmp/jadx-out
+          export PATH="$HOME/bin:$PATH"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq binutils openssl unzip zip jq curl git python3-requests androguard cmake ninja-build pkg-config libcapstone-dev libicu-dev >/tmp/apt-tools.log 2>&1
+          echo "APT_RC=$?" | tee gate0-evidence/tool-install.txt
+          url="https://github.com/skylot/jadx/releases/download/v1.5.6/jadx-1.5.6.zip"
+          curl -fsSL "$url" -o /tmp/jadx.zip
+          echo '545ea2be9c242511bc145755cf4bda2485ade42966e096f8b4d3da2a230e8974  /tmp/jadx.zip' | sha256sum -c -
+          unzip -q /tmp/jadx.zip -d /tmp/jadx
+          ln -sf /tmp/jadx/bin/jadx "$HOME/bin/jadx"
+          apktool_url="https://github.com/iBotPeaches/Apktool/releases/download/v3.0.3/apktool_3.0.3.jar"
+          curl -fsSL "$apktool_url" -o "$HOME/bin/apktool.jar"
+          echo 'dbf930b076c6b9be08d57c449cacefc3bdd6b71ebd59b3066fc0e1f5b14f9423  '"$HOME/bin/apktool.jar" | sha256sum -c -
+          printf '#!/bin/sh\nexec java -jar "$HOME/bin/apktool.jar" "$@"\n' > "$HOME/bin/apktool"
+          chmod +x "$HOME/bin/apktool"
+          python3 - <<'PY' >/tmp/python-tools.log 2>&1
+          import androguard, requests
+          print("androguard=" + getattr(androguard, "__version__", "unknown"))
+          print("requests=" + requests.__version__)
+          PY
+          bundle_url="https://github.com/google/bundletool/releases/download/1.18.3/bundletool-all-1.18.3.jar"
+          curl -fsSL "$bundle_url" -o "$HOME/bin/bundletool.jar"
+          echo 'a099cfa1543f55593bc2ed16a70a7c67fe54b1747bb7301f37fdfd6d91028e29  '"$HOME/bin/bundletool.jar" | sha256sum -c -
+          printf '#!/bin/sh\nexec java -jar "$HOME/bin/bundletool.jar" "$@"\n' > "$HOME/bin/bundletool"
+          chmod +x "$HOME/bin/bundletool"
+          AAPT2=$(find "$ANDROID_HOME/build-tools" -type f -name aapt2 2>/dev/null | sort -V | tail -1)
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner 2>/dev/null | sort -V | tail -1)
+          APKANALYZER=$(find "$ANDROID_HOME" -type f -name apkanalyzer 2>/dev/null | head -1)
+          [ -n "$AAPT2" ] && ln -sf "$AAPT2" "$HOME/bin/aapt2"
+          [ -n "$APKSIGNER" ] && ln -sf "$APKSIGNER" "$HOME/bin/apksigner"
+          [ -n "$APKANALYZER" ] && ln -sf "$APKANALYZER" "$HOME/bin/apkanalyzer"
+          rm -rf /tmp/blutter
+          git init -q /tmp/blutter
+          git -C /tmp/blutter remote add origin https://github.com/worawit/blutter.git
+          git -C /tmp/blutter fetch --depth 1 origin 4a60ac648bf448c5a7596437243bcd0b9376fdf0 >/tmp/blutter-clone.log 2>&1
+          git -C /tmp/blutter checkout --detach FETCH_HEAD >>/tmp/blutter-clone.log 2>&1
+          test "$(git -C /tmp/blutter rev-parse HEAD)" = "4a60ac648bf448c5a7596437243bcd0b9376fdf0"
+          pyelftools_url="https://files.pythonhosted.org/packages/46/2a/f9697576603dae937727827505a6126a066affb227034e77e6f9068910da/pyelftools-0.33-py3-none-any.whl"
+          curl -fsSL "$pyelftools_url" -o /tmp/pyelftools-0.33.whl
+          echo 'f215ad5f47d3f1373a21496a6c9e0707c622840d0622f23ff7ce08678b020036  /tmp/pyelftools-0.33.whl' | sha256sum -c -
+          user_site="$(python3 -m site --user-site)"
+          mkdir -p "$user_site"
+          unzip -q /tmp/pyelftools-0.33.whl -d "$user_site"
+          python3 - <<'PY' >/tmp/blutter-pip.log 2>&1
+          import requests
+          import elftools
+          print("requests=" + requests.__version__)
+          print("pyelftools=0.33")
+          PY
+          export PATH="$HOME/.local/bin:$HOME/bin:$PATH"
+          {
+            echo "PATH=$PATH"
+            command -v jadx || true; command -v apktool || true; command -v apksigner || true
+            command -v bundletool || true; command -v aapt2 || true; command -v apkanalyzer || true
+            command -v androguard || true; command -v readelf || true; command -v objdump || true
+            command -v nm || true; command -v strings || true; command -v openssl || true; command -v keytool || true
+            test -f /tmp/blutter/blutter.py && echo BLUTTER=/tmp/blutter/blutter.py
+          } | tee -a gate0-evidence/tool-install.txt
+
+      - name: Execute real read-only APK forensic smoke test
+        run: |
+          set +e
+          export PATH="$HOME/.local/bin:$HOME/bin:$PATH"
+          APK=$(find app/build/outputs/apk/debug -type f -name '*.apk' | head -1)
+          REPORT=gate0-evidence/gate0-report.txt
+          : > "$REPORT"
+          echo "SOURCE_APK=$APK" | tee -a "$REPORT"
+          if [ -z "$APK" ] || [ ! -f "$APK" ]; then echo "REAL_APK_TEST=BLOCKED_NO_BUILT_APK" | tee -a "$REPORT"; exit 0; fi
+          TOOL_FAILURES=0
+          record_tool() {
+            tool="$1"; version_cmd="$2"; real_cmd="$3"
+            if command -v "$tool" >/dev/null 2>&1; then
+              ver=$(bash -lc "$version_cmd" 2>&1 | head -3 | tr '\n' ' ')
+              log="gate0-evidence/${tool}.real.log"
+              bash -lc "$real_cmd" >"$log" 2>&1; rc=$?
+              status=FAIL
+              detail=""
+              if [ "$rc" -eq 0 ]; then
+                status=PASS
+              else
+                TOOL_FAILURES=$((TOOL_FAILURES + 1))
+              fi
+              echo "TOOL=$tool | INSTALLED=YES | VERSION=$ver | REAL_COMMAND=$real_cmd | RESULT=RC_$rc | STATUS=$status | DETAIL=$detail" | tee -a "$REPORT"
+            else
+              TOOL_FAILURES=$((TOOL_FAILURES + 1))
+              echo "TOOL=$tool | INSTALLED=NO | VERSION=NA | REAL_COMMAND=$real_cmd | RESULT=NOT_FOUND | STATUS=FAIL" | tee -a "$REPORT"
+            fi
+          }
+          echo "FILE_SIZE=$(stat -c%s "$APK")" | tee -a "$REPORT"
+          echo "SHA256=$(sha256sum "$APK" | awk '{print $1}')" | tee -a "$REPORT"
+          echo "SHA512=$(sha512sum "$APK" | awk '{print $1}')" | tee -a "$REPORT"
+          echo "APK_TYPE=$(file -b "$APK")" | tee -a "$REPORT"
+          echo "SPLIT_COUNT=$(find app/build/outputs/apk/debug -type f -name '*.apk' | wc -l)" | tee -a "$REPORT"
+          record_tool apktool 'apktool --version' 'rm -rf /tmp/apktool-out && apktool d -f -o /tmp/apktool-out '"$APK"''
+          record_tool jadx 'jadx --version' 'rm -f /tmp/jadx-mainactivity.java && jadx --no-res --single-class com.example.gptasistan.MainActivity --single-class-output /tmp/jadx-mainactivity.java '"$APK"' && test -s /tmp/jadx-mainactivity.java && grep -q "class MainActivity" /tmp/jadx-mainactivity.java'
+          record_tool apksigner 'apksigner version' 'apksigner verify --verbose --print-certs '"$APK"''
+          record_tool aapt2 'aapt2 version' 'aapt2 dump badging '"$APK"''
+          record_tool apkanalyzer 'apkanalyzer --version' 'apkanalyzer manifest print '"$APK"''
+          record_tool bundletool 'bundletool version' 'bundletool version'
+          record_tool readelf 'readelf --version' 'readelf -h /bin/ls'
+          record_tool objdump 'objdump --version' 'objdump -f /bin/ls'
+          record_tool nm 'nm --version' 'nm -D /bin/ls'
+          record_tool strings 'strings --version' 'strings '"$APK"' | head -40'
+          record_tool openssl 'openssl version' 'openssl dgst -sha256 '"$APK"''
+          record_tool keytool 'keytool -J-version' 'keytool -printcert -jarfile '"$APK"''
+          python3 - "$APK" > gate0-evidence/androguard.real.log 2>&1 <<'PY'
+          import sys
+          from androguard.misc import AnalyzeAPK
+          a, ds, dx = AnalyzeAPK(sys.argv[1])
+          print('PACKAGE=' + a.get_package()); print('VERSION_CODE=' + str(a.get_androidversion_code())); print('VERSION_NAME=' + str(a.get_androidversion_name())); print('DEX_COUNT=' + str(len(ds)))
+          PY
+          arc=$?; aver=$(python3 -c 'import importlib.metadata as m; print(m.version("androguard"))' 2>/dev/null)
+          if [ "$arc" -eq 0 ]; then astatus=PASS; else astatus=FAIL; TOOL_FAILURES=$((TOOL_FAILURES + 1)); fi
+          echo "TOOL=Androguard | INSTALLED=YES | VERSION=$aver | REAL_COMMAND=AnalyzeAPK(actual APK) | RESULT=RC_$arc | STATUS=$astatus" | tee -a "$REPORT"
+          if command -v apkanalyzer >/dev/null 2>&1; then
+            echo "PACKAGE=$(apkanalyzer manifest application-id "$APK" 2>/dev/null)" | tee -a "$REPORT"
+            echo "VERSION_NAME=$(apkanalyzer manifest version-name "$APK" 2>/dev/null)" | tee -a "$REPORT"
+            echo "VERSION_CODE=$(apkanalyzer manifest version-code "$APK" 2>/dev/null)" | tee -a "$REPORT"
+            apkanalyzer manifest print "$APK" > gate0-evidence/manifest.xml 2>&1
+          fi
+          apksigner verify --verbose --print-certs "$APK" > gate0-evidence/signing.txt 2>&1 || true
+          zipinfo -1 "$APK" | grep -E '^classes([0-9]+)?\.dex$' | tee gate0-evidence/dex-inventory.txt
+          zipinfo -1 "$APK" | grep -E '^lib/.+\.so$' | tee gate0-evidence/native-libs.txt
+          dex_count=$(wc -l < gate0-evidence/dex-inventory.txt); native_count=$(wc -l < gate0-evidence/native-libs.txt)
+          echo "DEX_COUNT=$dex_count" | tee -a "$REPORT"; echo "NATIVE_LIB_COUNT=$native_count" | tee -a "$REPORT"
+          if zipinfo -1 "$APK" | grep -Eq '(^|/)libflutter\.so$|(^|/)libapp\.so$|flutter_assets'; then
+            echo "FLUTTER_AOT=PRESENT" | tee -a "$REPORT"; rm -rf /tmp/flutter-lib /tmp/blutter-out; mkdir -p /tmp/flutter-lib
+            unzip -q "$APK" 'lib/*' -d /tmp/flutter-lib
+            timeout 180 python3 /tmp/blutter/blutter.py /tmp/flutter-lib/lib/arm64-v8a /tmp/blutter-out > gate0-evidence/blutter.real.log 2>&1; brc=$?
+          else
+            echo "FLUTTER_AOT=ABSENT" | tee -a "$REPORT"; timeout 30 python3 /tmp/blutter/blutter.py --help > gate0-evidence/blutter.real.log 2>&1; brc=$?
+          fi
+          if [ "$brc" -eq 0 ]; then bstatus=PASS; else bstatus=FAIL; TOOL_FAILURES=$((TOOL_FAILURES + 1)); fi
+          echo "TOOL=Blutter | INSTALLED=$(test -f /tmp/blutter/blutter.py && echo YES || echo NO) | VERSION=git_HEAD_$(git -C /tmp/blutter rev-parse --short HEAD 2>/dev/null) | REAL_COMMAND=blutter.py against Flutter libs when present; --help otherwise | RESULT=RC_$brc | STATUS=$bstatus" | tee -a "$REPORT"
+          firstso=$(head -1 gate0-evidence/native-libs.txt)
+          if [ -n "$firstso" ]; then
+            unzip -p "$APK" "$firstso" > /tmp/target.so
+            readelf -h /tmp/target.so > gate0-evidence/readelf-apk-lib.log 2>&1 || true
+            objdump -f /tmp/target.so > gate0-evidence/objdump-apk-lib.log 2>&1 || true
+            nm -D /tmp/target.so > gate0-evidence/nm-apk-lib.log 2>&1 || true
+            strings /tmp/target.so | head -200 > gate0-evidence/strings-apk-lib.log 2>&1 || true
+          fi
+          echo "TOOL_FAILURES=$TOOL_FAILURES" | tee -a "$REPORT"
+          test "$TOOL_FAILURES" -eq 0
+
+      - name: Verify GitHub MCP over real stdio and execute read operation
+        env:
+          GITHUB_PERSONAL_ACCESS_TOKEN: ${{ github.token }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.event.repository.name }}
+          REF: ${{ github.head_ref || github.ref_name }}
+        run: |
+          set +e
+          export PATH="$HOME/.local/bin:$HOME/bin:$PATH"
+          cat > /tmp/mcp_smoke.py <<'PY'
+          import json, os, subprocess, sys, time
+          cmd = [
+              'docker','run','-i','--rm',
+              '-e','GITHUB_PERSONAL_ACCESS_TOKEN',
+              '-e','GITHUB_TOOLS=get_file_contents',
+              'ghcr.io/github/github-mcp-server:1.12.2@sha256:508a0857ec762b1ab1cece29193345b501fab1dd9d1228a7b617062954cecac6',
+              'stdio','--read-only'
+          ]
+          p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=sys.stderr, text=True, bufsize=1, env=os.environ.copy())
+          next_id = 1
+          def send(method, params=None, notification=False):
+              global next_id
+              msg = {'jsonrpc':'2.0','method':method}
+              if params is not None: msg['params'] = params
+              if not notification:
+                  msg['id'] = next_id
+                  wanted = next_id
+                  next_id += 1
+              else:
+                  wanted = None
+              p.stdin.write(json.dumps(msg, separators=(',',':')) + '\n')
+              p.stdin.flush()
+              return wanted
+          def recv(wanted):
+              while True:
+                  line = p.stdout.readline()
+                  if not line:
+                      raise RuntimeError('MCP server closed stdout')
+                  line = line.strip()
+                  if not line:
+                      continue
+                  obj = json.loads(line)
+                  if wanted is None or obj.get('id') == wanted:
+                      if 'error' in obj:
+                          raise RuntimeError('MCP error: ' + json.dumps(obj['error']))
+                      return obj
+          try:
+              rid = send('initialize', {
+                  'protocolVersion':'2025-11-25',
+                  'capabilities':{},
+                  'clientInfo':{'name':'gate0-stdlib-client','version':'1.0.0'}
+              })
+              init = recv(rid)
+              print('MCP_PROTOCOL=' + str(init.get('result',{}).get('protocolVersion','unknown')))
+              send('notifications/initialized', {}, notification=True)
+              rid = send('tools/list', {})
+              tools = recv(rid)
+              names = [t.get('name') for t in tools.get('result',{}).get('tools',[])]
+              print('MCP_TOOLS=' + ','.join(x for x in names if x))
+              if 'get_file_contents' not in names:
+                  raise RuntimeError('get_file_contents tool absent')
+              rid = send('tools/call', {'name':'get_file_contents','arguments':{
+                  'owner':os.environ['OWNER'],
+                  'repo':os.environ['REPO'],
+                  'path':'README.md',
+                  'ref':os.environ['REF']
+              }})
+              result = recv(rid)
+              print('MCP_CALL=get_file_contents')
+              print('MCP_RESULT=' + json.dumps(result.get('result',{}))[:3000])
+          finally:
+              try:
+                  p.stdin.close()
+              except Exception:
+                  pass
+              try:
+                  p.wait(timeout=10)
+              except Exception:
+                  p.kill()
+          PY
+          python3 /tmp/mcp_smoke.py > gate0-evidence/mcp-smoke.log 2>&1
+          rc=$?; echo "MCP_RC=$rc" | tee -a gate0-evidence/gate0-report.txt; tail -100 gate0-evidence/mcp-smoke.log || true
+          exit $rc
+
+      - name: Upload Gate 0 evidence and APK
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          retention-days: 14
+          name: gate0-apk-forensics
+          path: |
+            gate0-evidence/**
+            app/build/outputs/apk/debug/*.apk
+          if-no-files-found: warn
+
+      - name: Enforce Android build gate
+        if: always()
+        run: |
+          test -f gate0-evidence/android-build.rc
+          rc=$(cat gate0-evidence/android-build.rc)
+          echo "ANDROID_BUILD_RC=$rc"
+          test "$rc" = "0"

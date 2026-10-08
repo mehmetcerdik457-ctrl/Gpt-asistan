@@ -1,0 +1,41 @@
+{
+  "name": "Gpt-asistan Android Engineering Lab",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "remoteUser": "vscode",
+  "containerEnv": {
+    "ANDROID_HOME": "/opt/android-sdk",
+    "ANDROID_SDK_ROOT": "/opt/android-sdk"
+  },
+  "secrets": {
+    "OPENAI_API_KEY": {
+      "description": "Kral Asistan primary OpenAI provider key. Optional when Hugging Face is used instead."
+    },
+    "HUGGINGFACE_TOKEN": {
+      "description": "Kral Asistan Hugging Face fallback provider token. Optional when OpenAI is configured."
+    }
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "vscjava.vscode-java-pack",
+        "fwcd.kotlin",
+        "ms-python.python",
+        "github.vscode-github-actions"
+      ]
+    },
+    "codespaces": {
+      "openFiles": [
+        "kral/safe/README.md"
+      ]
+    }
+  },
+  "postCreateCommand": "bash .devcontainer/verify-toolchain.sh && ./kral-ai --status",
+  "hostRequirements": {
+    "cpus": 2,
+    "memory": "8gb",
+    "storage": "32gb"
+  }
+}
