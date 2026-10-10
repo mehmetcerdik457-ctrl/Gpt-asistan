@@ -27,5 +27,5 @@ class LLMClient:
             with self._open(req, timeout=cfg.timeout) as resp:
                 payload = json.loads(resp.read().decode())
             return payload["choices"][0]["message"]["content"]
-        except (OSError, KeyError, IndexError, ValueError) as exc:
+        except (OSError, KeyError, IndexError, ValueError, TypeError) as exc:
             raise LLMError("LLM request failed: %s" % exc) from exc

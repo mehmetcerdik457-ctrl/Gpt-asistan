@@ -25,7 +25,7 @@ class CoreTests(unittest.TestCase):
     def test_env_selects_openai(self):
         c = load_config(env={"LLM_PROVIDER": "openai", "OPENAI_API_KEY": "x"})
         self.assertEqual(c.provider, "openai")
-        self.assertTrue(c.base_url.startswith("https://api.openai.com"))
+        self.assertEqual(c.base_url, "https://api.openai.com/v1")
 
     def test_bad_provider(self):
         with self.assertRaises(ValueError):

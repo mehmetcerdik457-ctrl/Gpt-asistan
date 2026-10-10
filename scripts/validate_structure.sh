@@ -9,7 +9,7 @@ done
 for f in README.md MANIFEST.md .env.example docs/INVENTORY.md docs/API_DISCOVERY.md docs/SECURITY_FINDINGS.md docs/KNOWN_ISSUES.md docs/MIGRATION_REPORT.md; do
   [ -f "$f" ] || { echo "MISSING file: $f"; fail=1; }
 done
-grep -qx '.env' .gitignore || { echo ".env not in .gitignore"; fail=1; }
+grep -qxF '.env' .gitignore 2>/dev/null || { echo ".env not in .gitignore"; fail=1; }
 while IFS= read -r f; do
   python3 -m py_compile "$f" || fail=1
 done < <(git ls-files '*.py' 2>/dev/null; git ls-files --others --exclude-standard '*.py' 2>/dev/null)

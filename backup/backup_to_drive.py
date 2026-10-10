@@ -54,7 +54,12 @@ def main(argv=None):
         sys.exit("GDRIVE_FOLDER_ID (or --folder-id) is required")
     if not os.path.exists(args.path):
         sys.exit("path not found: " + args.path)
-    file_id = upload(prepare(args.path), args.folder_id)
+    target = prepare(args.path)
+    try:
+        file_id = upload(target, args.folder_id)
+    finally:
+        if target != args.path:
+            shutil.rmtree(os.path.dirname(target), ignore_errors=True)
     print("uploaded, Drive file id:", file_id)
 
 
