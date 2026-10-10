@@ -4,3 +4,6 @@
 /.idea/
 *.iml
 .gradle/
+__pycache__/
+*.pyc
+mem.db
