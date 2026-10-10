@@ -4,3 +4,12 @@
 /.idea/
 *.iml
 .gradle/
+
+.env
+*.zip
+__pycache__/
+*.pyc
+sa.json
+*service-account*.json
+rclone.conf
+node_modules/
