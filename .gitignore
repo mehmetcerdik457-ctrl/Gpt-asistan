@@ -1,4 +1,8 @@
 .env
+*.db
+*.log
+__pycache__/
+.pytest_cache/
 /build/
 /app/build/
 /.idea/
