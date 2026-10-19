@@ -114,6 +114,40 @@ public final class TrustedDeviceManager {
         return !p.getBoolean("revoked", false) && !registered.isEmpty() && registered.equals(deviceId());
     }
 
+    /**
+     * OMEGA v1: detached device signature under the existing registered Keystore key.
+     * Never sign for a revoked device or without a fresh Owner authorization.
+     */
+    static byte[] signOmegaV1(Context c, byte[] canonical) {
+        if (!OwnerSession.isFresh(c)) throw new SecurityException("FRESH_OWNER_AUTH_REQUIRED");
+        if (!isRegisteredAndActive(c)) throw new SecurityException("DEVICE_NOT_REGISTERED");
+        try {
+            if (canonical == null || canonical.length > 2048 || canonical.length == 0) {
+                throw new SecurityException("CANONICAL_REQUEST_INVALID");
+            }
+            Signature signer = Signature.getInstance("SHA256withECDSA");
+            signer.initSign(ensureKeyPair().getPrivate());
+            signer.update(canonical);
+            return signer.sign();
+        } catch (SecurityException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new SecurityException("DEVICE_SIGNING_UNAVAILABLE");
+        }
+    }
+
+    static String devicePublicDerBase64(Context c) {
+        if (!OwnerSession.isFresh(c) || !isRegisteredAndActive(c)) {
+            throw new SecurityException("FRESH_DEVICE_AUTH_REQUIRED");
+        }
+        try {
+            return Base64.encodeToString(ensureKeyPair().getPublic().getEncoded(),
+                    Base64.URL_SAFE | Base64.NO_PADDING | Base64.NO_WRAP);
+        } catch (Exception e) {
+            throw new SecurityException("DEVICE_PUBLIC_EXPORT_DENIED");
+        }
+    }
+
     public static void revoke(Context c) {
         prefs(c).edit().putBoolean("revoked", true).commit();
     }
