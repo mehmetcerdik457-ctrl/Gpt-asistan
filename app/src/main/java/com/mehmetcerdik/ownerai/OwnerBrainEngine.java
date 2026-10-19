@@ -200,6 +200,14 @@ public final class OwnerBrainEngine {
             limited.put("trace", trace);
             limited.put("brain_status", status());
             return limited;
+        } catch (java.io.IOException e) {
+            // DNS, timeout, connect and TLS failures are distinct from owner-auth failures.
+            // Exception messages and endpoint details are never returned or logged.
+            String safeCode = ProviderNetworkErrors.code(e);
+            memory.audit("BRAIN_RUN", "FAIL", safeCode);
+            JSONObject out = fail(safeCode);
+            try { out.put("brain_status", status()); } catch (Exception ignored) {}
+            return out;
         } catch (Exception e) {
             memory.audit("BRAIN_RUN", "FAIL", e.getClass().getSimpleName());
             JSONObject out = fail("BRAIN_ERROR:" + e.getClass().getSimpleName());
