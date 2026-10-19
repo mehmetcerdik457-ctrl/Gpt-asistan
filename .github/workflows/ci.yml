@@ -1,14 +1,38 @@
 name: CI
 on: [push, pull_request]
+
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 12
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - name: Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.12'
-      - run: python -V
+      - name: JDK 17
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Owner security and Keystore gate regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tools -p 'test_owner_provider_gate.py' -v
+      - name: Provider exception redaction and network classification
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/omega-owner-provider-ci
+          javac -d /tmp/omega-owner-provider-ci \
+            app/src/main/java/com/mehmetcerdik/ownerai/ProviderNetworkErrors.java \
+            tools/ProviderNetworkErrorsTest.java
+          java -cp /tmp/omega-owner-provider-ci com.mehmetcerdik.ownerai.ProviderNetworkErrorsTest

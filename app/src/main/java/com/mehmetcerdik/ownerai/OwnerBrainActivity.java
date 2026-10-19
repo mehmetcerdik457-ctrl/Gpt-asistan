@@ -171,7 +171,7 @@ public final class OwnerBrainActivity extends AppCompatActivity {
         root.addView(speak);
 
         Button ocr = new Button(this); ocr.setText("Seçili Görselden OCR");
-        ocr.setOnClickListener(v -> OwnerAuth.require(this, () -> {
+        ocr.setOnClickListener(v -> OwnerAuth.requireFresh(this, () -> {
             if (attachment == null || attachment.kind != OwnerAttachment.Kind.IMAGE) {
                 output.setText("OCR_REQUIRES_EXPLICIT_IMAGE_ATTACHMENT");
                 return;
@@ -362,11 +362,9 @@ public final class OwnerBrainActivity extends AppCompatActivity {
     }
 
     private void requireForRequest(String request, Runnable action) {
-        if (OwnerBrainPolicy.isHighRisk(request)) {
-            OwnerAuth.requireFresh(this, action, status -> output.setText(status));
-        } else {
-            OwnerAuth.require(this, action, status -> output.setText(status));
-        }
+        // A provider-bound request must reauthorize the 30-second Android Keystore key.
+        // A 2-minute OwnerSession alone does not authorize provider-secret decryption.
+        OwnerAuth.requireFresh(this, action, status -> output.setText(status));
     }
 
     private void runBrain(String text) {

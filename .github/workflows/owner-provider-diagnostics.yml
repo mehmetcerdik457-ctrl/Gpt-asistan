@@ -1,0 +1,26 @@
+name: Owner Auth and Provider Network Safety
+
+on:
+  push:
+    branches:
+      - audit/owner-auth-provider-network-20261019
+  pull_request:
+    branches:
+      - owner/final-one-tap-sui-hotfix-20261006
+
+permissions:
+  contents: read
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Static integration/Keystore guard
+        run: python3 -m unittest discover -s tools -p 'test_owner_provider_gate.py' -v
+      - name: Pure-JDK transport errors
+        run: |
+          javac -d /tmp/omega-owner-provider-tests \
+            app/src/main/java/com/mehmetcerdik/ownerai/ProviderNetworkErrors.java \
+            tools/ProviderNetworkErrorsTest.java
+          java -cp /tmp/omega-owner-provider-tests com.mehmetcerdik.ownerai.ProviderNetworkErrorsTest
