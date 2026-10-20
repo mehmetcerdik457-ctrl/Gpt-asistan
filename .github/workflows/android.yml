@@ -16,10 +16,11 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.7'
-      - name: Use runner Android SDK
+      - name: Inspect hosted Android SDK
         run: |
           echo "SDK location: $ANDROID_HOME"
-          sdkmanager "platforms;android-34" "build-tools;34.0.0"
+          ls -d "$ANDROID_HOME"/platforms/android-* || true
+          ls -d "$ANDROID_HOME"/build-tools/* || true
       - name: Run unit tests and assemble APK
         run: gradle :app:testDebugUnitTest :app:assembleDebug --no-daemon
       - name: Upload debug APK
