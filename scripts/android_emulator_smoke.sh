@@ -48,10 +48,15 @@ for attempt in $(seq 1 10); do
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
-nodes = ET.parse(Path('build/emulator/evidence/window.xml')).getroot().iter('node')
+nodes = list(ET.parse(Path('build/emulator/evidence/window.xml')).getroot().iter('node'))
 texts = {node.get('text', '') for node in nodes}
 assert 'KRAL ASİSTAN — cihaz kilidiyle aç' in texts, 'Owner lock title missing'
-assert 'Kilidi aç' in texts, 'Owner unlock button missing'
+# The Android theme renders Button labels in uppercase on the emulator.
+assert any(node.get('class') == 'android.widget.Button'
+           and node.get('package') == 'com.example.gptasistan.genesis'
+           and node.get('clickable') == 'true' and node.get('enabled') == 'true'
+           and node.get('text', '').casefold() == 'kilidi aç'
+           for node in nodes), 'Owner unlock button missing'
 PY
     then
       break
