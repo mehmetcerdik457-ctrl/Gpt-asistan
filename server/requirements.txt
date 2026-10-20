@@ -1,0 +1,3 @@
+cryptography==46.0.4
+cffi==2.1.1
+pycparser==3.11

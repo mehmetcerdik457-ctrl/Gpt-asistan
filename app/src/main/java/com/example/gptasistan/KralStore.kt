@@ -64,6 +64,23 @@ class KralStore(context: Context) : SQLiteOpenHelper(context, "kral_local.db", n
         }
         return if (out.isEmpty()) "(kayıt yok)" else out.asReversed().joinToString("\n")
     }
+    /** Local-only recall; Unicode Turkish matching does not send notes to any provider. */
+    fun recall(query: String, limit: Int = 20): String {
+        require(query.isNotBlank() && query.length <= 16000)
+        require(limit in 1..100)
+        val locale = java.util.Locale("tr", "TR")
+        val terms = query.trim().lowercase(locale).split(Regex("\\s+")).distinct()
+        val matches = mutableListOf<String>()
+        readableDatabase.rawQuery("SELECT ts,text FROM mem ORDER BY id DESC", null).use { cursor ->
+            while (matches.size < limit && cursor.moveToNext()) {
+                val note = cursor.getString(1)
+                val searchable = note.lowercase(locale)
+                if (terms.all { searchable.contains(it) }) matches.add(cursor.getString(0) + ": " + note)
+            }
+        }
+        return if (matches.isEmpty()) "(eşleşen bilgi yok)" else matches.asReversed().joinToString("\n")
+    }
+
     fun addTask(title: String) {
         val values = android.content.ContentValues().apply {
             put("title", title)

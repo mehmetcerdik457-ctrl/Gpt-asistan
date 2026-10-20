@@ -1,7 +1,8 @@
-name: Kral Android Debug Build
+name: Kral Android Candidate Build
 on:
   push:
   pull_request:
+  workflow_dispatch:
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -14,19 +15,76 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.7'
-      - name: Inspect hosted Android SDK
+      - name: Run unit tests, lint and assemble candidate APK
+        shell: bash
         run: |
-          echo "SDK location: $ANDROID_HOME"
-          ls -d "$ANDROID_HOME"/platforms/android-* || true
-          ls -d "$ANDROID_HOME"/build-tools/* || true
-      - name: Run unit tests and assemble APK
-        run: gradle :app:testDebugUnitTest :app:assembleDebug --no-daemon
-      - name: Upload debug APK
+          mkdir -p build/delivery
+          ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug --no-daemon --stacktrace 2>&1 | tee build/delivery/gradle.log
+      - name: Verify APK signature and record source and SHA-256
+        if: success()
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk build/delivery/app-debug.apk
+          python3 scripts/android_artifact.py build/delivery/app-debug.apk build/delivery
+          git archive --format=tar.gz --output=build/delivery/source.tar.gz HEAD
+          cd build/delivery
+          sha256sum source.tar.gz > SOURCE-SHA256SUMS
+      - name: Upload candidate APK and provenance
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: kral-asistan-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: kral-asistan-candidate-apk
+          path: |
+            build/delivery/app-debug.apk
+            build/delivery/apk-metadata.json
+            build/delivery/APK-SHA256SUMS
           if-no-files-found: error
+      - name: Upload build and test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kral-asistan-build-evidence
+          path: |
+            build/delivery/
+            !build/delivery/app-debug.apk
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+          if-no-files-found: error
+  emulator:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: kral-asistan-candidate-apk
+          path: build/emulator/apk
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Enable KVM for the fresh emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Install canonical APK and check owner lock screen
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          arch: x86_64
+          target: google_apis
+          profile: pixel_2
+          emulator-boot-timeout: 180
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: bash scripts/android_emulator_smoke.sh
+      - name: Upload emulator installation and launch evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kral-asistan-emulator-evidence
+          path: build/emulator/evidence/
+          if-no-files-found: warn

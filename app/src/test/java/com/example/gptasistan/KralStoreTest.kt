@@ -147,6 +147,20 @@ class KralStoreTest {
         )
     }
 
+    @Test fun recallSurvivesReopenAndMatchesTurkishLettersWithoutUploadingHistory() {
+        val store = openStore()
+        store.saveMemory("İstanbul seyahatim cuma günü")
+        store.saveMemory("Ankara seyahatim pazartesi")
+        store.saveMessage("user", "Sohbet tek başına hafıza kaydı değildir")
+        store.close()
+        val reopened = openStore()
+        assertTrue(reopened.recall("İSTANBUL CUMA").contains("İstanbul seyahatim"))
+        assertFalse(reopened.recall("İSTANBUL CUMA").contains("Ankara"))
+        assertEquals("(eşleşen bilgi yok)", reopened.recall("tek başına"))
+        assertEquals("(eşleşen bilgi yok)", reopened.recall("%' OR 1=1 --"))
+        assertEquals(1, reopened.history().size)
+    }
+
     private fun openStore(): KralStore = KralStore(context).also { openedStores.add(it) }
 
     private companion object {

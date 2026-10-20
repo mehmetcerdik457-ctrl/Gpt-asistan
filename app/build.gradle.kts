@@ -7,8 +7,8 @@ android {
         applicationId = "com.example.gptasistan"
         minSdk = 26
         targetSdk = 34
-        versionCode = 3
-        versionName = "1.0.2-kral-candidate"
+        versionCode = 4
+        versionName = "1.0.3-genesis-candidate"
     }
     buildTypes {
         release {
@@ -16,7 +16,7 @@ android {
         }
         debug {
             isDebuggable = true
-            applicationIdSuffix = ".candidate"
+            applicationIdSuffix = ".genesis"
         }
     }
     compileOptions {

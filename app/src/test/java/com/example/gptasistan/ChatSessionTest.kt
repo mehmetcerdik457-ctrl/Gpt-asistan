@@ -157,6 +157,14 @@ class ChatSessionTest {
         owners.remove(retained)
     }
 
+    @Test fun oversizedChatRetainsDraftWithoutPersistingOrCallingProvider() {
+        val (session, worker) = session { _, _, _ -> error("Çağrılmamalı") }
+        assertFalse(session.send(ENDPOINT, "test-model", "a".repeat(8001)))
+        flush(worker)
+        assertTrue(session.history.value!!.isEmpty())
+        assertTrue(session.state.value!!.status.contains("8000"))
+    }
+
     @Test fun refreshHistoryIncludesLocalCommandMessagesWithoutModelCall() {
         val (session, worker) = session { _, _, _ -> error("Çağrılmamalı") }
         val external = KralStore(application)

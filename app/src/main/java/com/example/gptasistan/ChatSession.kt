@@ -21,7 +21,7 @@ class ChatSession internal constructor(
         application,
         KralStore(application.applicationContext),
         Executors.newSingleThreadExecutor(),
-        ModelGateway::reply
+        { endpoint, model, question -> OwnerGateway.reply(application, endpoint, model, question) }
     )
 
     data class State(val busy: Boolean, val status: String)
@@ -43,6 +43,10 @@ class ChatSession internal constructor(
     fun send(endpoint: String, model: String, question: String): Boolean {
         requireMainThread()
         if (cleared || pending || worker.isShutdown || question.isBlank()) return false
+        if (question.length > 8000) {
+            mutableState.value = State(false, "Sohbet mesajı en fazla 8000 karakter olabilir; taslağın korundu.")
+            return false
+        }
         if (!ModelGateway.valid(endpoint) || model.isBlank()) {
             mutableState.value = State(false, "Model bağlantısı yapılandırılmadı")
             return false

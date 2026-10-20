@@ -23,6 +23,10 @@ class KralCoreTest {
         assertEquals(KralCommand.Invalid, KralCore.parse("/root"))
         assertFalse(KralCore.privilegedExecutionAllowed())
     }
+    @Test fun recallCommandRequiresQuery() {
+        assertEquals(KralCommand.Recall("İstanbul cuma"), KralCore.parse("/hatirla İstanbul cuma"))
+        assertEquals(KralCommand.Invalid, KralCore.parse("/hatirla "))
+    }
     @Test fun unrecognizedTextIsChat() {
         assertEquals(KralCommand.Chat("Selam"), KralCore.parse("Selam"))
     }

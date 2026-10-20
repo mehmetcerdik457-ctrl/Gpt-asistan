@@ -5,6 +5,7 @@ package com.example.gptasistan
 sealed class KralCommand {
     data class Save(val value: String) : KralCommand()
     object ListMemory : KralCommand()
+    data class Recall(val query: String) : KralCommand()
     data class AddTask(val value: String) : KralCommand()
     object ListTasks : KralCommand()
     data class FinishTask(val id: Long) : KralCommand()
@@ -26,6 +27,9 @@ object KralCore {
             value.startsWith("/kaydet ") -> arg("/kaydet ").let {
                 if (it.isEmpty()) KralCommand.Invalid else KralCommand.Save(it)
             }
+            value.startsWith("/hatirla ") -> arg("/hatirla ").let {
+                if (it.isEmpty()) KralCommand.Invalid else KralCommand.Recall(it)
+            }
             value.startsWith("/gorev ") -> arg("/gorev ").let {
                 if (it.isEmpty()) KralCommand.Invalid else KralCommand.AddTask(it)
             }
@@ -40,7 +44,7 @@ object KralCore {
         }
     }
 
-    fun help() = "/kaydet not · /liste · /gorev iş · /gorevler · /tamam 1 · /soyle metin · /yardim"
+    fun help() = "/kaydet not · /liste · /hatirla sözcük · /gorev iş · /gorevler · /tamam 1 · /soyle metin · /yardim"
 
     // No privileged action may be delegated from this UI. A verified owner
     // identity, scoped human approval and a separate policy gate are required.
