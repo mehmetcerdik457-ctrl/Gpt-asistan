@@ -7,14 +7,47 @@ import java.time.Instant
 
 // The mem schema intentionally preserves the original Python assistant.py fields.
 // The old Termux mem.db is not silently imported; the Android app owns this new DB.
-class KralStore(context: Context) : SQLiteOpenHelper(context, "kral_local.db", null, 1) {
+data class ChatEntry(val id: Long, val ts: String, val role: String, val text: String)
+
+class KralStore(context: Context) : SQLiteOpenHelper(context, "kral_local.db", null, 2) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("CREATE TABLE mem(id INTEGER PRIMARY KEY, ts TEXT NOT NULL, text TEXT NOT NULL)")
         db.execSQL("CREATE TABLE tasks(id INTEGER PRIMARY KEY, title TEXT NOT NULL, done INTEGER NOT NULL DEFAULT 0)")
+        createChatTable(db)
     }
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        // No destructive migration. Explicit migrations are required for new versions.
-        require(oldVersion == newVersion)
+        require(oldVersion == 1 && newVersion == 2) { "Desteklenmeyen veritabanı geçişi" }
+        createChatTable(db)
+    }
+
+    private fun createChatTable(db: SQLiteDatabase) {
+        db.execSQL("CREATE TABLE chat_messages(id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL, " +
+            "role TEXT NOT NULL CHECK(role IN ('user','assistant','system')), text TEXT NOT NULL)")
+    }
+
+    fun saveMessage(role: String, text: String) {
+        require(role in setOf("user", "assistant", "system")) { "Geçersiz mesaj rolü" }
+        require(text.isNotBlank()) { "Boş mesaj kaydedilemez" }
+        val values = android.content.ContentValues().apply {
+            put("ts", Instant.now().toString())
+            put("role", role)
+            put("text", text)
+        }
+        writableDatabase.insertOrThrow("chat_messages", null, values)
+    }
+
+    fun history(limit: Int = 200): List<ChatEntry> {
+        require(limit in 1..1000) { "Geçersiz geçmiş sınırı" }
+        val entries = mutableListOf<ChatEntry>()
+        readableDatabase.rawQuery(
+            "SELECT id,ts,role,text FROM chat_messages ORDER BY id DESC LIMIT ?",
+            arrayOf(limit.toString())
+        ).use { cursor ->
+            while (cursor.moveToNext()) entries.add(ChatEntry(
+                cursor.getLong(0), cursor.getString(1), cursor.getString(2), cursor.getString(3)
+            ))
+        }
+        return entries.asReversed()
     }
 
     fun saveMemory(text: String) {
