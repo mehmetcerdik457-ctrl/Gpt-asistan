@@ -1,51 +1,90 @@
 # -*- coding: utf-8 -*-
-import sqlite3, os, subprocess, datetime, sys
+import datetime
+import sqlite3
+import subprocess
 
-DB="mem.db"
+DB = "mem.db"
+
 
 def init_db():
-    con=sqlite3.connect(DB)
-    cur=con.cursor()
-    cur.execute("CREATE TABLE IF NOT EXISTS mem(id INTEGER PRIMARY KEY, ts TEXT, text TEXT)")
-    con.commit(); con.close()
+    con = sqlite3.connect(DB)
+    try:
+        con.execute("CREATE TABLE IF NOT EXISTS mem(id INTEGER PRIMARY KEY, ts TEXT, text TEXT)")
+        con.commit()
+    finally:
+        con.close()
+
 
 def save(text):
-    con=sqlite3.connect(DB); cur=con.cursor()
-    cur.execute("INSERT INTO mem(ts,text) VALUES(?,?)",(datetime.datetime.now().isoformat(timespec="seconds"), text))
-    con.commit(); con.close()
+    con = sqlite3.connect(DB)
+    try:
+        con.execute(
+            "INSERT INTO mem(ts,text) VALUES(?,?)",
+            (datetime.datetime.now().isoformat(timespec="seconds"), text),
+        )
+        con.commit()
+    finally:
+        con.close()
+
 
 def list_last(n=20):
-    con=sqlite3.connect(DB); cur=con.cursor()
-    cur.execute("SELECT ts,text FROM mem ORDER BY id DESC LIMIT ?",(n,))
-    rows=cur.fetchall(); con.close(); return rows
+    con = sqlite3.connect(DB)
+    try:
+        cur = con.cursor()
+        cur.execute("SELECT ts,text FROM mem ORDER BY id DESC LIMIT ?", (n,))
+        return cur.fetchall()
+    finally:
+        con.close()
+
 
 def speak(text):
+    """Speak through Termux TTS and return False if the engine is unavailable or fails."""
+    text = text.strip()
+    if not text:
+        return False
     try:
-        subprocess.run(["termux-tts-speak", text], check=False)
-    except Exception:
-        pass
+        result = subprocess.run(["termux-tts-speak", text], check=False)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return result.returncode == 0
+
 
 def main():
     init_db()
     print("Kral Asistan (güvenli/yerel). Komutlar: /kaydet <yazi> | /liste | /soyle <yazi> | /cik")
     while True:
         try:
-            line=input("> ").strip()
+            line = input("> ").strip()
         except EOFError:
             break
-        if not line: 
+        if not line:
             continue
         if line.startswith("/kaydet "):
-            save(line[len("/kaydet "):].strip()); print("✓ kaydedildi")
+            text = line[len("/kaydet "):].strip()
+            if text:
+                save(text)
+                print("kaydedildi")
+            else:
+                print("Kaydedilecek metin boş olamaz.")
         elif line == "/liste":
-            rows=list_last(); 
-            if not rows: print("(kayıt yok)")
-            for ts,txt in rows[::-1]: print(f"[{ts}] {txt}")
+            rows = list_last()
+            if not rows:
+                print("(kayıt yok)")
+            for ts, text in rows[::-1]:
+                print(f"[{ts}] {text}")
         elif line.startswith("/soyle "):
-            txt=line[len("/soyle "):].strip(); speak(txt); print("🗣️ söyledim")
+            text = line[len("/soyle "):].strip()
+            if speak(text):
+                print("Sesli yanıt tamamlandı.")
+            else:
+                print("Sesli yanıt başarısız: Termux TTS kullanılamıyor veya metin boş.")
         elif line == "/cik":
-            print("görüşürüz kral"); break
+            print("görüşürüz kral")
+            break
         else:
-            # basit cevap: hafızaya yaz ve tekrar et
-            save(line); print(f"anladım: {line}")
-if __name__=="__main__": main()
+            save(line)
+            print(f"anladım: {line}")
+
+
+if __name__ == "__main__":
+    main()
