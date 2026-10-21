@@ -33,4 +33,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OPENAI_API_KEY: ${{ secrets.KRAL_OPENAI_API_KEY }}
           OPENAI_ALLOWED_MODELS: ${{ vars.KRAL_ALLOWED_MODELS }}
+          KRAL_PROVIDER_MODE: ${{ vars.KRAL_PROVIDER_MODE || 'openai' }}
+          KRAL_OWNER_GATEWAY_URL: ${{ secrets.KRAL_OWNER_GATEWAY_URL }}
+          KRAL_OWNER_GATEWAY_HOST: ${{ vars.KRAL_OWNER_GATEWAY_HOST }}
+          KRAL_OWNER_GATEWAY_TOKEN: ${{ secrets.KRAL_OWNER_GATEWAY_TOKEN }}
+          KRAL_OWNER_GATEWAY_MODEL: ${{ vars.KRAL_OWNER_GATEWAY_MODEL }}
         run: python -m server.github_issue_bridge
