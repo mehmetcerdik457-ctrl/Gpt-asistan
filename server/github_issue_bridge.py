@@ -181,8 +181,12 @@ def main():
     if mode == "check":
         comment = make_check_comment(Path("kral-checks.log"), os.getenv("GITHUB_RUN_ID", ""), os.getenv("GITHUB_SHA", ""))
     else:
-        from server.gateway import OpenAIProvider
-        comment = make_advisory(task, OpenAIProvider())
+        from server.gateway import Denied
+        from server.owner_gateway_provider import provider_from_env
+        try:
+            comment = make_advisory(task, provider_from_env())
+        except Denied:
+            raise TaskRejected("MODEL_PROVIDER_DENIED") from None
     github_json("POST", f"/issues/{number}/comments", token, {"body": comment})
     print("CHECK_COMMENT_POSTED" if mode == "check" else "ADVISORY_POSTED")
 
