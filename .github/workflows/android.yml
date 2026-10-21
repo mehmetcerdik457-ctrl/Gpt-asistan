@@ -3,6 +3,10 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+# New commits supersede obsolete Android builds on the same branch/event.
+concurrency:
+  group: android-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 jobs:
   build:
     runs-on: ubuntu-latest
