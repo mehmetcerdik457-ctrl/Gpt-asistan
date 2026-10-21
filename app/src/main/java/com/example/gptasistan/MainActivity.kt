@@ -130,6 +130,11 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             setAllCaps(false)
             setOnClickListener { openInstalledCihat() }
         })
+        root.addView(Button(this).apply {
+            text = "CİHAT yanıtını panodan al (önizleme)"
+            setAllCaps(false)
+            setOnClickListener { previewClipboardReply() }
+        })
         connectionStatus = TextView(this).apply {
             text = if ((prefs.getString("endpoint", "") ?: "").isBlank())
                 "Model bağlantısı yapılandırılmadı" else "Model adresi kayıtlı; bağlantı doğrulanmadı"
@@ -239,6 +244,45 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             }
         }
         dialog.show()
+    }
+
+    /** Manual reply return: user explicitly inspects untrusted clipboard. */
+    private fun previewClipboardReply() {
+        if (!appUnlocked || !uiReady || session.state.value?.busy == true) {
+            if (uiReady) connectionStatus.text = "Önce cihaz kilidini aç ve mevcut işlemin bitmesini bekle."
+            return
+        }
+        val reply = try {
+            val clipboard = getSystemService(CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+            val clip = clipboard?.primaryClip
+            if (clip != null && clip.itemCount == 1 &&
+                clip.description.hasMimeType(android.content.ClipDescription.MIMETYPE_TEXT_PLAIN)
+            ) CihatHandoff.importableReply(clip.getItemAt(0).text) else null
+        } catch (_: RuntimeException) { null }
+        if (reply == null) {
+            connectionStatus.text = "Panoda en fazla 2000 karakterlik düz metin yok; hiçbir kayıt değişmedi."
+            return
+        }
+        val overwrite = if (input.text.isNotBlank())
+            "Mevcut taslak bu metinle değiştirilecek.\n\n" else ""
+        AlertDialog.Builder(this)
+            .setTitle("Panodaki metni KRAL'a al")
+            .setMessage(
+                "Panodaki metnin CİHAT'tan geldiği doğrulanamaz. Önce kontrol et. " +
+                "Aktarım yalnızca taslağı doldurur, sohbeti/hafızayı kaydetmez ve mesaj göndermez.\n\n" +
+                overwrite + "PANODAKİ METİN:\n" + reply
+            )
+            .setPositiveButton("Taslağa aktar") { _, _ ->
+                if (appUnlocked && !isFinishing && !isDestroyed &&
+                    session.state.value?.busy != true
+                ) {
+                    input.setText(reply)
+                    input.setSelection(reply.length)
+                    connectionStatus.text = "Yalnız taslağa aktarıldı; gönderim veya kayıt yapılmadı."
+                }
+            }
+            .setNegativeButton("Vazgeç", null)
+            .show()
     }
 
     private fun showLocal(action: () -> String) {
