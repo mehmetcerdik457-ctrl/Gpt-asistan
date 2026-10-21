@@ -126,6 +126,11 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             setOnClickListener { showLocal { OwnerStatus.readOnlyReport(this@MainActivity) } }
         })
         root.addView(Button(this).apply {
+            text = "CİHAT kurulumunu doğrula (salt okunur)"
+            setAllCaps(false)
+            setOnClickListener { showCihatIdentity() }
+        })
+        root.addView(Button(this).apply {
             text = "CİHAT AI'ı aç (mevcut uygulama)"
             setAllCaps(false)
             setOnClickListener { openInstalledCihat() }
@@ -197,10 +202,27 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         tts = TextToSpeech(this, this)
     }
 
+    /** Explicit user-initiated, read-only phone package inspection. */
+    private fun showCihatIdentity() {
+        if (!appUnlocked || !uiReady || session.state.value?.busy == true) return
+        val verified = CihatIdentity.inspect(this)
+        AlertDialog.Builder(this)
+            .setTitle("CİHAT uygulama kimliği")
+            .setMessage(verified.report())
+            .setPositiveButton("Tamam", null)
+            .show()
+    }
+
     // User-mediated handoff, not a privileged API or silent CİHAT automation.
     private fun openInstalledCihat() {
         if (!appUnlocked || session.state.value?.busy == true) {
             connectionStatus.text = "Önce cihaz kilidini aç ve mevcut işlemin bitmesini bekle."
+            return
+        }
+        val installed = CihatIdentity.inspect(this)
+        if (!installed.verified) {
+            connectionStatus.text =
+                "CİHAT 3.2.1 kimliği doğrulanamadı. Kurulum doğrulama ekranını incele; eski APK'ları silme."
             return
         }
         val launch = try {

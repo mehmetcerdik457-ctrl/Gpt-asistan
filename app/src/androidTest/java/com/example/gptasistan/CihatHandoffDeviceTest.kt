@@ -20,6 +20,14 @@ import org.junit.runner.RunWith
  */
 @RunWith(AndroidJUnit4::class)
 class CihatHandoffDeviceTest {
+    @Test fun absentCihatPackageFailsVerifiedIdentityGate() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val check = CihatIdentity.inspect(context)
+        assertFalse(check.verified)
+        assertTrue(check.state == CihatIdentity.State.NOT_INSTALLED ||
+            check.state == CihatIdentity.State.UNAVAILABLE)
+    }
+
     @Test fun absentCihatPackageDoesNotProduceAnImplicitLaunchIntent() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         // Failure to install the proprietary app is expected on a clean emulator.
@@ -35,6 +43,7 @@ class CihatHandoffDeviceTest {
                 assertFalse(text.contains("CİHAT AI'ı aç (mevcut uygulama)"))
                 assertFalse(text.contains("Metni kopyala ve aç"))
                 assertFalse(text.contains("CİHAT yanıtını panodan al (önizleme)"))
+                assertFalse(text.contains("CİHAT kurulumunu doğrula (salt okunur)"))
             }
         } finally {
             scenario.close()
