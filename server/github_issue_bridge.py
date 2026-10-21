@@ -77,7 +77,7 @@ def make_advisory(task: str, provider) -> str:
         "**KRAL görev köprüsü — danışma yanıtı (otomatik).** "
         "Bu cevap bir model önerisidir; kod çalıştırıldığı, telefon kontrol edildiği "
         "veya görev tamamlandığı anlamına gelmez.\n\n"
-        + text.strip()[:6000] + f"\n\n_Model: \`{actual}\`; yürütme: KAPALI._"
+        + text.strip()[:6000] + f"\n\n_Model: `{actual}`; yürütme: KAPALI._"
     )
 
 
