@@ -34,6 +34,7 @@ class CihatHandoffDeviceTest {
                 assertTrue(text.contains("Kilidi aç"))
                 assertFalse(text.contains("CİHAT AI'ı aç (mevcut uygulama)"))
                 assertFalse(text.contains("Metni kopyala ve aç"))
+                assertFalse(text.contains("CİHAT yanıtını panodan al (önizleme)"))
             }
         } finally {
             scenario.close()
