@@ -170,6 +170,23 @@ class GatewayHttpTests(unittest.TestCase):
         self.assertEqual((status, data["error"]), (403, "OWNER_AUTH_REPLAY_OR_STORAGE_DENIED"))
         self.assertEqual(len(self.provider.calls), 1)
 
+    def test_preexisting_permissive_nonce_database_is_normalized_before_use(self):
+        nonce_path = Path(self.tmp.name) / "nonces.sqlite3"
+        nonce_path.touch()
+        nonce_path.chmod(0o644)
+        self.assertEqual(self.post("models", {})[0], 200)
+        self.assertEqual(nonce_path.stat().st_mode & 0o777, 0o600)
+
+    def test_nonce_database_symlink_is_rejected_without_touching_target(self):
+        target = Path(self.tmp.name) / "target.sqlite3"
+        target.write_bytes(b"must remain untouched")
+        link = Path(self.tmp.name) / "nonce-link.sqlite3"
+        link.symlink_to(target)
+        with patch.dict(os.environ, {"OMEGA_NONCE_DB": str(link)}):
+            status, data = self.post("models", {})
+        self.assertEqual((status, data["error"]), (403, "OWNER_AUTH_DENIED"))
+        self.assertEqual(target.read_bytes(), b"must remain untouched")
+
     def test_path_and_body_binding(self):
         raw = b"{}"
         headers = self.signed(g.PREFIX + "chat", raw)

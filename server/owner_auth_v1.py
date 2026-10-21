@@ -5,7 +5,7 @@ import os
 import re
 import sqlite3
 import time
-from pathlib import Path
+from .secure_sqlite import secure_sqlite_file
 
 try:
     from cryptography.exceptions import InvalidSignature
@@ -84,11 +84,9 @@ def authorize(headers, raw, method="POST", path=PATH, now=None):
             _decode(h["X-Omega-Owner-Proof"]), msg, ec.ECDSA(hashes.SHA256()))
         device_key.verify(
             _decode(h["X-Omega-Device-Proof"]), msg, ec.ECDSA(hashes.SHA256()))
-        db_path = Path(os.environ["OMEGA_NONCE_DB"])
-        if not db_path.is_absolute() or not db_path.parent.is_dir():
-            return False, "OWNER_AUTH_STORE_UNAVAILABLE"
+        db_path = secure_sqlite_file(os.environ["OMEGA_NONCE_DB"])
         # Never trust in-process caches for replay protection; transaction + unique PK.
-        with sqlite3.connect(str(db_path), timeout=3) as db:
+        with sqlite3.connect(db_path, timeout=3) as db:
             db.execute("PRAGMA busy_timeout=3000")
             db.execute("CREATE TABLE IF NOT EXISTS owner_nonce_v1 (nonce TEXT PRIMARY KEY, seen_at INTEGER NOT NULL)")
             db.execute("BEGIN IMMEDIATE")

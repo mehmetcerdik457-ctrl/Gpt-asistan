@@ -22,6 +22,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from . import owner_auth_v1 as auth
+from .secure_sqlite import secure_sqlite_file
 
 CONTRACT = "OMEGA-OWNER-API-V1"
 PREFIX = "/api/v1/owner/"
@@ -106,9 +107,7 @@ class OpenAIProvider:
 
 class Store:
     def __init__(self, path):
-        self.path = Path(path)
-        if not self.path.is_absolute() or not self.path.parent.is_dir():
-            raise ValueError("OMEGA_DATA_DB must use an existing private absolute directory")
+        self.path = Path(secure_sqlite_file(path))
         with self.connect() as db:
             db.executescript("""
                 CREATE TABLE IF NOT EXISTS chat (
@@ -120,7 +119,6 @@ class Store:
                     singleton INTEGER PRIMARY KEY CHECK(singleton=1),
                     owner_id TEXT NOT NULL, public_key_sha256 TEXT NOT NULL);
             """)
-        os.chmod(self.path, 0o600)
 
     def connect(self):
         return sqlite3.connect(str(self.path), timeout=3)
