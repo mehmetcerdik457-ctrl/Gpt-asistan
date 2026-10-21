@@ -29,6 +29,7 @@ def main() -> None:
     parser.add_argument("output", type=Path)
     parser.add_argument("--sdk", type=Path, default=os.environ.get("ANDROID_HOME"))
     parser.add_argument("--build-tools", default="34.0.0")
+    parser.add_argument("--expected-package", help="Require exact Android applicationId; fail closed for collision-prone APKs")
     args = parser.parse_args()
     if not args.sdk:
         parser.error("--sdk or ANDROID_HOME is required")
@@ -36,6 +37,10 @@ def main() -> None:
     badging = command(str(sdk_tools / "aapt"), "dump", "badging", str(args.apk))
     signature = command(str(sdk_tools / "apksigner"), "verify", "--verbose", "--print-certs", str(args.apk))
     package = field(r"^package: name='([^']+)'", badging)
+    if args.expected_package and package != args.expected_package:
+        raise ValueError("APK_PACKAGE_MISMATCH: wrong install namespace; refusing delivery")
+    if args.expected_package and not args.expected_package.startswith("com.example.gptasistan.genesis.cihatpreview"):
+        raise ValueError("APK_PACKAGE_POLICY_DENIED: candidate could replace an existing app")
     if "split=" in badging.splitlines()[0]:
         raise ValueError("A split APK is not a standalone deliverable")
     apk_hash = hashlib.sha256(args.apk.read_bytes()).hexdigest()
