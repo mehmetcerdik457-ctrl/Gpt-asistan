@@ -9,11 +9,17 @@ import java.time.Instant
 // The old Termux mem.db is not silently imported; the Android app owns this new DB.
 data class ChatEntry(val id: Long, val ts: String, val role: String, val text: String)
 
+internal interface ChatStore {
+    fun saveMessage(role: String, text: String)
+    fun history(limit: Int = 200): List<ChatEntry>
+    fun close()
+}
+
 class KralStore private constructor(context: Context, private val databaseKey: ByteArray) :
     SQLiteOpenHelper(
         context.applicationContext, DATABASE_NAME, databaseKey, null, DATABASE_VERSION,
         0, null, null, false,
-    ) {
+    ), ChatStore {
 
     constructor(context: Context) : this(
         context.applicationContext,
@@ -46,7 +52,7 @@ class KralStore private constructor(context: Context, private val databaseKey: B
             "role TEXT NOT NULL CHECK(role IN ('user','assistant','system')), text TEXT NOT NULL)")
     }
 
-    fun saveMessage(role: String, text: String) {
+    override fun saveMessage(role: String, text: String) {
         require(role in setOf("user", "assistant", "system")) { "Geçersiz mesaj rolü" }
         require(text.isNotBlank()) { "Boş mesaj kaydedilemez" }
         val values = android.content.ContentValues().apply {
@@ -57,7 +63,7 @@ class KralStore private constructor(context: Context, private val databaseKey: B
         writableDatabase.insertOrThrow("chat_messages", null, values)
     }
 
-    fun history(limit: Int = 200): List<ChatEntry> {
+    override fun history(limit: Int): List<ChatEntry> {
         require(limit in 1..1000) { "Geçersiz geçmiş sınırı" }
         val entries = mutableListOf<ChatEntry>()
         readableDatabase.rawQuery(
@@ -70,6 +76,8 @@ class KralStore private constructor(context: Context, private val databaseKey: B
         }
         return entries.asReversed()
     }
+
+    override fun close() = super.close()
 
     fun saveMemory(text: String) {
         val values = android.content.ContentValues().apply {

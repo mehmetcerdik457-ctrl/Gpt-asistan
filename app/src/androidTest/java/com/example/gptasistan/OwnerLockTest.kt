@@ -1,39 +1,37 @@
 package com.example.gptasistan
 
-import android.app.Application
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.TextView
+import androidx.test.core.app.ActivityScenario
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.robolectric.Robolectric
-import org.robolectric.RobolectricTestRunner
-import org.robolectric.RuntimeEnvironment
-import org.robolectric.annotation.Config
 
-/** Local UI test, not physical biometric or device credential validation. */
-@RunWith(RobolectricTestRunner::class)
-@Config(sdk = [28])
+/** Android UI test; it does not dismiss or claim to validate the device credential prompt. */
+@RunWith(AndroidJUnit4::class)
 class OwnerLockTest {
     @Test fun launchDoesNotRenderSavedPrivateConversationBeforeCredentialGate() {
-        val app = RuntimeEnvironment.getApplication()
+        val app = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext
         app.deleteDatabase("kral_local.db")
         app.deleteDatabase("kral_local.db.plaintext-legacy")
         app.deleteDatabase("kral_local.db.cipher-staging")
         val store = KralStore(app, TestDatabaseKeyProvider)
         try { store.saveMessage("user", "PRIVATE_TRANSCRIPT_SENTINEL") } finally { store.close() }
-        val controller = Robolectric.buildActivity(MainActivity::class.java).create().start().resume().visible()
+        val scenario = ActivityScenario.launch(MainActivity::class.java)
         try {
-            val activity = controller.get()
-            val text = allText(activity.window.decorView)
-            assertTrue(text.contains("Kilidi aç"))
-            assertFalse(text.contains("PRIVATE_TRANSCRIPT_SENTINEL"))
-            assertEquals(WindowManager.LayoutParams.FLAG_SECURE,
-                activity.window.attributes.flags and WindowManager.LayoutParams.FLAG_SECURE)
+            scenario.onActivity { activity ->
+                val text = allText(activity.window.decorView)
+                assertTrue(text.contains("Kilidi aç"))
+                assertFalse(text.contains("PRIVATE_TRANSCRIPT_SENTINEL"))
+                assertEquals(WindowManager.LayoutParams.FLAG_SECURE,
+                    activity.window.attributes.flags and WindowManager.LayoutParams.FLAG_SECURE)
+            }
         } finally {
-            controller.pause().stop().destroy()
+            scenario.close()
             app.deleteDatabase("kral_local.db")
             app.deleteDatabase("kral_local.db.plaintext-legacy")
             app.deleteDatabase("kral_local.db.cipher-staging")

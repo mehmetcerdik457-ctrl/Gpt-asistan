@@ -16,13 +16,14 @@ import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.LooperMode
 import java.io.IOException
+import java.time.Instant
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
-/** Real SQLite and worker tests. No live model, network, or phone is exercised. */
+/** Chat lifecycle tests use a deterministic store; SQLCipher persistence is tested on Android. */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28])
 @LooperMode(LooperMode.Mode.PAUSED)
@@ -34,7 +35,7 @@ class ChatSessionTest {
 
     @Before fun setUp() {
         application = RuntimeEnvironment.getApplication()
-        application.deleteDatabase("kral_local.db")
+        TestChatRows.clear()
     }
 
     @After fun tearDown() {
@@ -42,11 +43,10 @@ class ChatSessionTest {
         owners.forEach { it.clear() }
         workers.forEach { assertTrue(it.awaitTermination(5, TimeUnit.SECONDS)) }
         shadowOf(Looper.getMainLooper()).idle()
-        application.deleteDatabase("kral_local.db")
     }
 
     private fun session(
-        store: KralStore = KralStore(application),
+        store: ChatStore = InMemoryChatStore(),
         responder: (String, String, String) -> String
     ): Pair<ChatSession, ExecutorService> {
         val worker = Executors.newSingleThreadExecutor().also { workers.add(it) }
@@ -98,18 +98,18 @@ class ChatSessionTest {
         release.countDown()
         assertTrue(worker.awaitTermination(5, TimeUnit.SECONDS))
         shadowOf(Looper.getMainLooper()).idle()
-        val reopened = KralStore(application)
-        try {
-            assertEquals(listOf("Sen: Pencere kapanacak", "Model: Activity olmasa da korunmalı"),
-                reopened.history().map { it.text })
-        } finally { reopened.close() }
+        val reopened = InMemoryChatStore()
+        assertEquals(
+            listOf("Sen: Pencere kapanacak", "Model: Activity olmasa da korunmalı"),
+            reopened.history().map { it.text },
+        )
+        reopened.close()
     }
 
     @Test fun databaseWriteFailureReturnsFalseAndNeverCallsProvider() {
-        val store = KralStore(application)
+        val store = InMemoryChatStore(failWrites = true)
         val calls = AtomicInteger()
         val (session, worker) = session(store) { _, _, _ -> calls.incrementAndGet(); "Çağrılmamalı" }
-        store.writableDatabase.execSQL("DROP TABLE chat_messages")
         assertFalse(session.send(ENDPOINT, "test-model", "UI bu taslağı korumalı"))
         flush(worker)
         assertEquals(0, calls.get())
@@ -167,9 +167,9 @@ class ChatSessionTest {
 
     @Test fun refreshHistoryIncludesLocalCommandMessagesWithoutModelCall() {
         val (session, worker) = session { _, _, _ -> error("Çağrılmamalı") }
-        val external = KralStore(application)
-        try { external.saveMessage("system", "Yerel görev eklendi") }
-        finally { external.close() }
+        val external = InMemoryChatStore()
+        external.saveMessage("system", "Yerel görev eklendi")
+        external.close()
         session.refreshHistory()
         assertEquals(listOf("Yerel görev eklendi"), session.history.value!!.map { it.text })
         flush(worker)
@@ -202,4 +202,31 @@ class ChatSessionTest {
     }
 
     private companion object { const val ENDPOINT = "https://example.invalid/v1/chat/completions" }
+}
+
+private class InMemoryChatStore(private val failWrites: Boolean = false) : ChatStore {
+    override fun saveMessage(role: String, text: String) {
+        if (failWrites) throw IOException("simulated write failure")
+        TestChatRows.append(role, text)
+    }
+
+    override fun history(limit: Int): List<ChatEntry> = TestChatRows.history(limit)
+
+    override fun close() = Unit
+}
+
+private object TestChatRows {
+    private val entries = mutableListOf<ChatEntry>()
+    private var nextId = 1L
+
+    @Synchronized fun clear() {
+        entries.clear()
+        nextId = 1L
+    }
+
+    @Synchronized fun append(role: String, text: String) {
+        entries.add(ChatEntry(nextId++, Instant.now().toString(), role, text))
+    }
+
+    @Synchronized fun history(limit: Int): List<ChatEntry> = entries.takeLast(limit)
 }

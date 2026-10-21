@@ -1,8 +1,9 @@
 package com.example.gptasistan
 
-import android.app.Application
 import android.content.Context
 import java.io.File
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -11,20 +12,16 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.robolectric.RobolectricTestRunner
-import org.robolectric.RuntimeEnvironment
-import org.robolectric.annotation.Config
 
-/** Local JVM tests of the production encrypted SQLite helper; these are not phone tests. */
-@RunWith(RobolectricTestRunner::class)
-@Config(sdk = [28])
+/** Tests the production SQLCipher store and plaintext migration on an Android runtime. */
+@RunWith(AndroidJUnit4::class)
 class KralStoreTest {
-    private lateinit var context: Application
+    private lateinit var context: Context
     private val openedStores = mutableListOf<KralStore>()
 
     @Before
     fun setUp() {
-        context = RuntimeEnvironment.getApplication()
+        context = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext
         deleteTestDatabases()
     }
 

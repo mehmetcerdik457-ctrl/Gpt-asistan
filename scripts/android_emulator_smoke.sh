@@ -37,6 +37,7 @@ assert (root / 'api-level.txt').read_text().strip() == '30', 'Unexpected emulato
 assert (root / 'abi.txt').read_text().strip() == 'x86_64', 'Unexpected emulator architecture'
 PY
 
+timeout 15 adb -e uninstall "$package" >/dev/null 2>&1 || true
 timeout 60 adb -e install -t "$apk_dir/app-debug.apk" 2>&1 | tee "$evidence_dir/install.txt"
 timeout 30 adb -e shell am start -W -n "$package/com.example.gptasistan.MainActivity" | tee "$evidence_dir/launch.txt"
 
