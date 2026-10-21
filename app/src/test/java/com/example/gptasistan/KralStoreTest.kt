@@ -2,6 +2,7 @@ package com.example.gptasistan
 
 import android.app.Application
 import android.content.Context
+import java.io.File
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -14,7 +15,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
-/** Local JVM tests of the production SQLite helper; these are not phone tests. */
+/** Local JVM tests of the production encrypted SQLite helper; these are not phone tests. */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28])
 class KralStoreTest {
@@ -24,13 +25,13 @@ class KralStoreTest {
     @Before
     fun setUp() {
         context = RuntimeEnvironment.getApplication()
-        context.deleteDatabase(DATABASE_NAME)
+        deleteTestDatabases()
     }
 
     @After
     fun tearDown() {
         openedStores.forEach { it.close() }
-        context.deleteDatabase(DATABASE_NAME)
+        deleteTestDatabases()
     }
 
     @Test
@@ -55,7 +56,7 @@ class KralStoreTest {
 
     @Test
     fun upgradingRealVersionOneDatabasePreservesMemoryAndTasksAndAllowsChat() {
-        // This is the pre-existing v1 schema, not a substitute for the v2 helper.
+        // This is the pre-existing v1 plaintext schema, not a substitute for the v2 helper.
         val legacy = context.openOrCreateDatabase(DATABASE_NAME, Context.MODE_PRIVATE, null)
         try {
             legacy.execSQL("CREATE TABLE mem(id INTEGER PRIMARY KEY, ts TEXT NOT NULL, text TEXT NOT NULL)")
@@ -79,7 +80,8 @@ class KralStoreTest {
 
         val upgraded = openStore()
         assertTrue(upgraded.history().isEmpty())
-        assertEquals(2, upgraded.readableDatabase.version)
+        assertEquals(KralStore.DATABASE_VERSION, upgraded.readableDatabase.version)
+        assertFalse(context.getDatabasePath("$DATABASE_NAME.plaintext-legacy").exists())
 
         upgraded.readableDatabase.rawQuery("SELECT id,ts,text FROM mem ORDER BY id", null).use { rows ->
             assertTrue(rows.moveToNext())
@@ -115,6 +117,9 @@ class KralStoreTest {
         assertTrue(reopened.memory().contains("Eski kişisel hafızam"))
         assertTrue(reopened.tasks().contains("Eski bekleyen görev"))
         assertTrue(reopened.tasks().contains("Eski tamamlanan görev"))
+        val raw = String(context.getDatabasePath(DATABASE_NAME).readBytes(), Charsets.ISO_8859_1)
+        assertFalse(raw.contains("Eski kişisel hafızam"))
+        assertFalse(raw.contains("Eski bekleyen görev"))
     }
 
     @Test
@@ -147,7 +152,8 @@ class KralStoreTest {
         )
     }
 
-    @Test fun recallSurvivesReopenAndMatchesTurkishLettersWithoutUploadingHistory() {
+    @Test
+    fun recallSurvivesReopenAndMatchesTurkishLettersWithoutUploadingHistory() {
         val store = openStore()
         store.saveMemory("İstanbul seyahatim cuma günü")
         store.saveMemory("Ankara seyahatim pazartesi")
@@ -161,9 +167,41 @@ class KralStoreTest {
         assertEquals(1, reopened.history().size)
     }
 
-    private fun openStore(): KralStore = KralStore(context).also { openedStores.add(it) }
+    @Test
+    fun privateContentIsNotStoredInThePlaintextDatabaseFile() {
+        val marker = "AT_REST_ENCRYPTION_SENTINEL_7f1b"
+        val store = openStore()
+        store.saveMessage("user", marker)
+        store.saveMemory("hafıza $marker")
+        store.addTask("görev $marker")
+        store.close()
+
+        val file = context.getDatabasePath(DATABASE_NAME)
+        val raw = String(file.readBytes(), Charsets.ISO_8859_1)
+        assertFalse(raw.startsWith("SQLite format 3\u0000"))
+        assertFalse(raw.contains(marker))
+        assertEquals(marker, openStore().history().single().text)
+    }
+
+    private fun openStore(): KralStore = KralStore(context, TestDatabaseKeyProvider).also { openedStores.add(it) }
+
+    private fun deleteTestDatabases() {
+        listOf(
+            DATABASE_NAME,
+            "$DATABASE_NAME.plaintext-legacy",
+            "$DATABASE_NAME.cipher-staging",
+        ).forEach { context.deleteDatabase(it) }
+        listOf("-journal", "-wal", "-shm").forEach { suffix ->
+            File(context.getDatabasePath(DATABASE_NAME).absolutePath + suffix).delete()
+        }
+    }
 
     private companion object {
         const val DATABASE_NAME = "kral_local.db"
     }
+}
+
+internal object TestDatabaseKeyProvider : DatabaseKeyProvider {
+    private val testKey = ByteArray(32) { (it + 1).toByte() }
+    override fun getKey(context: Context): ByteArray = testKey.copyOf()
 }

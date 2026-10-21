@@ -20,7 +20,9 @@ class OwnerLockTest {
     @Test fun launchDoesNotRenderSavedPrivateConversationBeforeCredentialGate() {
         val app = RuntimeEnvironment.getApplication()
         app.deleteDatabase("kral_local.db")
-        val store = KralStore(app)
+        app.deleteDatabase("kral_local.db.plaintext-legacy")
+        app.deleteDatabase("kral_local.db.cipher-staging")
+        val store = KralStore(app, TestDatabaseKeyProvider)
         try { store.saveMessage("user", "PRIVATE_TRANSCRIPT_SENTINEL") } finally { store.close() }
         val controller = Robolectric.buildActivity(MainActivity::class.java).create().start().resume().visible()
         try {
@@ -33,6 +35,8 @@ class OwnerLockTest {
         } finally {
             controller.pause().stop().destroy()
             app.deleteDatabase("kral_local.db")
+            app.deleteDatabase("kral_local.db.plaintext-legacy")
+            app.deleteDatabase("kral_local.db.cipher-staging")
         }
     }
 

@@ -1,23 +1,44 @@
 package com.example.gptasistan
 
 import android.content.Context
-import android.database.sqlite.SQLiteDatabase
-import android.database.sqlite.SQLiteOpenHelper
+import net.zetetic.database.sqlcipher.SQLiteDatabase
+import net.zetetic.database.sqlcipher.SQLiteOpenHelper
 import java.time.Instant
 
 // The mem schema intentionally preserves the original Python assistant.py fields.
 // The old Termux mem.db is not silently imported; the Android app owns this new DB.
 data class ChatEntry(val id: Long, val ts: String, val role: String, val text: String)
 
-class KralStore(context: Context) : SQLiteOpenHelper(context, "kral_local.db", null, 2) {
+class KralStore private constructor(context: Context, private val databaseKey: ByteArray) :
+    SQLiteOpenHelper(
+        context.applicationContext, DATABASE_NAME, databaseKey, null, DATABASE_VERSION,
+        0, null, null, false,
+    ) {
+
+    constructor(context: Context) : this(
+        context.applicationContext,
+        AndroidDatabaseKeyProvider.getKey(context.applicationContext),
+    )
+
+    internal constructor(context: Context, keyProvider: DatabaseKeyProvider) : this(
+        context.applicationContext,
+        keyProvider.getKey(context.applicationContext),
+    )
+
+    init {
+        EncryptedDatabaseMigration.migrateIfNeeded(context.applicationContext, databaseKey)
+    }
+
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("CREATE TABLE mem(id INTEGER PRIMARY KEY, ts TEXT NOT NULL, text TEXT NOT NULL)")
         db.execSQL("CREATE TABLE tasks(id INTEGER PRIMARY KEY, title TEXT NOT NULL, done INTEGER NOT NULL DEFAULT 0)")
         createChatTable(db)
     }
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        require(oldVersion == 1 && newVersion == 2) { "Desteklenmeyen veritabanı geçişi" }
-        createChatTable(db)
+        require(oldVersion in 1..2 && newVersion == DATABASE_VERSION) {
+            "Desteklenmeyen veritabanı geçişi"
+        }
+        if (oldVersion == 1) createChatTable(db)
     }
 
     private fun createChatTable(db: SQLiteDatabase) {
@@ -101,5 +122,10 @@ class KralStore(context: Context) : SQLiteOpenHelper(context, "kral_local.db", n
             }
         }
         return if (out.isEmpty()) "(görev yok)" else out.asReversed().joinToString("\n")
+    }
+
+    internal companion object {
+        const val DATABASE_NAME = "kral_local.db"
+        const val DATABASE_VERSION = 3
     }
 }
