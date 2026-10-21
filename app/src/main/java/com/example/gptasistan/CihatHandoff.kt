@@ -14,4 +14,16 @@ object CihatHandoff {
         if (trimmed.isEmpty() || trimmed.length > MAX_CLIPBOARD_CHARS) return null
         return trimmed
     }
+    /** Plain clipboard return only; the origin cannot be authenticated. */
+    fun importableReply(text: CharSequence?): String? {
+        val raw = text?.toString() ?: return null
+        if (raw.length > MAX_CLIPBOARD_CHARS) return null
+        val trimmed = raw.trim()
+        if (trimmed.isEmpty()) return null
+        if (trimmed.any { c ->
+                c == '\u0000' || (c.code < 32 && c != '\n' && c != '\r' && c != '\t')
+            }
+        ) return null
+        return trimmed
+    }
 }
