@@ -3,6 +3,8 @@ import base64
 import hashlib
 import json
 import os
+import select
+import socket
 import tempfile
 import threading
 import time
@@ -66,7 +68,7 @@ class GatewayHttpTests(unittest.TestCase):
         self.provider = SyntheticProvider()
         self.db = self.tmp.name + "/data.sqlite3"
         self.gateway = g.Gateway(g.Store(self.db), self.provider)
-        self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), g.handler_for(self.gateway))
+        self.httpd = g.BoundedThreadingHTTPServer(("127.0.0.1", 0), g.handler_for(self.gateway))
         self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
         self.thread.start()
         self.url = "http://127.0.0.1:" + str(self.httpd.server_port)
@@ -107,6 +109,36 @@ class GatewayHttpTests(unittest.TestCase):
         self.assertEqual(data["contract"], g.CONTRACT)
         self.assertEqual(data["models"][0]["id"], self.provider.actual)
         return data["models"][0]["id"]
+
+    def test_partial_unauthenticated_headers_cannot_exceed_worker_cap(self):
+        cap = 4
+        server = g.BoundedThreadingHTTPServer(
+            ("127.0.0.1", 0), g.handler_for(self.gateway), max_workers=cap)
+        server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+        server_thread.start()
+        clients = []
+        try:
+            for _ in range(cap):
+                client = socket.create_connection(server.server_address, timeout=2)
+                client.sendall(b"POST /api/v1/owner/models HTTP/1.1\r\nHost: localhost\r\n")
+                clients.append(client)
+            deadline = time.monotonic() + 2
+            while server._worker_slots._value and time.monotonic() < deadline:
+                time.sleep(0.01)
+            self.assertEqual(server._worker_slots._value, 0, "all bounded workers should be occupied")
+
+            excess = socket.create_connection(server.server_address, timeout=2)
+            clients.append(excess)
+            excess.sendall(b"POST /api/v1/owner/models HTTP/1.1\r\nHost: localhost\r\n")
+            readable, _, _ = select.select([excess], [], [], 2)
+            self.assertTrue(readable, "excess connection should be rejected promptly")
+            self.assertEqual(excess.recv(1), b"", "rejected connection should be closed")
+        finally:
+            for client in clients:
+                client.close()
+            server.shutdown()
+            server.server_close()
+            server_thread.join(timeout=3)
 
     def test_signed_live_probe_contract_and_actual_id(self):
         actual = self.verify_model()

@@ -11,6 +11,7 @@ import json
 import os
 import re
 import sqlite3
+import sys
 import threading
 import time
 import urllib.error
@@ -270,6 +271,39 @@ class Gateway:
         raise Denied("ROUTE_NOT_FOUND", 404)
 
 
+class BoundedThreadingHTTPServer(ThreadingHTTPServer):
+    """Bound unauthenticated connections before they can allocate worker threads."""
+    MAX_WORKERS = 16
+
+    def __init__(self, server_address, RequestHandlerClass, *, max_workers=None, **kwargs):
+        super().__init__(server_address, RequestHandlerClass, **kwargs)
+        self.max_workers = self.MAX_WORKERS if max_workers is None else max_workers
+        if self.max_workers < 1:
+            raise ValueError("max_workers must be positive")
+        self._worker_slots = threading.BoundedSemaphore(self.max_workers)
+
+    def process_request(self, request, client_address):
+        if not self._worker_slots.acquire(blocking=False):
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            self._worker_slots.release()
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._worker_slots.release()
+
+    def handle_error(self, request, client_address):
+        if isinstance(sys.exc_info()[1], OSError):
+            return
+        super().handle_error(request, client_address)
+
+
 def handler_for(gateway):
     class Handler(BaseHTTPRequestHandler):
         server_version = "KralGateway/1.0"
@@ -350,7 +384,7 @@ def main():
     os.umask(0o077)
     store = Store(os.environ["OMEGA_DATA_DB"])
     address = (os.getenv("KRAL_BIND", "127.0.0.1"), int(os.getenv("PORT", "8080")))
-    server = ThreadingHTTPServer(address, handler_for(Gateway(store)))
+    server = BoundedThreadingHTTPServer(address, handler_for(Gateway(store)))
     print("KRAL gateway started; HTTPS termination and enrolled owner/device keys are required.", flush=True)
     server.serve_forever()
 
