@@ -202,7 +202,10 @@ class Store:
 class Gateway:
     def __init__(self, store, provider=None):
         self.store = store
-        self.provider = provider if provider is not None else OpenAIProvider()
+        if provider is None:
+            from .owner_gateway_provider import provider_from_env
+            provider = provider_from_env()
+        self.provider = provider
         self.models = {}
         self.lock = threading.Lock()
         self.probe_at = 0.0
