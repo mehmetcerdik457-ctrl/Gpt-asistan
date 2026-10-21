@@ -125,6 +125,11 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             text = "Owner / Bridge durumu (salt okunur)"
             setOnClickListener { showLocal { OwnerStatus.readOnlyReport(this@MainActivity) } }
         })
+        root.addView(Button(this).apply {
+            text = "CİHAT AI'ı aç (mevcut uygulama)"
+            setAllCaps(false)
+            setOnClickListener { openInstalledCihat() }
+        })
         connectionStatus = TextView(this).apply {
             text = if ((prefs.getString("endpoint", "") ?: "").isBlank())
                 "Model bağlantısı yapılandırılmadı" else "Model adresi kayıtlı; bağlantı doğrulanmadı"
@@ -185,6 +190,55 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             if (appUnlocked) speakLatestReply()
         }
         tts = TextToSpeech(this, this)
+    }
+
+    // User-mediated handoff, not a privileged API or silent CİHAT automation.
+    private fun openInstalledCihat() {
+        if (!appUnlocked || session.state.value?.busy == true) {
+            connectionStatus.text = "Önce cihaz kilidini aç ve mevcut işlemin bitmesini bekle."
+            return
+        }
+        val launch = try {
+            packageManager.getLaunchIntentForPackage(CihatHandoff.PACKAGE_NAME)
+        } catch (_: RuntimeException) { null }
+        if (launch == null) {
+            connectionStatus.text = "Bu telefonda açılabilir CİHAT AI (3.2.1) bulunamadı. Mevcut uygulamanı kontrol et."
+            return
+        }
+        val draft = CihatHandoff.copyableDraft(input.text.toString())
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Mevcut CİHAT AI uygulaması")
+            .setMessage(
+                "KRAL CİHAT'ı açabilir ama CİHAT'ın sohbetine otomatik mesaj gönderemez veya yanıt okuyamaz. " +
+                "Metni kopyala seçeneği yalnızca bu mesaj kutusundaki metni Android panosuna koyar. " +
+                "Pano içeriği başka uygulamalarda görülebilir; şifre, anahtar ve özel bilgiler için kullanma. " +
+                "Sohbet geçmişi veya hafıza otomatik aktarılmaz."
+            )
+            .setPositiveButton("Yalnız aç") { _, _ ->
+                try { startActivity(launch) }
+                catch (_: RuntimeException) {
+                    connectionStatus.text = "CİHAT uygulaması açılamadı; cihazdaki kurulumu kontrol et."
+                }
+            }
+            .setNegativeButton("Vazgeç", null)
+        if (draft != null) {
+            dialog.setNeutralButton("Metni kopyala ve aç") { _, _ ->
+                try {
+                    val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    val clip = android.content.ClipData.newPlainText("KRAL'dan CİHAT'a metin", draft)
+                    if (android.os.Build.VERSION.SDK_INT >= 33) {
+                        clip.description.extras = android.os.PersistableBundle().apply {
+                            putBoolean(android.content.ClipDescription.EXTRA_IS_SENSITIVE, true)
+                        }
+                    }
+                    clipboard.setPrimaryClip(clip)
+                    startActivity(launch)
+                } catch (_: RuntimeException) {
+                    connectionStatus.text = "CİHAT açılamadı veya Android panosuna metin kopyalanamadı."
+                }
+            }
+        }
+        dialog.show()
     }
 
     private fun showLocal(action: () -> String) {

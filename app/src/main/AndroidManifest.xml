@@ -7,6 +7,7 @@
         </intent>
         <package android:name="com.mehmetcerdik.ownerai" />
         <package android:name="com.mehmetcerdik.ownerbridge" />
+        <package android:name="com.codespaceapps.aichat" />
     </queries>
     <application
         android:allowBackup="false"
