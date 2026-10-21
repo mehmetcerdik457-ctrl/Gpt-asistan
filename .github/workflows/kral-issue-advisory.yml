@@ -1,7 +1,7 @@
-name: KRAL GitHub Issue Advisory
+name: KRAL GitHub Task Bridge
 on:
   issues:
-    types: [labeled]
+    types: [opened, edited, labeled]
 permissions:
   contents: read
   issues: write
@@ -11,19 +11,24 @@ concurrency:
 jobs:
   advisory:
     if: >-
-      github.event.label.name == 'cihat-task' &&
       github.event.issue.user.login == github.repository_owner &&
-      github.event.repository.full_name == 'mehmetcerdik457-ctrl/Gpt-asistan'
+      github.event.repository.full_name == 'mehmetcerdik457-ctrl/Gpt-asistan' &&
+      ((github.event.action == 'labeled' && github.event.label.name == 'cihat-task') ||
+       ((github.event.action == 'opened' || github.event.action == 'edited') &&
+         startsWith(github.event.issue.title, '[KRAL-CHECK] ')))
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 7
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Test safe intake before any provider request
-        run: python -m unittest server.tests.test_github_issue_bridge -v
-      - name: Post advice without task execution
+      - name: Run fixed source tests and capture evidence
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m unittest discover -s server/tests -v 2>&1 | tee kral-checks.log
+      - name: Post verified CI check OR optional model advisory
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OPENAI_API_KEY: ${{ secrets.KRAL_OPENAI_API_KEY }}
