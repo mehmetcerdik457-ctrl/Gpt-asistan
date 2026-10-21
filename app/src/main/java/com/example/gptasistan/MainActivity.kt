@@ -55,6 +55,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         locked.addView(TextView(this).apply { text = "KRAL ASİSTAN — cihaz kilidiyle aç"; textSize = 20f })
         locked.addView(Button(this).apply {
             text = "Kilidi aç"
+            setAllCaps(false)
             setOnClickListener { unlock {
                 if (!uiReady) buildContent(initialState) else setContentView(contentRoot)
             } }
