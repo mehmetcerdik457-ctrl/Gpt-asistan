@@ -27,6 +27,8 @@ CONTRACT = "OMEGA-OWNER-API-V1"
 PREFIX = "/api/v1/owner/"
 MAX_BODY = 65536
 MAX_RESPONSE = 262144
+MAX_MEMORY_ROWS = 1000
+MAX_MEMORY_BYTES = 4 * 1024 * 1024
 MODEL_TTL = 900
 MODEL_ID = re.compile(r"[A-Za-z0-9._:/-]{1,160}")
 
@@ -149,6 +151,13 @@ class Store:
 
     def remember(self, text):
         with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row_count, byte_count = db.execute(
+                "SELECT COUNT(*), COALESCE(SUM(length(CAST(text AS BLOB))), 0) FROM memory"
+            ).fetchone()
+            text_bytes = len(text.encode("utf-8"))
+            if row_count >= MAX_MEMORY_ROWS or byte_count + text_bytes > MAX_MEMORY_BYTES:
+                raise Denied("MEMORY_QUOTA_EXCEEDED", 507)
             return db.execute("INSERT INTO memory(ts,text) VALUES(?,?)", (int(time.time()), text)).lastrowid
 
     def recall(self, query="", limit=20):
@@ -261,7 +270,7 @@ class Gateway:
             action = data.get("action")
             if action == "save" and set(data) == {"action", "text"}:
                 text = data["text"]
-                if isinstance(text, str) and 0 < len(text.strip()) <= 8000:
+                if isinstance(text, str) and text.strip() and len(text) <= 8000:
                     return {"id": self.store.remember(text)}
             if action == "recall" and not set(data) - {"action", "query"}:
                 query = data.get("query", "")

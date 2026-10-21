@@ -257,6 +257,27 @@ class GatewayHttpTests(unittest.TestCase):
         self.post("chat", {"message": "Ne biliyorsun?", "model": actual, "include_memory": True})
         self.assertIn("şekersiz", self.provider.calls[-1][1])
 
+    def test_memory_save_rejects_raw_text_over_limit_even_when_trimmed_value_is_short(self):
+        oversized = " " * 8000 + "X"
+        status, data = self.post("memory", {"action": "save", "text": oversized})
+        self.assertEqual((status, data["error"]), (400, "MEMORY_FIELDS_INVALID"))
+        self.assertEqual(self.gateway.store.recall(), [])
+
+    def test_memory_quota_enforces_exact_byte_and_row_boundaries_after_reopen(self):
+        with patch.object(g, "MAX_MEMORY_ROWS", 2), patch.object(g, "MAX_MEMORY_BYTES", 5):
+            self.assertEqual(self.post("memory", {"action": "save", "text": "abc"})[0], 200)
+            self.assertEqual(self.post("memory", {"action": "save", "text": "de"})[0], 200)
+            status, data = self.post("memory", {"action": "save", "text": "x"})
+            self.assertEqual((status, data["error"]), (507, "MEMORY_QUOTA_EXCEEDED"))
+
+        # The byte quota is now larger, so this rejection proves the row cap also applies.
+        with patch.object(g, "MAX_MEMORY_ROWS", 2), patch.object(g, "MAX_MEMORY_BYTES", 100):
+            status, data = self.post("memory", {"action": "save", "text": "x"})
+            self.assertEqual((status, data["error"]), (507, "MEMORY_QUOTA_EXCEEDED"))
+
+        reopened = g.Store(self.db)
+        self.assertEqual([row["text"] for row in reopened.recall()], ["abc", "de"])
+
     def test_cost_and_body_bounds(self):
         actual = self.verify_model()
         self.assertEqual(self.post("chat", {"message": "a" * 8001, "model": actual})[0], 400)
