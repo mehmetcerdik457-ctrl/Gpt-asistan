@@ -1,13 +1,17 @@
-name: KRAL Branch Pilot - Owner Issue 40
+name: KRAL Branch Task Queue - Fixed CI
 on:
   push:
     branches:
       - integration/cihat-github-task-bridge-20261021
     paths:
+      - server/task_ticket.json
       - .github/workflows/kral-branch-pilot.yml
 permissions:
   contents: read
   issues: write
+concurrency:
+  group: kral-fixed-queue-${{ github.repository }}
+  cancel-in-progress: false
 jobs:
   fixed-source-ci:
     if: github.repository == 'mehmetcerdik457-ctrl/Gpt-asistan' && github.actor == github.repository_owner
@@ -20,12 +24,12 @@ jobs:
           python-version: '3.12'
       - name: Install existing server test dependencies
         run: python -m pip install -r server/requirements.txt
-      - name: Run all fixed tests (no task-text execution)
+      - name: Run all fixed tests, never issue commands
         shell: bash
         run: |
           set -o pipefail
           python -m unittest discover -s server/tests -v 2>&1 | tee kral-checks.log
-      - name: Post verified result to owner issue 40
+      - name: Post verified result to owner issue in ticket
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python -m server.github_push_pilot
