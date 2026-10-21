@@ -23,3 +23,12 @@ ChatGPT'nin bağlı GitHub uygulaması ile aynı depoda bir **issue** oluşturul
 - Tekrar etiketlemede önceki marker kontrol edilerek aynı yanıtın iki kez gönderilmesi önlenir (100 yorum olursa fail-closed).
 - Varsayılan dalda etkinleşene kadar otomatik issue tetikleyicisi çalışıyor iddia edilemez.
 - Bu aşama herhangi bir kod değişikliği, telefon eylemi veya OMEGA `main` birleşimini kabul etmez.
+
+## İki gerçek GitHub görev türü (güvenli başlangıç)
+
+- **`[KRAL-CHECK] Kaynak testlerini doğrula`** başlıklı ve depo sahibi tarafından açılmış GitHub Issue: GitHub Actions, yalnız sabit `python -m unittest discover -s server/tests -v` komutunu çalıştırır; PASS değilse yorum yazmaz. PASS olduğunda test sayısını, gerçek workflow koşumunu ve commit SHA'yı issue yorumuna yazar. **Bu yol model anahtarı gerektirmez.** CİHAT'ın canlı cevap verdiğini iddia etmez.
+- **`cihat-task` etiketi** yalnız depo sahibinin açtığı Issue'ya eklendiğinde: aynı sabit testlerden sonra mevcut `server.gateway.OpenAIProvider` ile *danışma yanıtı* oluşturmayı dener. Gerçek `KRAL_OPENAI_API_KEY` ve erişilebilir `KRAL_ALLOWED_MODELS` olmadan model yanıtı vermez. Bu mevcut CİHAT APK'nın özgün backend'i olarak sunulamaz.
+
+İki tür de **yalnız workflow varsayılan dalda olduğunda** Issue olaylarıyla otomatik tetiklenir. Bu PR taslak ve birleştirilmemiş durumdayken açık Issue #40'a otomatik cevap geleceğini iddia etmiyoruz. Güvenli GitHub Issue yazarlığı, gerçek Owner + telefon P-256 cihaz yetkisinin yerine geçmez.
+
+İyileştirmeler: GitHub HTTP yönlendirmeleri engellenir (yetki bilgisini başka hosta gönderme yok); sabit yorum yolu/metodu korunur; başka kullanıcıların sahte marker yorumları tamamlandı sayılmaz; test sonucu logdan okunur ve ham log Issue içine kopyalanmaz.
