@@ -47,7 +47,7 @@ class ChatSessionTest {
 
     private fun session(
         store: ChatStore = InMemoryChatStore(),
-        responder: (String, String, String) -> String
+        responder: (String, String, String, Boolean) -> String
     ): Pair<ChatSession, ExecutorService> {
         val worker = Executors.newSingleThreadExecutor().also { workers.add(it) }
         val session = ChatSession(application, store, worker, responder)
@@ -61,11 +61,26 @@ class ChatSessionTest {
         shadowOf(Looper.getMainLooper()).idle()
     }
 
+    @Test fun historySharingDefaultsOffAndExplicitOptInReachesResponder() {
+        val observed = mutableListOf<Boolean>()
+        val (session, worker) = session { _, _, _, includeHistory ->
+            observed.add(includeHistory)
+            "Yanıt"
+        }
+        assertTrue(session.send(ENDPOINT, "test-model", "Varsayılan"))
+        flush(worker)
+        assertEquals(listOf(false), observed)
+
+        assertTrue(session.send(ENDPOINT, "test-model", "Açık", includeHistory = true))
+        flush(worker)
+        assertEquals(listOf(false, true), observed)
+    }
+
     @Test fun onePendingRequestRejectsSecondSendWithoutPersistingSecondDraft() {
         val entered = CountDownLatch(1)
         val release = CountDownLatch(1).also { releaseOnCleanup.add(it) }
         val calls = AtomicInteger()
-        val (session, worker) = session { _, _, _ ->
+        val (session, worker) = session { _, _, _, _ ->
             calls.incrementAndGet()
             entered.countDown()
             check(release.await(5, TimeUnit.SECONDS))
@@ -86,7 +101,7 @@ class ChatSessionTest {
     @Test fun clearingViewModelDuringRequestDoesNotInterruptOrLoseDurableReply() {
         val entered = CountDownLatch(1)
         val release = CountDownLatch(1).also { releaseOnCleanup.add(it) }
-        val (session, worker) = session { _, _, _ ->
+        val (session, worker) = session { _, _, _, _ ->
             entered.countDown()
             check(release.await(5, TimeUnit.SECONDS))
             "Activity olmasa da korunmalı"
@@ -109,7 +124,7 @@ class ChatSessionTest {
     @Test fun databaseWriteFailureReturnsFalseAndNeverCallsProvider() {
         val store = InMemoryChatStore(failWrites = true)
         val calls = AtomicInteger()
-        val (session, worker) = session(store) { _, _, _ -> calls.incrementAndGet(); "Çağrılmamalı" }
+        val (session, worker) = session(store) { _, _, _, _ -> calls.incrementAndGet(); "Çağrılmamalı" }
         assertFalse(session.send(ENDPOINT, "test-model", "UI bu taslağı korumalı"))
         flush(worker)
         assertEquals(0, calls.get())
@@ -118,7 +133,7 @@ class ChatSessionTest {
     }
 
     @Test fun providerFailureIsDurableGenericTextAndNeverSuccessOrSpeech() {
-        val (session, worker) = session { _, _, _ -> throw IOException("private provider detail") }
+        val (session, worker) = session { _, _, _, _ -> throw IOException("private provider detail") }
         assertTrue(session.send(ENDPOINT, "test-model", "Hata denemesi"))
         flush(worker)
         assertFalse(session.state.value!!.busy)
@@ -130,7 +145,7 @@ class ChatSessionTest {
     }
 
     @Test fun retainedViewModelKeepsConsumedSpeechAndStaleTokenCannotConsumeNewReply() {
-        val (session, worker) = session { _, _, question -> "Yanıt: $question" }
+        val (session, worker) = session { _, _, question, _ -> "Yanıt: $question" }
         val retained = ViewModelStore().also { owners.add(it) }
         val factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
@@ -158,7 +173,7 @@ class ChatSessionTest {
     }
 
     @Test fun oversizedChatRetainsDraftWithoutPersistingOrCallingProvider() {
-        val (session, worker) = session { _, _, _ -> error("Çağrılmamalı") }
+        val (session, worker) = session { _, _, _, _ -> error("Çağrılmamalı") }
         assertFalse(session.send(ENDPOINT, "test-model", "a".repeat(8001)))
         flush(worker)
         assertTrue(session.history.value!!.isEmpty())
@@ -166,7 +181,7 @@ class ChatSessionTest {
     }
 
     @Test fun refreshHistoryIncludesLocalCommandMessagesWithoutModelCall() {
-        val (session, worker) = session { _, _, _ -> error("Çağrılmamalı") }
+        val (session, worker) = session { _, _, _, _ -> error("Çağrılmamalı") }
         val external = InMemoryChatStore()
         external.saveMessage("system", "Yerel görev eklendi")
         external.close()
@@ -179,7 +194,7 @@ class ChatSessionTest {
     @Test fun connectionStatusResetInvalidatesOldSuccessButCannotHidePendingRequest() {
         val entered = CountDownLatch(1)
         val release = CountDownLatch(1).also { releaseOnCleanup.add(it) }
-        val (session, worker) = session { _, _, _ ->
+        val (session, worker) = session { _, _, _, _ ->
             entered.countDown()
             check(release.await(5, TimeUnit.SECONDS))
             "Gerçek başarı durumu"

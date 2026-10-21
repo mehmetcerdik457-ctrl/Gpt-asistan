@@ -49,11 +49,12 @@ object OwnerGateway {
         return models
     }
 
-    fun reply(context: Context, base: String, model: String, question: String): String {
+    fun reply(context: Context, base: String, model: String, question: String, includeHistory: Boolean = false): String {
         val owner = context.getSharedPreferences("kral_model", Context.MODE_PRIVATE).getString("owner_id", "").orEmpty()
         val chosen = verifiedModels(base, owner).singleOrNull { it.id == model }
             ?: throw SecurityException("MODEL_NOT_VERIFIED")
-        val body = JSONObject().put("message", question).put("model", chosen.id).put("include_memory", false)
+        val body = JSONObject().put("message", question).put("model", chosen.id)
+            .put("include_memory", false).put("include_history", includeHistory)
         val result = request(base, OmegaEnvelope.CHAT, owner, body)
         return parseReply(result, chosen)
     }

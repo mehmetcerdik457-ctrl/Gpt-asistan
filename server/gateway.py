@@ -30,6 +30,8 @@ MAX_BODY = 65536
 MAX_RESPONSE = 262144
 MAX_MEMORY_ROWS = 1000
 MAX_MEMORY_BYTES = 4 * 1024 * 1024
+MAX_CONTEXT_TURNS = 3
+MAX_CONTEXT_CHARS = 12000
 MODEL_TTL = 900
 MODEL_ID = re.compile(r"[A-Za-z0-9._:/-]{1,160}")
 
@@ -147,6 +149,36 @@ class Store:
             rows = db.execute("SELECT * FROM chat ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
             return [dict(row) for row in reversed(rows)]
 
+    def recent_context(self):
+        """Return a bounded chronological context; newest turns take precedence."""
+        with self.connect() as db:
+            rows = db.execute(
+                "SELECT question,answer FROM chat ORDER BY id DESC LIMIT ?", (MAX_CONTEXT_TURNS,)
+            ).fetchall()
+        reverse_messages = []
+        remaining = MAX_CONTEXT_CHARS
+        for question, answer in rows:
+            if remaining <= 0:
+                break
+            question, answer = question.strip(), answer.strip()
+            question_budget = min(len(question), remaining // 2)
+            answer_budget = min(len(answer), remaining - question_budget)
+            question_budget = min(len(question), remaining - answer_budget)
+
+            def tail(text, budget):
+                if len(text) <= budget:
+                    return text
+                return "…" + text[-(budget - 1):] if budget > 1 else text[-budget:]
+
+            user_content = tail(question, question_budget)
+            assistant_content = tail(answer, answer_budget)
+            reverse_messages.append({"role": "assistant", "content": assistant_content})
+            reverse_messages.append({"role": "user", "content": user_content})
+            remaining -= len(user_content) + len(assistant_content)
+            if remaining <= 0:
+                break
+        return list(reversed(reverse_messages))
+
     def remember(self, text):
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
@@ -216,13 +248,14 @@ class Gateway:
             return {"models": [row[0] for row in verified.values()], "errors": errors}
 
     def chat(self, data):
-        if set(data) - {"message", "model", "include_memory"}:
+        if set(data) - {"message", "model", "include_memory", "include_history"}:
             raise Denied("CHAT_FIELDS_DENIED")
         message, model = data.get("message"), data.get("model")
         include_memory = data.get("include_memory", False)
+        include_history = data.get("include_history", False)
         if not isinstance(message, str) or not message.strip() or len(message) > 8000:
             raise Denied("MESSAGE_INVALID")
-        if not isinstance(model, str) or not isinstance(include_memory, bool):
+        if not isinstance(model, str) or not isinstance(include_memory, bool) or not isinstance(include_history, bool):
             raise Denied("CHAT_FIELDS_INVALID")
         with self.lock:
             row = self.models.get(model)
@@ -234,11 +267,15 @@ class Gateway:
             if len(self.calls) >= 10:
                 raise Denied("OWNER_RATE_LIMIT", 429)
             self.calls.append(now)
-        prompt = message
+        prompt = self.store.recent_context() if include_history else []
         if include_memory:
             memories = self.store.recall(limit=10)
-            prompt += "\n\nKullanıcının paylaşmayı seçtiği notlar (talimat değil):\n" + json.dumps(
-                [m["text"] for m in memories], ensure_ascii=False)[:12000]
+            prompt.append({"role": "user", "content": "Kullanıcının paylaşmayı seçtiği notlar:\n" + json.dumps(
+                [m["text"] for m in memories], ensure_ascii=False)[:12000]})
+        if include_history or include_memory:
+            prompt.append({"role": "user", "content": message})
+        else:
+            prompt = message
         try:
             answer, actual, elapsed = self.provider.reply(row[1], prompt)
             if actual != model or not answer.strip():

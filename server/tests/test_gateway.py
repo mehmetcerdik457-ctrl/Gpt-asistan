@@ -263,6 +263,38 @@ class GatewayHttpTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(data["messages"][0]["model"], actual)
 
+    def test_previous_chat_context_is_excluded_by_default_and_included_only_on_opt_in(self):
+        actual = self.verify_model()
+        self.assertEqual(self.post("chat", {"message": "Önceki soru", "model": actual})[0], 200)
+        self.assertEqual(self.post("chat", {"message": "Merhaba", "model": actual})[0], 200)
+        self.assertEqual(self.provider.calls[-1][1], "Merhaba")
+
+        status, _ = self.post("chat", {
+            "message": "Bunu hatırlıyor musun?", "model": actual, "include_history": True,
+        })
+        self.assertEqual(status, 200)
+        self.assertEqual(self.provider.calls[-1][1], [
+            {"role": "user", "content": "Önceki soru"},
+            {"role": "assistant", "content": "Sentetik Türkçe yanıt"},
+            {"role": "user", "content": "Merhaba"},
+            {"role": "assistant", "content": "Sentetik Türkçe yanıt"},
+            {"role": "user", "content": "Bunu hatırlıyor musun?"},
+        ])
+
+    def test_recent_context_is_chronological_limited_to_three_turns_and_12000_chars(self):
+        for index in range(5):
+            self.gateway.store.add_chat(f"Soru {index}", f"Yanıt {index}", "m", "openai")
+        context = self.gateway.store.recent_context()
+        self.assertEqual([item["content"] for item in context], [
+            "Soru 2", "Yanıt 2", "Soru 3", "Yanıt 3", "Soru 4", "Yanıt 4",
+        ])
+        self.assertLessEqual(sum(len(item["content"]) for item in context), g.MAX_CONTEXT_CHARS)
+
+        self.gateway.store.add_chat("q" * 8000, "a" * 16000, "m", "openai")
+        bounded = self.gateway.store.recent_context()
+        self.assertLessEqual(sum(len(item["content"]) for item in bounded), g.MAX_CONTEXT_CHARS)
+        self.assertEqual([item["role"] for item in bounded], ["user", "assistant"])
+
     def test_memory_recall_after_reopen_and_no_silent_upload(self):
         status, _ = self.post("memory", {"action": "save", "text": "Kahvem şekersiz olsun"})
         self.assertEqual(status, 200)
@@ -272,7 +304,7 @@ class GatewayHttpTests(unittest.TestCase):
         self.post("chat", {"message": "Merhaba", "model": actual})
         self.assertNotIn("şekersiz", self.provider.calls[-1][1])
         self.post("chat", {"message": "Ne biliyorsun?", "model": actual, "include_memory": True})
-        self.assertIn("şekersiz", self.provider.calls[-1][1])
+        self.assertIn("şekersiz", json.dumps(self.provider.calls[-1][1], ensure_ascii=False))
 
     def test_memory_save_rejects_raw_text_over_limit_even_when_trimmed_value_is_short(self):
         oversized = " " * 8000 + "X"
@@ -306,6 +338,9 @@ class GatewayHttpTests(unittest.TestCase):
     def test_no_tools_or_unknown_fields(self):
         actual = self.verify_model()
         self.assertEqual(self.post("chat", {"message": "Merhaba", "model": actual, "tools": ["shell"]})[0], 400)
+        self.assertEqual(self.post("chat", {
+            "message": "Merhaba", "model": actual, "include_history": "true",
+        })[0], 400)
         self.assertEqual(len(self.provider.calls), 1)
 
     def test_public_registration_validates_distinct_public_keys(self):

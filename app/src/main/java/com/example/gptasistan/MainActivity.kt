@@ -140,6 +140,17 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 else speakLatestReply()
             }
         })
+        root.addView(SwitchCompat(this).apply {
+            text = "Önceki model sohbetlerini paylaş"
+            isChecked = prefs.getBoolean("share_chat_context", false)
+            setOnCheckedChangeListener { _, enabled ->
+                prefs.edit().putBoolean("share_chat_context", enabled).apply()
+            }
+        })
+        root.addView(TextView(this).apply {
+            text = "Kapalıysa yalnızca yazdığın ileti gönderilir. Açıkken en fazla 3 önceki model sohbeti bu sağlayıcıya da gönderilir."
+            textSize = 12f
+        })
         scroller = ScrollView(this)
         transcript = TextView(this).apply { textSize = 16f }
         scroller.addView(transcript)
@@ -236,7 +247,10 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                         unlock {
                             if (OwnerGateway.verifiedModels(endpoint, owner).none { it.id == model }) {
                                 session.resetConnectionStatus("Model doğrulamasının süresi doldu; Model tuşuyla yenile.")
-                            } else if (session.send(endpoint, model, command.value) && input.text.toString().trim() == raw)
+                            } else if (session.send(
+                                    endpoint, model, command.value,
+                                    prefs.getBoolean("share_chat_context", false),
+                                ) && input.text.toString().trim() == raw)
                                 input.text.clear()
                         }
                         false
@@ -288,7 +302,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         }
         fields.addView(endpoint); fields.addView(owner)
         AlertDialog.Builder(this).setTitle("Doğrulanmış modeller")
-            .setMessage("Sana ait HTTPS sunucusu sahip ve cihaz imzanı doğrular. Yalnız canlı yanıtla doğrulanan modeller listelenir. Geçmiş ve hafıza otomatik gönderilmez.")
+            .setMessage("Sana ait HTTPS sunucusu sahip ve cihaz imzanı doğrular. Yalnız canlı yanıtla doğrulanan modeller listelenir. Önceki model sohbetleri ancak ayrı paylaşım anahtarını açarsan gönderilir; varsayılan kapalıdır.")
             .setView(fields)
             .setPositiveButton("Bağlantıyı doğrula") { _, _ ->
                 val base = endpoint.text.toString().trim().trimEnd('/')

@@ -15,13 +15,15 @@ class ChatSession internal constructor(
     application: Application,
     private val store: ChatStore,
     private val worker: ExecutorService,
-    private val responder: (String, String, String) -> String
+    private val responder: (String, String, String, Boolean) -> String
 ) : AndroidViewModel(application) {
     constructor(application: Application) : this(
         application,
         KralStore(application.applicationContext),
         Executors.newSingleThreadExecutor(),
-        { endpoint, model, question -> OwnerGateway.reply(application, endpoint, model, question) }
+        { endpoint, model, question, includeHistory ->
+            OwnerGateway.reply(application, endpoint, model, question, includeHistory)
+        }
     )
 
     data class State(val busy: Boolean, val status: String)
@@ -40,7 +42,7 @@ class ChatSession internal constructor(
     init { refreshHistory() }
 
     /** False means the caller must retain its draft. Call only on the main thread. */
-    fun send(endpoint: String, model: String, question: String): Boolean {
+    fun send(endpoint: String, model: String, question: String, includeHistory: Boolean = false): Boolean {
         requireMainThread()
         if (cleared || pending || worker.isShutdown || question.isBlank()) return false
         if (question.length > 8000) {
@@ -61,7 +63,7 @@ class ChatSession internal constructor(
         refreshHistory()
         mutableState.value = State(true, "Model yanıtı bekleniyor…")
         try {
-            worker.execute { completeRequest(endpoint, model, question) }
+            worker.execute { completeRequest(endpoint, model, question, includeHistory) }
         } catch (_: RejectedExecutionException) {
             // The user message is already durable. Treat this as an accepted
             // request that failed, rather than asking the UI to send it twice.
@@ -97,9 +99,9 @@ class ChatSession internal constructor(
         if (unspokenReply?.first == id) unspokenReply = null
     }
 
-    private fun completeRequest(endpoint: String, model: String, question: String) {
+    private fun completeRequest(endpoint: String, model: String, question: String, includeHistory: Boolean) {
         val answer = try {
-            responder(endpoint, model, question).takeIf { it.isNotBlank() }
+            responder(endpoint, model, question, includeHistory).takeIf { it.isNotBlank() }
         } catch (_: Exception) { null }
         var status: String
         if (answer != null) {
