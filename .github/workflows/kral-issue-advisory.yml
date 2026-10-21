@@ -1,0 +1,31 @@
+name: KRAL GitHub Issue Advisory
+on:
+  issues:
+    types: [labeled]
+permissions:
+  contents: read
+  issues: write
+concurrency:
+  group: kral-issue-${{ github.event.issue.number }}
+  cancel-in-progress: false
+jobs:
+  advisory:
+    if: >-
+      github.event.label.name == 'cihat-task' &&
+      github.event.issue.user.login == github.repository_owner &&
+      github.event.repository.full_name == 'mehmetcerdik457-ctrl/Gpt-asistan'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test safe intake before any provider request
+        run: python -m unittest server.tests.test_github_issue_bridge -v
+      - name: Post advice without task execution
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.KRAL_OPENAI_API_KEY }}
+          OPENAI_ALLOWED_MODELS: ${{ vars.KRAL_ALLOWED_MODELS }}
+        run: python -m server.github_issue_bridge
