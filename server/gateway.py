@@ -158,14 +158,21 @@ class Store:
         reverse_messages = []
         remaining = MAX_CONTEXT_CHARS
         for question, answer in rows:
-            if remaining <= 0:
+            # Do not create a partial turn when fewer than two characters remain.
+            if remaining < 2:
                 break
             question, answer = question.strip(), answer.strip()
             question_budget = min(len(question), remaining // 2)
             answer_budget = min(len(answer), remaining - question_budget)
             question_budget = min(len(question), remaining - answer_budget)
+            # A zero-sized slice (text[-0:]) returns the entire private message.
+            # Both messages must fit the remaining context budget.
+            if not question_budget or not answer_budget:
+                break
 
             def tail(text, budget):
+                if budget <= 0:
+                    return ""
                 if len(text) <= budget:
                     return text
                 return "…" + text[-(budget - 1):] if budget > 1 else text[-budget:]
