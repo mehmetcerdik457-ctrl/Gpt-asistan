@@ -1,0 +1,4 @@
+<resources>
+    <!-- This candidate must be distinguishable from installed KRAL and CİHAT apps. -->
+    <string name="app_name">KRAL CİHAT Önizleme</string>
+</resources>

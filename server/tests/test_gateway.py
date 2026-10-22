@@ -295,6 +295,17 @@ class GatewayHttpTests(unittest.TestCase):
         self.assertLessEqual(sum(len(item["content"]) for item in bounded), g.MAX_CONTEXT_CHARS)
         self.assertEqual([item["role"] for item in bounded], ["user", "assistant"])
 
+    def test_recent_context_zero_budget_never_leaks_older_message(self):
+        # The newest turn fills 11,999 of 12,000 characters. Previously,
+        # tail(text, 0) returned the full text because text[-0:] == text[:].
+        self.gateway.store.add_chat("OLDER_PRIVATE_" * 100, "old reply" * 50, "m", "openai")
+        self.gateway.store.add_chat("n" * 6000, "r" * 5999, "m", "openai")
+        context = self.gateway.store.recent_context()
+        self.assertEqual([item["role"] for item in context], ["user", "assistant"])
+        self.assertTrue(all(item["content"] for item in context))
+        self.assertEqual(sum(len(item["content"]) for item in context), 11999)
+        self.assertNotIn("OLDER_PRIVATE_", json.dumps(context))
+
     def test_memory_recall_after_reopen_and_no_silent_upload(self):
         status, _ = self.post("memory", {"action": "save", "text": "Kahvem şekersiz olsun"})
         self.assertEqual(status, 200)

@@ -1,0 +1,51 @@
+name: KRAL GitHub Task Bridge
+on:
+  issues:
+    types: [opened, edited, labeled]
+permissions:
+  contents: read
+  issues: write
+concurrency:
+  group: kral-issue-${{ github.event.issue.number }}
+  cancel-in-progress: false
+jobs:
+  advisory:
+    if: >-
+      github.event.issue.user.login == github.repository_owner &&
+      github.event.repository.full_name == 'mehmetcerdik457-ctrl/Gpt-asistan' &&
+      ((github.event.action == 'labeled' && github.event.label.name == 'cihat-task') ||
+       ((github.event.action == 'opened' || github.event.action == 'edited') &&
+         startsWith(github.event.issue.title, '[KRAL-CHECK] ')))
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install existing Python test dependencies
+        run: python -m pip install -r server/requirements.txt
+      - name: Run fixed source tests and capture evidence
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m unittest discover -s server/tests -v 2>&1 | tee kral-checks.log
+      - name: Post verified CI check OR optional model advisory
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.KRAL_OPENAI_API_KEY }}
+          OPENAI_ALLOWED_MODELS: ${{ vars.KRAL_ALLOWED_MODELS }}
+          KRAL_PROVIDER_MODE: ${{ vars.KRAL_PROVIDER_MODE || 'openai' }}
+          KRAL_ADVISORY_COST_APPROVED: ${{ vars.KRAL_ADVISORY_COST_APPROVED || 'NO' }}
+          KRAL_OWNER_GATEWAY_URL: ${{ secrets.KRAL_OWNER_GATEWAY_URL }}
+          KRAL_OWNER_GATEWAY_HOST: ${{ vars.KRAL_OWNER_GATEWAY_HOST }}
+          KRAL_OWNER_GATEWAY_TOKEN: ${{ secrets.KRAL_OWNER_GATEWAY_TOKEN }}
+          KRAL_OWNER_GATEWAY_MODEL: ${{ vars.KRAL_OWNER_GATEWAY_MODEL }}
+          KRAL_CLOUDFLARE_ACCOUNT_ID: ${{ vars.KRAL_CLOUDFLARE_ACCOUNT_ID }}
+          KRAL_CLOUDFLARE_MODEL: ${{ vars.KRAL_CLOUDFLARE_MODEL }}
+          KRAL_CLOUDFLARE_API_TOKEN: ${{ secrets.KRAL_CLOUDFLARE_API_TOKEN }}
+          KRAL_CLOUDFLARE_COST_APPROVED: ${{ vars.KRAL_CLOUDFLARE_COST_APPROVED || 'NO' }}
+          KRAL_MULTI_ROUTER_APPROVED: ${{ vars.KRAL_MULTI_ROUTER_APPROVED || 'NO' }}
+          KRAL_MULTI_COST_APPROVED: ${{ vars.KRAL_MULTI_COST_APPROVED || 'NO' }}
+          KRAL_MULTI_PROVIDERS: ${{ vars.KRAL_MULTI_PROVIDERS }}
+        run: python -m server.github_issue_bridge

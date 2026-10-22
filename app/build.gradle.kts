@@ -11,7 +11,7 @@ android {
         minSdk = 26
         targetSdk = 34
         versionCode = 4
-        versionName = "1.0.3-genesis-candidate"
+        versionName = "1.0.3-genesis-cihat-preview"
     }
     buildTypes {
         release {
@@ -19,7 +19,8 @@ android {
         }
         debug {
             isDebuggable = true
-            applicationIdSuffix = ".genesis"
+            // Side-by-side installation: never overwrite older Genesis package or data.
+            applicationIdSuffix = ".genesis.cihatpreview"
         }
     }
     compileOptions {

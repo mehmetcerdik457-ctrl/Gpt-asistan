@@ -3,9 +3,14 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+# New commits supersede obsolete Android builds on the same branch/event.
+concurrency:
+  group: android-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
     steps:
@@ -18,13 +23,14 @@ jobs:
       - name: Run unit tests, lint and assemble candidate APK
         shell: bash
         run: |
+          set -o pipefail
           mkdir -p build/delivery
           ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug --no-daemon --stacktrace 2>&1 | tee build/delivery/gradle.log
       - name: Verify APK signature and record source and SHA-256
         if: success()
         run: |
           cp app/build/outputs/apk/debug/app-debug.apk build/delivery/app-debug.apk
-          python3 scripts/android_artifact.py build/delivery/app-debug.apk build/delivery
+          python3 scripts/android_artifact.py build/delivery/app-debug.apk build/delivery --expected-package com.example.gptasistan.genesis.cihatpreview
           git archive --format=tar.gz --output=build/delivery/source.tar.gz HEAD
           cd build/delivery
           sha256sum source.tar.gz > SOURCE-SHA256SUMS

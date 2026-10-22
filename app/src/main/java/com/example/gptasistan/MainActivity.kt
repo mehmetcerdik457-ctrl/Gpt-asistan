@@ -125,6 +125,21 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             text = "Owner / Bridge durumu (salt okunur)"
             setOnClickListener { showLocal { OwnerStatus.readOnlyReport(this@MainActivity) } }
         })
+        root.addView(Button(this).apply {
+            text = "CİHAT kurulumunu doğrula (salt okunur)"
+            setAllCaps(false)
+            setOnClickListener { showCihatIdentity() }
+        })
+        root.addView(Button(this).apply {
+            text = "CİHAT AI'ı aç (mevcut uygulama)"
+            setAllCaps(false)
+            setOnClickListener { openInstalledCihat() }
+        })
+        root.addView(Button(this).apply {
+            text = "CİHAT yanıtını panodan al (önizleme)"
+            setAllCaps(false)
+            setOnClickListener { previewClipboardReply() }
+        })
         connectionStatus = TextView(this).apply {
             text = if ((prefs.getString("endpoint", "") ?: "").isBlank())
                 "Model bağlantısı yapılandırılmadı" else "Model adresi kayıtlı; bağlantı doğrulanmadı"
@@ -185,6 +200,111 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             if (appUnlocked) speakLatestReply()
         }
         tts = TextToSpeech(this, this)
+    }
+
+    /** Explicit user-initiated, read-only phone package inspection. */
+    private fun showCihatIdentity() {
+        if (!appUnlocked || !uiReady || session.state.value?.busy == true) return
+        val verified = CihatIdentity.inspect(this)
+        AlertDialog.Builder(this)
+            .setTitle("CİHAT uygulama kimliği")
+            .setMessage(verified.report())
+            .setPositiveButton("Tamam", null)
+            .show()
+    }
+
+    // User-mediated handoff, not a privileged API or silent CİHAT automation.
+    private fun openInstalledCihat() {
+        if (!appUnlocked || session.state.value?.busy == true) {
+            connectionStatus.text = "Önce cihaz kilidini aç ve mevcut işlemin bitmesini bekle."
+            return
+        }
+        val installed = CihatIdentity.inspect(this)
+        if (!installed.verified) {
+            connectionStatus.text =
+                "CİHAT 3.2.1 kimliği doğrulanamadı. Kurulum doğrulama ekranını incele; eski APK'ları silme."
+            return
+        }
+        val launch = try {
+            packageManager.getLaunchIntentForPackage(CihatHandoff.PACKAGE_NAME)
+        } catch (_: RuntimeException) { null }
+        if (launch == null) {
+            connectionStatus.text = "Bu telefonda açılabilir CİHAT AI (3.2.1) bulunamadı. Mevcut uygulamanı kontrol et."
+            return
+        }
+        val draft = CihatHandoff.copyableDraft(input.text.toString())
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Mevcut CİHAT AI uygulaması")
+            .setMessage(
+                "KRAL CİHAT'ı açabilir ama CİHAT'ın sohbetine otomatik mesaj gönderemez veya yanıt okuyamaz. " +
+                "Metni kopyala seçeneği yalnızca bu mesaj kutusundaki metni Android panosuna koyar. " +
+                "Pano içeriği başka uygulamalarda görülebilir; şifre, anahtar ve özel bilgiler için kullanma. " +
+                "Sohbet geçmişi veya hafıza otomatik aktarılmaz."
+            )
+            .setPositiveButton("Yalnız aç") { _, _ ->
+                try { startActivity(launch) }
+                catch (_: RuntimeException) {
+                    connectionStatus.text = "CİHAT uygulaması açılamadı; cihazdaki kurulumu kontrol et."
+                }
+            }
+            .setNegativeButton("Vazgeç", null)
+        if (draft != null) {
+            dialog.setNeutralButton("Metni kopyala ve aç") { _, _ ->
+                try {
+                    val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    val clip = android.content.ClipData.newPlainText("KRAL'dan CİHAT'a metin", draft)
+                    if (android.os.Build.VERSION.SDK_INT >= 33) {
+                        clip.description.extras = android.os.PersistableBundle().apply {
+                            putBoolean(android.content.ClipDescription.EXTRA_IS_SENSITIVE, true)
+                        }
+                    }
+                    clipboard.setPrimaryClip(clip)
+                    startActivity(launch)
+                } catch (_: RuntimeException) {
+                    connectionStatus.text = "CİHAT açılamadı veya Android panosuna metin kopyalanamadı."
+                }
+            }
+        }
+        dialog.show()
+    }
+
+    /** Manual reply return: user explicitly inspects untrusted clipboard. */
+    private fun previewClipboardReply() {
+        if (!appUnlocked || !uiReady || session.state.value?.busy == true) {
+            if (uiReady) connectionStatus.text = "Önce cihaz kilidini aç ve mevcut işlemin bitmesini bekle."
+            return
+        }
+        val reply = try {
+            val clipboard = getSystemService(CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+            val clip = clipboard?.primaryClip
+            if (clip != null && clip.itemCount == 1 &&
+                clip.description.hasMimeType(android.content.ClipDescription.MIMETYPE_TEXT_PLAIN)
+            ) CihatHandoff.importableReply(clip.getItemAt(0).text) else null
+        } catch (_: RuntimeException) { null }
+        if (reply == null) {
+            connectionStatus.text = "Panoda en fazla 2000 karakterlik düz metin yok; hiçbir kayıt değişmedi."
+            return
+        }
+        val overwrite = if (input.text.isNotBlank())
+            "Mevcut taslak bu metinle değiştirilecek.\n\n" else ""
+        AlertDialog.Builder(this)
+            .setTitle("Panodaki metni KRAL'a al")
+            .setMessage(
+                "Panodaki metnin CİHAT'tan geldiği doğrulanamaz. Önce kontrol et. " +
+                "Aktarım yalnızca taslağı doldurur, sohbeti/hafızayı kaydetmez ve mesaj göndermez.\n\n" +
+                overwrite + "PANODAKİ METİN:\n" + reply
+            )
+            .setPositiveButton("Taslağa aktar") { _, _ ->
+                if (appUnlocked && !isFinishing && !isDestroyed &&
+                    session.state.value?.busy != true
+                ) {
+                    input.setText(reply)
+                    input.setSelection(reply.length)
+                    connectionStatus.text = "Yalnız taslağa aktarıldı; gönderim veya kayıt yapılmadı."
+                }
+            }
+            .setNegativeButton("Vazgeç", null)
+            .show()
     }
 
     private fun showLocal(action: () -> String) {

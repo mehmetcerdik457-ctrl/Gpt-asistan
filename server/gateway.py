@@ -34,6 +34,19 @@ MAX_CONTEXT_TURNS = 3
 MAX_CONTEXT_CHARS = 12000
 MODEL_TTL = 900
 MODEL_ID = re.compile(r"[A-Za-z0-9._:/-]{1,160}")
+# Cloudflare Workers AI uses an @cf/vendor/model route, unlike the ordinary
+# OpenAI-compatible model names. Never allow this syntax for other providers.
+CLOUDFLARE_MODEL_ID = re.compile(
+    r"@cf/[a-z0-9][a-z0-9._-]{0,79}/[a-z0-9][a-z0-9._-]{0,119}\Z"
+)
+
+
+def valid_discovered_model_id(model, provider):
+    if not isinstance(model, str):
+        return False
+    if provider == "cloudflare_workers_ai":
+        return len(model) <= 200 and CLOUDFLARE_MODEL_ID.fullmatch(model) is not None
+    return MODEL_ID.fullmatch(model) is not None
 
 
 class Denied(Exception):
@@ -158,14 +171,21 @@ class Store:
         reverse_messages = []
         remaining = MAX_CONTEXT_CHARS
         for question, answer in rows:
-            if remaining <= 0:
+            # Do not create a partial turn when fewer than two characters remain.
+            if remaining < 2:
                 break
             question, answer = question.strip(), answer.strip()
             question_budget = min(len(question), remaining // 2)
             answer_budget = min(len(answer), remaining - question_budget)
             question_budget = min(len(question), remaining - answer_budget)
+            # A zero-sized slice (text[-0:]) returns the entire private message.
+            # Both messages must fit the remaining context budget.
+            if not question_budget or not answer_budget:
+                break
 
             def tail(text, budget):
+                if budget <= 0:
+                    return ""
                 if len(text) <= budget:
                     return text
                 return "…" + text[-(budget - 1):] if budget > 1 else text[-budget:]
@@ -202,7 +222,10 @@ class Store:
 class Gateway:
     def __init__(self, store, provider=None):
         self.store = store
-        self.provider = provider if provider is not None else OpenAIProvider()
+        if provider is None:
+            from .owner_gateway_provider import provider_from_env
+            provider = provider_from_env()
+        self.provider = provider
         self.models = {}
         self.lock = threading.Lock()
         self.probe_at = 0.0
@@ -224,13 +247,18 @@ class Gateway:
                 self.models.clear()
                 return {"models": [], "errors": [{"code": "MODEL_ALLOWLIST_EMPTY"}]}
             self.probe_at = now
-            verified, errors = {}, []
+            verified, errors, collision_ids = {}, [], set()
             def verify(candidate):
                 try:
                     text, actual, elapsed = self.provider.reply(candidate, "Yalnızca Merhaba yaz.", probe=True)
-                    if not text.strip() or not MODEL_ID.fullmatch(actual):
+                    # In an opt-in pool each verified model retains the REAL
+                    # provider's identity, never the synthetic pool label.
+                    provider_name = (self.provider.provider_name_for(candidate)
+                                     if hasattr(self.provider, "provider_name_for")
+                                     else self.provider.name)
+                    if not text.strip() or not valid_discovered_model_id(actual, provider_name):
                         raise Denied("PROVIDER_RESPONSE_INVALID", 502)
-                    row = {"id": actual, "provider": self.provider.name,
+                    row = {"id": actual, "provider": provider_name,
                            "verified_at": int(time.time()), "latency_ms": elapsed}
                     return (actual, row, candidate), None
                 except Denied as exc:
@@ -240,7 +268,15 @@ class Gateway:
                 for result, error in probes.map(verify, candidates):
                     if result is not None:
                         actual, row, candidate = result
-                        verified[actual] = (row, candidate)
+                        # The Android contract selects by unqualified model
+                        # ID. Never silently overwrite one real provider with
+                        # another provider reporting the same ID.
+                        if actual in collision_ids or actual in verified:
+                            verified.pop(actual, None)
+                            collision_ids.add(actual)
+                            errors.append({"code": "MODEL_PROVIDER_COLLISION"})
+                        else:
+                            verified[actual] = (row, candidate)
                     if error is not None:
                         errors.append(error)
             self.models = verified
@@ -285,8 +321,11 @@ class Gateway:
                 self.models.pop(model, None)
                 self.probe_at = 0
             raise
-        chat_id = self.store.add_chat(message, answer, actual, self.provider.name)
-        return {"text": answer, "model": actual, "provider": self.provider.name,
+        # Preserve the actual selected provider in durable history and the
+        # Android reply contract; never label multiple providers as a fake one.
+        verified_provider = row[0]["provider"]
+        chat_id = self.store.add_chat(message, answer, actual, verified_provider)
+        return {"text": answer, "model": actual, "provider": verified_provider,
                 "latency_ms": elapsed, "conversation_id": str(chat_id)}
 
     def route(self, path, data):
