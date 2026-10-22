@@ -145,6 +145,26 @@ class OwnerGatewayProvider:
             raise Denied("OWNER_GATEWAY_RESPONSE_INVALID", 502) from None
 
 
+
+class XAIProvider(OwnerGatewayProvider):
+    """Official xAI Chat Completions endpoint using existing strict HTTPS transport.
+
+    No secrets on Android, no implicit fallback, no configurable upstream URL.
+    The selected model must be explicitly authorized on the owner's account.
+    """
+    name = "xai"
+    ENDPOINT = "https://api.x.ai/v1/chat/completions"
+    HOST = "api.x.ai"
+
+    def __init__(self, environ=None):
+        e = os.environ if environ is None else environ
+        super().__init__({
+            "KRAL_OWNER_GATEWAY_URL": self.ENDPOINT,
+            "KRAL_OWNER_GATEWAY_HOST": self.HOST,
+            "KRAL_OWNER_GATEWAY_TOKEN": e.get("XAI_API_KEY", ""),
+            "KRAL_OWNER_GATEWAY_MODEL": e.get("XAI_MODEL", ""),
+        })
+
 def provider_from_env():
     """Explicit selection: no fallback to another provider after any failure."""
     mode = os.environ.get("KRAL_PROVIDER_MODE", "openai")
@@ -153,4 +173,6 @@ def provider_from_env():
         return OpenAIProvider()
     if mode == "owner_gateway":
         return OwnerGatewayProvider()
+    if mode == "xai":
+        return XAIProvider()
     raise Denied("PROVIDER_MODE_INVALID", 503)

@@ -6,7 +6,7 @@ from email.message import Message
 from unittest.mock import patch
 from server.gateway import Denied, Gateway, Store
 from server.owner_gateway_provider import (
-    OwnerGatewayProvider, normalized_messages, provider_from_env, valid_endpoint
+    OwnerGatewayProvider, XAIProvider, normalized_messages, provider_from_env, valid_endpoint
 )
 
 HOST = "kral.example.org"
@@ -170,6 +170,89 @@ class OwnerAdapterTests(unittest.TestCase):
             selected = Gateway(Store(directory + "/db.sqlite3")).provider
             self.assertEqual(selected.name, "owner_gateway")
             self.assertEqual(selected.candidates(), (MODEL,))
+
+
+class XAIProviderTests(unittest.TestCase):
+    """All upstream traffic is mocked. These do not assert live xAI access."""
+    def credentials(self):
+        return {"XAI_API_KEY": "synthetic-not-a-real-key-00001",
+                "XAI_MODEL": "grok-4.5"}
+
+    def test_official_url_is_fixed_and_model_explicit(self):
+        env = {**self.credentials(),
+               "KRAL_OWNER_GATEWAY_URL": "https://evil.example/v1/chat/completions",
+               "KRAL_OWNER_GATEWAY_HOST": "evil.example",
+               "KRAL_OWNER_GATEWAY_TOKEN": "do-not-use"}
+        provider = XAIProvider(env)
+        self.assertEqual(provider.name, "xai")
+        self.assertTrue(provider.configured())
+        self.assertEqual(provider.candidates(), ("grok-4.5",))
+        response = Response(json.dumps({
+            "model": "grok-4.5",
+            "choices": [{"message": {"content": "Merhaba"}}],
+        }).encode())
+        opener = Opener(response)
+        with patch("server.owner_gateway_provider.urllib.request.build_opener",
+                   return_value=opener):
+            result = provider.reply("grok-4.5", "Merhaba", probe=True)
+        self.assertEqual(result[:2], ("Merhaba", "grok-4.5"))
+        request, timeout = opener.calls[0]
+        self.assertEqual(request.full_url, "https://api.x.ai/v1/chat/completions")
+        self.assertEqual(request.get_header("Authorization"),
+                         "Bearer synthetic-not-a-real-key-00001")
+        self.assertNotIn("do-not-use", str(request.header_items()))
+        self.assertEqual(timeout, 10)
+        body = json.loads(request.data)
+        self.assertEqual(body["messages"], [{"role": "user", "content": "Merhaba"}])
+        self.assertFalse(body["stream"])
+
+    def test_missing_or_malformed_credentials_fail_without_network(self):
+        for env in ({}, {"XAI_MODEL": "grok-4.5"},
+                    {"XAI_API_KEY": "short", "XAI_MODEL": "grok-4.5"},
+                    {"XAI_API_KEY": "valid-looking-test-token-123", "XAI_MODEL": ""},
+                    {"XAI_API_KEY": "valid-looking-test-token-123\nheader",
+                     "XAI_MODEL": "grok-4.5"},
+                    {"XAI_API_KEY": "valid-looking-test-token-123",
+                     "XAI_MODEL": "invalid model id"}):
+            with self.subTest(env_keys=list(env)):
+                provider = XAIProvider(env)
+                self.assertFalse(provider.configured())
+                with patch("server.owner_gateway_provider.urllib.request.build_opener") as open_:
+                    with self.assertRaises(Denied):
+                        provider.reply("grok-4.5", "Merhaba")
+                    open_.assert_not_called()
+
+    def test_unapproved_model_or_changed_identity_rejected(self):
+        provider = XAIProvider(self.credentials())
+        with self.assertRaises(Denied):
+            provider.reply("other-model", "Hi")
+        response = Response(json.dumps({
+            "model": "unexpected-model",
+            "choices": [{"message": {"content": "Merhaba"}}],
+        }).encode())
+        with patch("server.owner_gateway_provider.urllib.request.build_opener",
+                   return_value=Opener(response)):
+            with self.assertRaises(Denied) as context:
+                provider.reply("grok-4.5", "Hi")
+        self.assertEqual(context.exception.code, "OWNER_GATEWAY_RESPONSE_INVALID")
+
+    def test_selector_wires_existing_gateway_without_silent_fallback(self):
+        from tempfile import TemporaryDirectory
+        with patch.dict(os.environ, {"KRAL_PROVIDER_MODE": "xai",
+                                      **self.credentials()}, clear=True):
+            provider = provider_from_env()
+            self.assertIsInstance(provider, XAIProvider)
+            self.assertEqual(provider.name, "xai")
+            with TemporaryDirectory() as directory:
+                gateway = Gateway(Store(directory + "/db.sqlite3"))
+                self.assertIsInstance(gateway.provider, XAIProvider)
+                self.assertEqual(gateway.provider.candidates(), ("grok-4.5",))
+        with patch.dict(os.environ, {"KRAL_PROVIDER_MODE": "xai",
+                                      "OPENAI_API_KEY": "irrelevant-secret"}, clear=True):
+            selected = provider_from_env()
+            self.assertFalse(selected.configured())
+            with self.assertRaises(Denied):
+                selected.candidates()
 
 if __name__ == "__main__":
     unittest.main()
