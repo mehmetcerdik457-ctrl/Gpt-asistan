@@ -138,6 +138,24 @@ class AdapterTests(unittest.TestCase):
                     CloudflareWorkersAIProvider(env()).reply(MODEL, "hi")
                 self.assertEqual(caught.exception.code, expected)
 
+    def test_cloudflare_model_is_visible_to_owner_gateway_and_usable_for_chat(self):
+        # Regression: the @cf/ prefix used to be rejected by the shared
+        # OpenAI model ID validator, even after a successful upstream probe.
+        opener = FakeOpener(success())
+        with TemporaryDirectory() as td, patch(
+                "server.cloudflare_workers_ai_provider.urllib.request.build_opener",
+                return_value=opener):
+            gateway = Gateway(Store(td + "/db.sqlite3"), CloudflareWorkersAIProvider(env()))
+            discovered = gateway.verified_models()
+            self.assertEqual(discovered["errors"], [])
+            self.assertEqual([m["id"] for m in discovered["models"]], [MODEL])
+            self.assertEqual(discovered["models"][0]["provider"], "cloudflare_workers_ai")
+            reply = gateway.chat({"message": "Selam", "model": MODEL})
+            self.assertEqual((reply["text"], reply["model"], reply["provider"]),
+                             ("Merhaba", MODEL, "cloudflare_workers_ai"))
+            self.assertEqual(len(opener.calls), 2)
+            self.assertEqual(gateway.store.history()[0]["answer"], "Merhaba")
+
     def test_existing_owner_gateway_wires_optional_provider(self):
         with TemporaryDirectory() as td, patch.dict(
                 os.environ, {"KRAL_PROVIDER_MODE": "cloudflare_workers_ai", **env()}):
