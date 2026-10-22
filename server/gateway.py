@@ -37,7 +37,7 @@ MODEL_ID = re.compile(r"[A-Za-z0-9._:/-]{1,160}")
 # Cloudflare Workers AI uses an @cf/vendor/model route, unlike the ordinary
 # OpenAI-compatible model names. Never allow this syntax for other providers.
 CLOUDFLARE_MODEL_ID = re.compile(
-    r"@cf/[a-z0-9][a-z0-9._-]{0,79}/[a-z0-9][a-z0-9._-]{0,119}\\Z"
+    r"@cf/[a-z0-9][a-z0-9._-]{0,79}/[a-z0-9][a-z0-9._-]{0,119}\Z"
 )
 
 
