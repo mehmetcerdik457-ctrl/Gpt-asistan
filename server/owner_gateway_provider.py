@@ -156,4 +156,7 @@ def provider_from_env():
     if mode == "cloudflare_workers_ai":
         from .cloudflare_workers_ai_provider import CloudflareWorkersAIProvider
         return CloudflareWorkersAIProvider()
+    if mode == "multi_verified":
+        from .multi_verified_provider import VerifiedProviderPool
+        return VerifiedProviderPool()
     raise Denied("PROVIDER_MODE_INVALID", 503)

@@ -247,13 +247,18 @@ class Gateway:
                 self.models.clear()
                 return {"models": [], "errors": [{"code": "MODEL_ALLOWLIST_EMPTY"}]}
             self.probe_at = now
-            verified, errors = {}, []
+            verified, errors, collision_ids = {}, [], set()
             def verify(candidate):
                 try:
                     text, actual, elapsed = self.provider.reply(candidate, "Yalnızca Merhaba yaz.", probe=True)
-                    if not text.strip() or not valid_discovered_model_id(actual, self.provider.name):
+                    # In an opt-in pool each verified model retains the REAL
+                    # provider's identity, never the synthetic pool label.
+                    provider_name = (self.provider.provider_name_for(candidate)
+                                     if hasattr(self.provider, "provider_name_for")
+                                     else self.provider.name)
+                    if not text.strip() or not valid_discovered_model_id(actual, provider_name):
                         raise Denied("PROVIDER_RESPONSE_INVALID", 502)
-                    row = {"id": actual, "provider": self.provider.name,
+                    row = {"id": actual, "provider": provider_name,
                            "verified_at": int(time.time()), "latency_ms": elapsed}
                     return (actual, row, candidate), None
                 except Denied as exc:
@@ -263,7 +268,15 @@ class Gateway:
                 for result, error in probes.map(verify, candidates):
                     if result is not None:
                         actual, row, candidate = result
-                        verified[actual] = (row, candidate)
+                        # The Android contract selects by unqualified model
+                        # ID. Never silently overwrite one real provider with
+                        # another provider reporting the same ID.
+                        if actual in collision_ids or actual in verified:
+                            verified.pop(actual, None)
+                            collision_ids.add(actual)
+                            errors.append({"code": "MODEL_PROVIDER_COLLISION"})
+                        else:
+                            verified[actual] = (row, candidate)
                     if error is not None:
                         errors.append(error)
             self.models = verified
@@ -308,8 +321,11 @@ class Gateway:
                 self.models.pop(model, None)
                 self.probe_at = 0
             raise
-        chat_id = self.store.add_chat(message, answer, actual, self.provider.name)
-        return {"text": answer, "model": actual, "provider": self.provider.name,
+        # Preserve the actual selected provider in durable history and the
+        # Android reply contract; never label multiple providers as a fake one.
+        verified_provider = row[0]["provider"]
+        chat_id = self.store.add_chat(message, answer, actual, verified_provider)
+        return {"text": answer, "model": actual, "provider": verified_provider,
                 "latency_ms": elapsed, "conversation_id": str(chat_id)}
 
     def route(self, path, data):
