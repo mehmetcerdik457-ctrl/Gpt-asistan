@@ -27,6 +27,7 @@ class OwnerLockTest {
                 val text = allText(activity.window.decorView)
                 assertTrue(text.contains("Kilidi aç"))
                 assertFalse(text.contains("PRIVATE_TRANSCRIPT_SENTINEL"))
+                assertFalse(text.contains("Sesle yaz"))
                 assertEquals(WindowManager.LayoutParams.FLAG_SECURE,
                     activity.window.attributes.flags and WindowManager.LayoutParams.FLAG_SECURE)
             }

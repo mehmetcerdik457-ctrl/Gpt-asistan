@@ -4,6 +4,8 @@ import android.os.Bundle
 import android.app.KeyguardManager
 import android.app.Activity
 import android.content.Intent
+import android.content.ActivityNotFoundException
+import android.speech.RecognizerIntent
 import android.view.View
 import android.view.WindowManager
 import kotlin.concurrent.thread
@@ -27,6 +29,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private lateinit var transcript: TextView
     private lateinit var input: EditText
     private lateinit var sendButton: Button
+    private lateinit var speechButton: Button
     private lateinit var modelButton: Button
     private lateinit var connectionStatus: TextView
     private lateinit var scroller: ScrollView
@@ -81,6 +84,28 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     @Deprecated("Activity result used for the platform device credential screen")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == 4702) {
+            if (resultCode == Activity.RESULT_OK) {
+                val hypotheses = data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.toList()
+                if (!hypotheses.isNullOrEmpty()) {
+                    // The external recognizer can stop our Activity. Never reveal or
+                    // modify an existing private draft without a fresh device unlock.
+                    unlock {
+                        if (appUnlocked && uiReady && !isFinishing && !isDestroyed &&
+                            session.state.value?.busy != true
+                        ) {
+                            val merged = SpeechDraft.merge(input.text.toString(), hypotheses)
+                            if (merged != null) {
+                                input.setText(merged)
+                                input.setSelection(input.text.length)
+                                connectionStatus.text = "Ses yalnız taslağa eklendi; gönderilmedi."
+                            } else connectionStatus.text = "Ses tanınmadı; taslak korundu."
+                        }
+                    }
+                }
+            }
+            return
+        }
         if (requestCode != 4701) return
         val action = pendingUnlock
         pendingUnlock = null
@@ -186,6 +211,12 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             }
         }
         bottom.addView(sendButton)
+        speechButton = Button(this).apply {
+            text = "Sesle yaz"
+            setAllCaps(false)
+            setOnClickListener { requestSpeechDraft() }
+        }
+        bottom.addView(speechButton)
         root.addView(bottom)
         setContentView(root)
         session.history.observe(this) { history ->
@@ -195,6 +226,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         }
         session.state.observe(this) { state ->
             sendButton.isEnabled = !state.busy
+            speechButton.isEnabled = !state.busy
             modelButton.isEnabled = !state.busy
             if (state.status.isNotBlank()) connectionStatus.text = state.status
             if (appUnlocked) speakLatestReply()
@@ -391,6 +423,34 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             session.markSpoken(reply.first)
     }
 
+    private fun requestSpeechDraft() {
+        if (!appUnlocked || !uiReady || session.state.value?.busy == true) return
+        AlertDialog.Builder(this).setTitle("Sesle yaz")
+            .setMessage(
+                "Telefonun konuşma tanıma hizmeti sesini işleyebilir. " +
+                "Yalnız senin onayınla başlatılır; tanınan metin yalnız taslağa eklenir, " +
+                "otomatik gönderilmez veya hafızaya kaydedilmez."
+            )
+            .setPositiveButton("Konuşmayı başlat") { _, _ ->
+                if (!appUnlocked || isFinishing || isDestroyed ||
+                    session.state.value?.busy == true
+                ) return@setPositiveButton
+                try {
+                    val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                        putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                            RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                        putExtra(RecognizerIntent.EXTRA_LANGUAGE, "tr-TR")
+                        putExtra(RecognizerIntent.EXTRA_PROMPT, "Türkçe konuş")
+                    }
+                    startActivityForResult(intent, 4702)
+                } catch (_: ActivityNotFoundException) {
+                    connectionStatus.text = "Telefonda konuşma tanıma hizmeti bulunamadı."
+                } catch (_: SecurityException) {
+                    connectionStatus.text = "Konuşma tanıma hizmetine erişime izin verilmedi."
+                }
+            }.setNegativeButton("Vazgeç", null).show()
+    }
+
     private fun showRegistration() {
         val owner = EditText(this).apply {
             hint = "Sunucuda tanımlanacak sahip kimliği"
@@ -441,6 +501,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private fun refreshModels(base: String, identity: String) {
         modelButton.isEnabled = false
         sendButton.isEnabled = false
+        speechButton.isEnabled = false
         connectionStatus.text = "Sahip imzası ve canlı model yanıtı doğrulanıyor…"
         thread {
             val models = try { OwnerGateway.models(base, identity) } catch (_: Exception) { null }
@@ -448,6 +509,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 if (isFinishing || isDestroyed) return@runOnUiThread
                 modelButton.isEnabled = true
                 sendButton.isEnabled = true
+                speechButton.isEnabled = true
                 if (models == null) {
                     session.resetConnectionStatus("Bağlantı doğrulanamadı. Sunucu kaydını, ekran kilidini ve HTTPS adresini kontrol et.")
                 } else {
