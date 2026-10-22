@@ -34,6 +34,19 @@ MAX_CONTEXT_TURNS = 3
 MAX_CONTEXT_CHARS = 12000
 MODEL_TTL = 900
 MODEL_ID = re.compile(r"[A-Za-z0-9._:/-]{1,160}")
+# Cloudflare Workers AI uses an @cf/vendor/model route, unlike the ordinary
+# OpenAI-compatible model names. Never allow this syntax for other providers.
+CLOUDFLARE_MODEL_ID = re.compile(
+    r"@cf/[a-z0-9][a-z0-9._-]{0,79}/[a-z0-9][a-z0-9._-]{0,119}\\Z"
+)
+
+
+def valid_discovered_model_id(model, provider):
+    if not isinstance(model, str):
+        return False
+    if provider == "cloudflare_workers_ai":
+        return len(model) <= 200 and CLOUDFLARE_MODEL_ID.fullmatch(model) is not None
+    return MODEL_ID.fullmatch(model) is not None
 
 
 class Denied(Exception):
@@ -238,7 +251,7 @@ class Gateway:
             def verify(candidate):
                 try:
                     text, actual, elapsed = self.provider.reply(candidate, "Yalnızca Merhaba yaz.", probe=True)
-                    if not text.strip() or not MODEL_ID.fullmatch(actual):
+                    if not text.strip() or not valid_discovered_model_id(actual, self.provider.name):
                         raise Denied("PROVIDER_RESPONSE_INVALID", 502)
                     row = {"id": actual, "provider": self.provider.name,
                            "verified_at": int(time.time()), "latency_ms": elapsed}
