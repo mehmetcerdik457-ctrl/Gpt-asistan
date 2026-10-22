@@ -97,9 +97,13 @@ class MultiVerifiedRouterTests(unittest.TestCase):
 
     def test_same_returned_id_from_two_providers_blocks_both(self):
         same = "shared-synthetic-model"
-        instance, left, right = pool(
-            left=FakeModel("openai", same),
-            right=FakeModel("cloudflare_workers_ai", same))
+        # Two OpenAI-compatible providers can report the same unqualified ID.
+        # Cloudflare @cf/... IDs cannot collide with ordinary model IDs.
+        left = FakeModel("openai", same)
+        right = FakeModel("owner_gateway", same)
+        instance = VerifiedProviderPool(
+            providers={"openai": left, "owner_gateway": right},
+            environ=settings(KRAL_MULTI_PROVIDERS="openai,owner_gateway"))
         with tempfile.TemporaryDirectory() as td:
             gateway = Gateway(Store(td + "/history.db"), instance)
             result = gateway.verified_models()

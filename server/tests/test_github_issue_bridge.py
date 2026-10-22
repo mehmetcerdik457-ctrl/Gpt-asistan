@@ -57,17 +57,30 @@ class BridgeTests(unittest.TestCase):
 
     def test_advisory_cannot_claim_execution(self):
         provider = FakeProvider()
-        reply = b.make_advisory("Görevi kontrol et", provider)
+        with patch.dict("os.environ", {"KRAL_ADVISORY_COST_APPROVED": "YES"}):
+            reply = b.make_advisory("Görevi kontrol et", provider)
         self.assertIn("yürütme: KAPALI", reply)
         self.assertIn(b.MARKER, reply)
         self.assertEqual(provider.received[0][0], "allowed-model")
         self.assertIn("Do not claim to have run code", provider.received[0][1])
 
+    def test_advisory_cost_approval_fails_closed_before_model_call(self):
+        for value in (None, "", "NO", "yes", "True"):
+            with self.subTest(approval=value):
+                environment = {} if value is None else {"KRAL_ADVISORY_COST_APPROVED": value}
+                with patch.dict("os.environ", environment, clear=True):
+                    provider = FakeProvider()
+                    with self.assertRaises(b.TaskRejected) as error:
+                        b.make_advisory("Görev", provider)
+                    self.assertEqual(str(error.exception), "ADVISORY_COST_NOT_APPROVED")
+                    self.assertEqual(provider.received, [])
+
     def test_missing_provider_is_fail_closed(self):
-        for provider in (FakeProvider(configured=False), FakeProvider(candidates=())):
-            with self.assertRaises(b.TaskRejected):
-                b.make_advisory("Görev", provider)
-            self.assertEqual(provider.received, [])
+        with patch.dict("os.environ", {"KRAL_ADVISORY_COST_APPROVED": "YES"}):
+            for provider in (FakeProvider(configured=False), FakeProvider(candidates=())):
+                with self.assertRaises(b.TaskRejected):
+                    b.make_advisory("Görev", provider)
+                self.assertEqual(provider.received, [])
 
     def test_check_task_accepts_owner_open_and_edit_only(self):
         data = event()

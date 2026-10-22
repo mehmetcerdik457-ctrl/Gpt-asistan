@@ -75,6 +75,9 @@ def validate_check_event(event: dict) -> tuple[int, str]:
 
 def make_advisory(task: str, provider) -> str:
     """Use the existing server provider only; no tool or code execution."""
+    # An issue label is not approval to incur upstream model charges.
+    if os.getenv("KRAL_ADVISORY_COST_APPROVED") != "YES":
+        raise TaskRejected("ADVISORY_COST_NOT_APPROVED")
     if not provider.configured():
         raise TaskRejected("PROVIDER_NOT_CONFIGURED")
     models = provider.candidates()
