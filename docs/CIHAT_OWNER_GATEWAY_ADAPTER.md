@@ -35,3 +35,24 @@ Canlı API hakkı doğrulanmış bir kaynaktan, kesintisiz ve redacted testle `/
 ## Eski Android bileşeni
 
 `owner/pr27-runtime-fixes-20261002` dalındaki `CihatSemanticAdapter.java` gerçek CİHAT uygulamasına ekran/Accessibility aracılığıyla erişim için **ayrı** adaydır; yalnız cihaz sahibi onayı ve gerçek telefon testiyle kurulabilir. Bu HTTPS adaptörüyle aynı mekanizma değildir ve ikisi tamamlandı diye gösterilemez.
+
+## Doğrudan xAI / Grok modu (PR #44 devamı)
+
+Mevcut `OwnerGatewayProvider` HTTPS taşıyıcısını kullanır. Yeni bir HTTP istemcisi
+veya model motoru yazılmaz. `KRAL_PROVIDER_MODE=xai` seçilirse sunucu
+yalnız `https://api.x.ai/v1/chat/completions` adresine gider; endpoint/host
+uygulama ayarından veya GitHub issue metninden değiştirilemez.
+`XAI_API_KEY` ve `XAI_MODEL` sunucu tarafındaki gizli ortam değişkenleridir.
+Model listesi uydurulmaz; tek izinli model önce **gerçek completion** ile
+doğrulanmadıkça Android tarafında kullanılamaz. Doğrulanamayan bağlantıda
+otomatik `openai`/CİHAT fallback yapılmaz. Anahtar APK, issue, log veya kaynak
+deposuna yazılmaz.
+
+Kurulum, yalnız mevcut yetkili sunucuda: `KRAL_PROVIDER_MODE=xai`,
+`XAI_MODEL=<sahibin erişebildiği model>`, `XAI_API_KEY` gizli ortam değişkeni.
+Bu entegrasyonda API anahtarı okunmadı veya oluşturulmadı; CI testleri
+sentetik yanıt ve isteği yakalayan sahte ağ taşıyıcısı kullanır.
+Önceki ayrı Grok probe raporunda bir çağrı başarılı görünse de bu, yeni
+Android APK → kayıtlı Owner Gateway → xAI zincirinin canlı kabulü değildir.
+
+Kaynak: https://docs.x.ai/developers/rest-api-reference/inference/chat-completions
