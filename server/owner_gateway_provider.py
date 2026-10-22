@@ -153,4 +153,7 @@ def provider_from_env():
         return OpenAIProvider()
     if mode == "owner_gateway":
         return OwnerGatewayProvider()
+    if mode == "cloudflare_workers_ai":
+        from .cloudflare_workers_ai_provider import CloudflareWorkersAIProvider
+        return CloudflareWorkersAIProvider()
     raise Denied("PROVIDER_MODE_INVALID", 503)
