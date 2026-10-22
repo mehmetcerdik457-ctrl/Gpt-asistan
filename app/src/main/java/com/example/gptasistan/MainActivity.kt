@@ -4,6 +4,8 @@ import android.os.Bundle
 import android.app.KeyguardManager
 import android.app.Activity
 import android.content.Intent
+import android.content.ActivityNotFoundException
+import android.speech.RecognizerIntent
 import android.view.View
 import android.view.WindowManager
 import kotlin.concurrent.thread
@@ -27,6 +29,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private lateinit var transcript: TextView
     private lateinit var input: EditText
     private lateinit var sendButton: Button
+    private lateinit var speechButton: Button
     private lateinit var modelButton: Button
     private lateinit var connectionStatus: TextView
     private lateinit var scroller: ScrollView
@@ -80,6 +83,25 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     @Deprecated("Activity result used for the platform device credential screen")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == 4702) {
+            if (resultCode == Activity.RESULT_OK && uiReady) {
+                val recognized = data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.toList()
+                if (!recognized.isNullOrEmpty()) {
+                    // The external recognizer may have stopped this Activity. Re-authenticate
+                    // before revealing or editing the private draft; never auto-send it.
+                    unlock {
+                        if (uiReady) {
+                            val draft = SpeechDraft.merge(input.text.toString(), recognized)
+                            if (draft != null) {
+                                input.setText(draft)
+                                input.setSelection(input.text.length)
+                            } else connectionStatus.text = "Ses tanınmadı; mevcut taslak korundu."
+                        }
+                    }
+                }
+            }
+            return
+        }
         if (requestCode != 4701) return
         val action = pendingUnlock
         pendingUnlock = null
@@ -159,6 +181,11 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             }
         }
         bottom.addView(sendButton)
+        speechButton = Button(this).apply {
+            text = "Sesle yaz"
+            setOnClickListener { requestSpeechDraft() }
+        }
+        bottom.addView(speechButton)
         root.addView(bottom)
         setContentView(root)
         session.history.observe(this) { history ->
@@ -168,6 +195,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         }
         session.state.observe(this) { state ->
             sendButton.isEnabled = !state.busy
+            speechButton.isEnabled = !state.busy
             modelButton.isEnabled = !state.busy
             if (state.status.isNotBlank()) connectionStatus.text = state.status
             if (appUnlocked) speakLatestReply()
@@ -254,6 +282,25 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         val reply = session.peekUnspokenReply() ?: return
         if (tts?.speak(reply.second.take(4000), TextToSpeech.QUEUE_FLUSH, null, "kral-reply") == TextToSpeech.SUCCESS)
             session.markSpoken(reply.first)
+    }
+
+    private fun requestSpeechDraft() {
+        if (!appUnlocked || session.state.value?.busy == true) return
+        AlertDialog.Builder(this).setTitle("Sesle yaz")
+            .setMessage("Telefonun konuşma tanıma hizmeti sesini işleyebilir. Yalnız şimdi açıkça başlatılır; tanınan metin otomatik gönderilmez, önce taslağa eklenir.")
+            .setPositiveButton("Konuşmayı başlat") { _, _ ->
+                try {
+                    val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                        putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                            RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                        putExtra(RecognizerIntent.EXTRA_LANGUAGE, "tr-TR")
+                        putExtra(RecognizerIntent.EXTRA_PROMPT, "Türkçe konuş")
+                    }
+                    startActivityForResult(intent, 4702)
+                } catch (_: ActivityNotFoundException) {
+                    connectionStatus.text = "Telefonda konuşma tanıma hizmeti bulunamadı."
+                }
+            }.setNegativeButton("Vazgeç", null).show()
     }
 
     private fun showRegistration() {
