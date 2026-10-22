@@ -25,7 +25,8 @@ class CloudflareWorkersAIProvider:
         a, m, t = (e.get(k, "") for k in (
             "KRAL_CLOUDFLARE_ACCOUNT_ID", "KRAL_CLOUDFLARE_MODEL",
             "KRAL_CLOUDFLARE_API_TOKEN"))
-        return (isinstance(a, str) and ACCT.fullmatch(a) is not None
+        return (e.get("KRAL_CLOUDFLARE_COST_APPROVED") == "YES"
+                and isinstance(a, str) and ACCT.fullmatch(a) is not None
                 and isinstance(m, str) and MODEL.fullmatch(m) is not None
                 and isinstance(t, str) and 16 <= len(t) <= 2048
                 and t.isascii() and t.isprintable()
