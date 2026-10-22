@@ -8,7 +8,7 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from server.cloudflare_workers_ai_provider import CloudflareWorkersAIProvider
-from server.gateway import Denied, Gateway, Store
+from server.gateway import Denied, Gateway, Store, valid_discovered_model_id
 from server.owner_gateway_provider import provider_from_env
 
 MODEL = "@cf/meta/llama-3.2-3b-instruct"
@@ -137,6 +137,21 @@ class AdapterTests(unittest.TestCase):
                 with self.assertRaises(Denied) as caught:
                     CloudflareWorkersAIProvider(env()).reply(MODEL, "hi")
                 self.assertEqual(caught.exception.code, expected)
+
+    def test_model_id_policy_scoped_to_cloudflare_and_android_bounds(self):
+        self.assertTrue(valid_discovered_model_id(MODEL, "cloudflare_workers_ai"))
+        self.assertTrue(valid_discovered_model_id("plain-model", "openai"))
+        self.assertFalse(valid_discovered_model_id(MODEL, "openai"))
+        self.assertFalse(valid_discovered_model_id("plain-model", "cloudflare_workers_ai"))
+        for bad in ("@cf/meta/../secret", "@cf/meta/hello?callback=x",
+                    "@cf/meta/hello#fragment", "@cf/meta/hello\\n", "@cf//hello"):
+            self.assertFalse(valid_discovered_model_id(bad, "cloudflare_workers_ai"))
+        too_long = "@cf/" + "a" * 79 + "/" + "b" * 119
+        self.assertGreater(len(too_long), 200)
+        self.assertFalse(valid_discovered_model_id(too_long, "cloudflare_workers_ai"))
+        cfg = env()
+        cfg["KRAL_CLOUDFLARE_MODEL"] = too_long
+        self.assertFalse(CloudflareWorkersAIProvider(cfg).configured())
 
     def test_cloudflare_model_is_visible_to_owner_gateway_and_usable_for_chat(self):
         # Regression: the @cf/ prefix used to be rejected by the shared
