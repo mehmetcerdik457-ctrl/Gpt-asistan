@@ -19,7 +19,8 @@ URL = "https://api.cloudflare.com/client/v4/accounts/" + ACCOUNT + "/ai/run/" + 
 
 def env():
     return {"KRAL_CLOUDFLARE_MODEL": MODEL, "KRAL_CLOUDFLARE_ACCOUNT_ID": ACCOUNT,
-            "KRAL_CLOUDFLARE_API_TOKEN": TOKEN}
+            "KRAL_CLOUDFLARE_API_TOKEN": TOKEN,
+            "KRAL_CLOUDFLARE_COST_APPROVED": "YES"}
 
 
 class FakeResponse:
@@ -56,6 +57,22 @@ def success():
 
 
 class AdapterTests(unittest.TestCase):
+    def test_explicit_cost_approval_blocks_all_network_before_request(self):
+        for value in (None, "", "NO", "yes", "True"):
+            with self.subTest(value=value):
+                cfg = env()
+                if value is None:
+                    cfg.pop("KRAL_CLOUDFLARE_COST_APPROVED")
+                else:
+                    cfg["KRAL_CLOUDFLARE_COST_APPROVED"] = value
+                with patch("server.cloudflare_workers_ai_provider.urllib.request.build_opener") as opener:
+                    p = CloudflareWorkersAIProvider(cfg)
+                    self.assertFalse(p.configured())
+                    with self.assertRaises(Denied) as raised:
+                        p.reply(MODEL, "Do not send this upstream")
+                    self.assertEqual(raised.exception.code, "CLOUDFLARE_NOT_CONFIGURED")
+                    opener.assert_not_called()
+
     def test_absent_settings_fail_closed(self):
         for name in env():
             config = env()
