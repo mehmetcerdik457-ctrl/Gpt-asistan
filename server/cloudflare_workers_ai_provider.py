@@ -27,7 +27,7 @@ class CloudflareWorkersAIProvider:
             "KRAL_CLOUDFLARE_API_TOKEN"))
         return (e.get("KRAL_CLOUDFLARE_COST_APPROVED") == "YES"
                 and isinstance(a, str) and ACCT.fullmatch(a) is not None
-                and isinstance(m, str) and MODEL.fullmatch(m) is not None
+                and isinstance(m, str) and len(m) <= 200 and MODEL.fullmatch(m) is not None
                 and isinstance(t, str) and 16 <= len(t) <= 2048
                 and t.isascii() and t.isprintable()
                 and not any(c.isspace() for c in t))
