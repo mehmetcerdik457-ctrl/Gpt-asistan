@@ -7,6 +7,8 @@ from server import github_issue_bridge as b
 
 
 class FakeProvider:
+    name = "openai"
+
     def __init__(self, configured=True, candidates=("allowed-model",)):
         self.is_configured = configured
         self.models = candidates
@@ -63,6 +65,31 @@ class BridgeTests(unittest.TestCase):
         self.assertIn(b.MARKER, reply)
         self.assertEqual(provider.received[0][0], "allowed-model")
         self.assertIn("Do not claim to have run code", provider.received[0][1])
+
+    def test_cloudflare_and_multi_provider_model_ids_are_checked_by_real_provider(self):
+        cloud_model = "@cf/meta/llama-3.2-3b-instruct"
+        for multi in (False, True):
+            with self.subTest(multi=multi):
+                candidate = ("cloudflare_workers_ai", cloud_model) if multi else cloud_model
+                provider = FakeProvider(candidates=(candidate,))
+                provider.name = "verified_pool" if multi else "cloudflare_workers_ai"
+                provider.provider_name_for = (lambda c: c[0]) if multi else None
+                if not multi:
+                    del provider.provider_name_for
+                provider.reply = lambda model, prompt: ("Onaylı sentetik yanıt", cloud_model, 1)
+                with patch.dict("os.environ", {"KRAL_ADVISORY_COST_APPROVED": "YES"}):
+                    comment = b.make_advisory("Modeli değerlendir", provider)
+                self.assertIn(cloud_model, comment)
+                self.assertIn("yürütme: KAPALI", comment)
+
+    def test_cloudflare_advisory_rejects_non_cloudflare_returned_id(self):
+        provider = FakeProvider(candidates=("@cf/meta/llama-3.2-3b-instruct",))
+        provider.name = "cloudflare_workers_ai"
+        provider.reply = lambda model, prompt: ("Yanıt", "ordinary-openai-model", 1)
+        with patch.dict("os.environ", {"KRAL_ADVISORY_COST_APPROVED": "YES"}):
+            with self.assertRaises(b.TaskRejected) as rejected:
+                b.make_advisory("Test", provider)
+        self.assertEqual(str(rejected.exception), "MODEL_REPLY_INVALID")
 
     def test_advisory_cost_approval_fails_closed_before_model_call(self):
         for value in (None, "", "NO", "yes", "True"):

@@ -91,8 +91,16 @@ def make_advisory(task: str, provider) -> str:
         "Never request credentials in the issue. No task execution is authorized.\n\n"
         "PUBLIC ISSUE:\n" + task
     )
-    text, actual, _ = provider.reply(models[0], prompt)
-    if not isinstance(text, str) or not text.strip() or not isinstance(actual, str) or not re.fullmatch(r"[A-Za-z0-9._:/-]{1,160}", actual):
+    from server.gateway import valid_discovered_model_id
+    candidate = models[0]
+    # A multi-provider candidate is (provider_name, model_id), whereas a
+    # single-provider candidate is a model ID. Check returned IDs against
+    # the real provider, not the synthetic pool name.
+    provider_name = (provider.provider_name_for(candidate)
+                     if hasattr(provider, "provider_name_for") else provider.name)
+    text, actual, _ = provider.reply(candidate, prompt)
+    if (not isinstance(text, str) or not text.strip()
+        or not valid_discovered_model_id(actual, provider_name)):
         raise TaskRejected("MODEL_REPLY_INVALID")
     return (
         f"{MARKER}\n"
