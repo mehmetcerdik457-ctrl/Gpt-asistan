@@ -23,6 +23,7 @@ from pathlib import Path
 
 from . import owner_auth_v1 as auth
 from .secure_sqlite import secure_sqlite_file
+from .source_owner_tool import inspect_source, SourceInspectionDenied
 
 CONTRACT = "OMEGA-OWNER-API-V1"
 PREFIX = "/api/v1/owner/"
@@ -328,7 +329,20 @@ class Gateway:
         return {"text": answer, "model": actual, "provider": verified_provider,
                 "latency_ms": elapsed, "conversation_id": str(chat_id)}
 
+    def inspect_owner_source(self, data):
+        if set(data) != {"action", "source_id"} or data.get("action") != "inspect":
+            raise Denied("SOURCE_FIELDS_DENIED", 400)
+        try:
+            return {"source": inspect_source(
+                os.getenv("KRAL_SOURCE_ROOT", ""), data["source_id"])}
+        except SourceInspectionDenied as exc:
+            raise Denied(str(exc), 403 if str(exc).startswith("SOURCE_PATH") or
+                         str(exc).startswith("SOURCE_LINK") or
+                         str(exc).startswith("SOURCE_TYPE") else 400) from None
+
     def route(self, path, data):
+        if path == PREFIX + "sources":
+            return self.inspect_owner_source(data)
         if path == PREFIX + "models":
             if data:
                 raise Denied("MODEL_FIELDS_DENIED")
@@ -420,7 +434,7 @@ def handler_for(gateway):
         def do_POST(self):
             acquired = False
             try:
-                if self.path not in {PREFIX + p for p in ("chat", "models", "history", "memory")}:
+                if self.path not in {PREFIX + p for p in ("chat", "models", "history", "memory", "sources")}:
                     raise Denied("ROUTE_NOT_FOUND", 404)
                 if self.headers.get("Transfer-Encoding") or len(self.headers.get_all("Content-Length", [])) != 1:
                     raise Denied("BODY_LENGTH_REQUIRED", 411)
