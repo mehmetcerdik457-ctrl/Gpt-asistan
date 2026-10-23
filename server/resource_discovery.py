@@ -12,6 +12,8 @@ import os
 from pathlib import Path
 import stat
 
+from .apk_static_inventory import inspect_apk
+
 IGNORED_DIRECTORIES = frozenset({
     ".git", ".gradle", ".idea", ".ssh", ".venv", "__pycache__",
     "node_modules", "secrets", "keyrings",
@@ -143,6 +145,8 @@ def discover(root: str | Path, *, max_files: int = 500,
                 continue
             bytes_read += before.st_size
             record.update(status="VERIFIED_FILE", sha256=digest)
+            if record["format_hint"] == "android_apk":
+                record["apk_structure"] = inspect_apk(path, expected_sha256=digest)
             if digest in seen_hashes:
                 record["duplicate_of"] = seen_hashes[digest]
             else:
