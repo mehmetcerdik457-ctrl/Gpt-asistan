@@ -1,18 +1,22 @@
 #!/usr/bin/env python3
 """CI-only: capture actual OMEGA localhost HTTP bytes, no real provider calls."""
 import argparse
+import base64
 import hashlib
 import json
 import os
 import subprocess
 import sys
+import tempfile
+import time
+import uuid
 import threading
 import urllib.error
 import urllib.request
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
-PINNED_OMEGA = "fd34e1a6b57b13644c6f2053fe97e86b485de10b"
+PINNED_OMEGA = "46894ad9d87ad7c75c3c51e003b1931e890199c4"
 MAX_HEALTH = 4096
 
 
@@ -25,6 +29,9 @@ def run(omega_dir, output_dir):
         raise RuntimeError("OMEGA_SOURCE_MISMATCH")
     sys.path.insert(0, str(omega_dir / "backend"))
     import server
+    import owner_auth_v1
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
 
     os.environ["OPENAI_API_KEY"] = "SYNTHETIC_CI_CONTRACT_NOT_CREDENTIAL"
     os.environ["OMEGA_EXECUTION_ENABLED"] = "false"
@@ -38,11 +45,13 @@ def run(omega_dir, output_dir):
     root = "http://127.0.0.1:" + str(api.server_port)
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
-    def request(path, data=None):
+    def request(path, data=None, extra_headers=None):
+        headers = {"Content-Type": "application/json"} if data is not None else {}
+        if extra_headers:
+            headers.update(extra_headers)
         req = urllib.request.Request(
             root + path, data=data,
-            method="POST" if data is not None else "GET",
-            headers={"Content-Type": "application/json"} if data is not None else {})
+            method="POST" if data is not None else "GET", headers=headers)
         try:
             with opener.open(req, timeout=4) as response:
                 return response.status, response.headers.get_content_type(), response.read(MAX_HEALTH + 1)
@@ -63,6 +72,49 @@ def run(omega_dir, output_dir):
                 or json.loads(model_body).get("error") != "OWNER_EXECUTION_NOT_APPROVED"
                 or json.loads(chat_body).get("error") != "OWNER_EXECUTION_NOT_APPROVED"):
             raise RuntimeError("EXECUTION_UNEXPECTEDLY_ALLOWED")
+
+        # Existing KRAL's OmegaEnvelope.MODELS has exactly this P-256 wire form.
+        # Keys are disposable CI-generated, never user Owner/Android keys.
+        with tempfile.TemporaryDirectory(prefix="omega-models-signature-") as temp:
+            owner_key = ec.generate_private_key(ec.SECP256R1())
+            device_key = ec.generate_private_key(ec.SECP256R1())
+            der = lambda key: key.public_key().public_bytes(
+                serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
+            encode = lambda data: base64.urlsafe_b64encode(data).decode().rstrip("=")
+            owner_id = "synthetic-ci-owner"
+            device_id = hashlib.sha256(der(device_key)).hexdigest()
+            os.environ["OMEGA_OWNER_ID"] = owner_id
+            os.environ["OMEGA_DEVICE_ID"] = device_id
+            os.environ["OMEGA_OWNER_PUBLIC_DER_B64"] = encode(der(owner_key))
+            os.environ["OMEGA_DEVICE_PUBLIC_DER_B64"] = encode(der(device_key))
+            os.environ["OMEGA_NONCE_DB"] = str(Path(temp) / "nonce.db")
+            body = b"{}"
+            timestamp = str(int(time.time()))
+            nonce = uuid.uuid4().hex
+            path = "/api/v1/owner/models"
+            # Construct independently, checking interoperability with OMEGA.
+            canonical = ("OMEGA-OWNER-API-V1\\nPOST\\n" + path + "\\n"
+                + hashlib.sha256(body).hexdigest() + "\\n" + timestamp + "\\n"
+                + nonce + "\\n" + owner_id + "\\n" + device_id).encode()
+            if canonical != owner_auth_v1.canonical(
+                "POST", path, body, timestamp, nonce, owner_id, device_id
+            ):
+                raise RuntimeError("OWNER_MODELS_WIRE_MISMATCH")
+            headers = {
+                "X-Omega-Owner-Id": owner_id,
+                "X-Omega-Device-Id": device_id,
+                "X-Omega-Timestamp": timestamp,
+                "X-Omega-Nonce": nonce,
+                "X-Omega-Owner-Proof": encode(owner_key.sign(canonical, ec.ECDSA(hashes.SHA256()))),
+                "X-Omega-Device-Proof": encode(device_key.sign(canonical, ec.ECDSA(hashes.SHA256()))),
+            }
+            signed_models_status, _, signed_models_body = request(path, body, headers)
+            replay_status, _, replay_body = request(path, body, headers)
+            if (signed_models_status != 403
+                or json.loads(signed_models_body).get("error") != "OWNER_EXECUTION_NOT_APPROVED"
+                or replay_status != 403
+                or json.loads(replay_body).get("error") != "OWNER_AUTH_REPLAY_OR_STORAGE_DENIED"):
+                raise RuntimeError("OWNER_MODELS_SIGNED_POLICY_FAILED")
     finally:
         api.shutdown()
         api.server_close()
@@ -76,6 +128,10 @@ def run(omega_dir, output_dir):
         "transport": "real_loopback_http",
         "health_sha256": hashlib.sha256(raw).hexdigest(),
         "models_http_status": model_status,
+        "signed_models_http_status": signed_models_status,
+        "signed_models_error": "OWNER_EXECUTION_NOT_APPROVED",
+        "signed_models_replay_http_status": replay_status,
+        "signed_models_replay_error": "OWNER_AUTH_REPLAY_OR_STORAGE_DENIED",
         "chat_http_status": chat_status,
         "tls_tested": False,
         "android_physical_device_tested": False,
@@ -84,6 +140,8 @@ def run(omega_dir, output_dir):
     }, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print("OMEGA_REAL_HTTP_KOTLIN_INPUT=CAPTURED")
     print("OMEGA_EXECUTION=DENIED")
+    print("OMEGA_SIGNED_MODELS_ROUTE=VALID_SIGNATURE_BUT_DENIED")
+    print("OMEGA_SIGNED_MODELS_REPLAY=DENIED")
 
 
 def main():

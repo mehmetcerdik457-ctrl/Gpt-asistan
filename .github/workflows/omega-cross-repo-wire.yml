@@ -32,7 +32,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: mehmetcerdik457-ctrl/benim-uygulamam
-          ref: fd34e1a6b57b13644c6f2053fe97e86b485de10b
+          ref: 46894ad9d87ad7c75c3c51e003b1931e890199c4
           path: omega-pinned
           persist-credentials: false
       - uses: actions/setup-python@v5

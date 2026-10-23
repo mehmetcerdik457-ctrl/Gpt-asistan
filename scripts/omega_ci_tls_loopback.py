@@ -8,7 +8,7 @@ import sys
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
-OMEGA_SOURCE = "fd34e1a6b57b13644c6f2053fe97e86b485de10b"
+OMEGA_SOURCE = "46894ad9d87ad7c75c3c51e003b1931e890199c4"
 
 
 def main():

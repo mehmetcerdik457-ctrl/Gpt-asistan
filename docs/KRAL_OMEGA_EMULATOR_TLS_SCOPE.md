@@ -1,5 +1,5 @@
 # KRAL Android to OMEGA real TLS in CI emulator
-Pinned source: OMEGA PR #96 fd34e1a6b57b13644c6f2053fe97e86b485de10b; existing KRAL PR #46.
+Pinned source: OMEGA PR #96 46894ad9d87ad7c75c3c51e003b1931e890199c4; existing KRAL PR #46.
 
 This adds a **test-only** Android TLS connection test to the existing application.
 OMEGA backend's actual handler runs on CI host **127.0.0.1:18443** with
@@ -18,3 +18,7 @@ models and chat are also verified 403 before Android tests.
 This is **not** a physical device, real public server, trusted production TLS
 certificate or Owner enrollment test, and does not make OMEGA production-ready.
 The source repositories and signed historical apps are preserved; main untouched.
+
+\nPinned OMEGA commit updated to the new signed-but-denied Owner models
+route; Android TLS workflow remains a read-only status test. Existing APK
+runtime and Owner enrollment are not changed.\n
