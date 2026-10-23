@@ -15,6 +15,18 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Require exact PR source checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="${{ github.event.pull_request.head.sha || github.sha }}"
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$expected"
+          echo "KRAL_EXACT_HEAD_SHA=$actual" >> "$GITHUB_ENV"
+          echo "KRAL_ANDROID_EXACT_HEAD=PASS"
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -63,6 +75,18 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Require exact PR source checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="${{ github.event.pull_request.head.sha || github.sha }}"
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$expected"
+          echo "KRAL_EXACT_HEAD_SHA=$actual" >> "$GITHUB_ENV"
+          echo "KRAL_ANDROID_EXACT_HEAD=PASS"
       - uses: actions/download-artifact@v4
         with:
           name: kral-asistan-candidate-apk
