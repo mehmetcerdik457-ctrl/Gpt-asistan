@@ -68,17 +68,32 @@ python3 - <<'PY'
 from pathlib import Path
 import xml.etree.ElementTree as ET
 paths=list(Path("app/build/outputs/androidTest-results/connected").rglob("TEST-*.xml"))
-matches=[]
-for p in paths:
-    root=ET.parse(p).getroot()
-    if ("OmegaHttpsEmulatorTest" in p.name or "OmegaHttpsEmulatorTest" in str(root.attrib)
-        or "OmegaSignedWireEmulatorTest" in p.name or "OmegaSignedWireEmulatorTest" in str(root.attrib)):
-        matches.append(root)
-assert len(matches) == 2, "Both TLS and Android dual-signature JUnit XML must exist"
-total=sum(int(x.attrib.get("tests","0")) for x in matches)
-fail=sum(int(x.attrib.get("failures","0"))+int(x.attrib.get("errors","0")) for x in matches)
-skip=sum(int(x.attrib.get("skipped","0")) for x in matches)
-assert (total,fail,skip)==(3,0,0),(total,fail,skip)
+assert paths, "Android instrumentation JUnit XML missing"
+cases=[]
+fail=0
+skip=0
+for path in paths:
+    root=ET.parse(path).getroot()
+    for test in root.iter("testcase"):
+        name=test.attrib.get("classname","")
+        if name in (
+            "com.example.gptasistan.OmegaHttpsEmulatorTest",
+            "com.example.gptasistan.OmegaSignedWireEmulatorTest",
+        ):
+            cases.append((name, test.attrib.get("name","")))
+            fail += sum(child.tag in ("failure","error") for child in test)
+            skip += sum(child.tag == "skipped" for child in test)
+names=set(cases)
+required={
+    ("com.example.gptasistan.OmegaHttpsEmulatorTest",
+     "emulatorToOmegaRealTlsIsReadOnly"),
+    ("com.example.gptasistan.OmegaHttpsEmulatorTest",
+     "releaseDefaultTrustMustRejectEphemeralCertificate"),
+    ("com.example.gptasistan.OmegaSignedWireEmulatorTest",
+     "androidGeneratedP256DualProofIsValidButNeverAuthorizes"),
+}
+assert names==required, ("unexpected missing/extra tests",names)
+assert len(cases)==3 and fail==0 and skip==0,(cases,fail,skip)
 print("OMEGA_ANDROID_REAL_TLS_AND_SIGNED_P256=PASS")
 print("OMEGA_OWNER_DEVICE_ACCEPTANCE=NOT_TESTED")
 PY
