@@ -22,13 +22,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: \${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - name: Verify exact KRAL source SHA
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "\${{ github.event.pull_request.head.sha || github.sha }}"
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
       - uses: actions/checkout@v4
         with:
           repository: mehmetcerdik457-ctrl/benim-uygulamam
@@ -53,7 +53,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Kotlin parses exact HTTP response received from OMEGA code
         env:
-          KRAL_OMEGA_REAL_HTTP_DIR: \${{ github.workspace }}/app/build/omega-real-http
+          KRAL_OMEGA_REAL_HTTP_DIR: ${{ github.workspace }}/app/build/omega-real-http
         run: |
           ./gradlew :app:testDebugUnitTest \
             --tests com.example.gptasistan.OmegaRealHttpContractTest --no-daemon
