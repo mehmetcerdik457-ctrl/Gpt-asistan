@@ -126,6 +126,11 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             setOnClickListener { showLocal { OwnerStatus.readOnlyReport(this@MainActivity) } }
         })
         root.addView(Button(this).apply {
+            text = "OMEGA durumunu kontrol et (salt okunur)"
+            setAllCaps(false)
+            setOnClickListener { showOmegaReadOnlyStatus() }
+        })
+        root.addView(Button(this).apply {
             text = "CİHAT kurulumunu doğrula (salt okunur)"
             setAllCaps(false)
             setOnClickListener { showCihatIdentity() }
@@ -389,6 +394,46 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         val reply = session.peekUnspokenReply() ?: return
         if (tts?.speak(reply.second.take(4000), TextToSpeech.QUEUE_FLUSH, null, "kral-reply") == TextToSpeech.SUCCESS)
             session.markSpoken(reply.first)
+    }
+
+    private fun showOmegaReadOnlyStatus() {
+        val endpoint = EditText(this).apply {
+            hint = "https://omega-sunucusu.example"
+            isSingleLine = true
+        }
+        AlertDialog.Builder(this)
+            .setTitle("OMEGA — salt okunur bağlantı testi")
+            .setMessage("Yalnız senin girdiğin HTTPS adresine /api/health isteği yapılır. " +
+                "Sahip imzası, anahtar, hafıza veya mesaj gönderilmez. " +
+                "Bu kontrol Owner yetkisi vermez.")
+            .setView(endpoint)
+            .setPositiveButton("Durumu kontrol et") { _, _ ->
+                val address = endpoint.text.toString().trim()
+                if (!OmegaReadOnlyStatus.validBase(address)) {
+                    connectionStatus.text = "OMEGA için HTTPS kök adresi gerekli."
+                } else {
+                    connectionStatus.text = "OMEGA salt okunur bağlantı kontrolü yapılıyor…"
+                    thread {
+                        val report = try {
+                            OmegaReadOnlyStatus.fetch(address).message
+                        } catch (_: Exception) {
+                            "OMEGA güvenli durum yanıtı doğrulanamadı; Owner veya model " +
+                                "yürütmesine izin verilmedi."
+                        }
+                        runOnUiThread {
+                            if (!isFinishing && !isDestroyed && appUnlocked) {
+                                AlertDialog.Builder(this)
+                                    .setTitle("OMEGA bağlantı durumu")
+                                    .setMessage(report)
+                                    .setPositiveButton("Tamam", null)
+                                    .show()
+                            }
+                        }
+                    }
+                }
+            }
+            .setNegativeButton("Vazgeç", null)
+            .show()
     }
 
     private fun showRegistration() {
