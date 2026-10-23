@@ -45,10 +45,15 @@ object OmegaReadOnlyStatus {
             "Owner doğrulanmamış, yürütme kapalı. Bu bir Owner kimlik kanıtı değildir.")
     }
 
-    fun fetch(base: String): Observation {
+    fun fetch(base: String): Observation =
+        fetchUsingConnection(base) { address -> address.openConnection() as HttpURLConnection }
+
+    /** Test seam: release callers always use the Android system TLS trust store. */
+    internal fun fetchUsingConnection(
+        base: String, connect: (URL) -> HttpURLConnection
+    ): Observation {
         require(validBase(base)) { "OMEGA_URL_DENIED" }
-        val connection = (URL(base.trimEnd('/') + "/api/health").openConnection()
-            as HttpURLConnection)
+        val connection = connect(URL(base.trimEnd('/') + "/api/health"))
         return try {
             connection.requestMethod = "GET"
             connection.instanceFollowRedirects = false
