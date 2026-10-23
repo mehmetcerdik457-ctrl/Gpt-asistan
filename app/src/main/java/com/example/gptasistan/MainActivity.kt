@@ -118,6 +118,11 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         modelButton = button("Model") { configureModel() }
         root.addView(actions)
         root.addView(Button(this).apply {
+            text = "Owner cihaz ön kontrolü (salt okunur)"
+            setAllCaps(false)
+            setOnClickListener { showOwnerDevicePreflight() }
+        })
+        root.addView(Button(this).apply {
             text = "Sunucuya kayıt bilgisi"
             setOnClickListener { unlock { showRegistration() } }
         })
@@ -436,6 +441,14 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             .show()
     }
 
+    private fun showOwnerDevicePreflight() {
+        if (!appUnlocked || !uiReady || isFinishing || isDestroyed) return
+        AlertDialog.Builder(this)
+            .setTitle("Owner cihaz hazırlığı — salt okunur")
+            .setMessage(OwnerDevicePreflight.readOnlyReport(this))
+            .setPositiveButton("Tamam", null).show()
+    }
+
     private fun showRegistration() {
         val owner = EditText(this).apply {
             hint = "Sunucuda tanımlanacak sahip kimliği"
@@ -445,12 +458,28 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         AlertDialog.Builder(this).setTitle("Sunucu kaydı").setView(owner)
             .setMessage("Bu açık anahtar bilgilerini yalnız yönettiğin sunucuda kaydet. Burada kimlik yazmak sunucu yetkisi vermez.")
             .setPositiveButton("Açık bilgileri göster") { _, _ ->
-                try {
-                    val registration = OwnerIdentity.publicRegistration(owner.text.toString().trim())
-                    val text = TextView(this).apply { this.text = registration; setTextIsSelectable(true); setPadding(24, 24, 24, 24) }
-                    AlertDialog.Builder(this).setTitle("Yalnız açık kayıt bilgileri").setView(ScrollView(this).apply { addView(text) })
-                        .setPositiveButton("Tamam", null).show()
-                } catch (_: Exception) { connectionStatus.text = "Kayıt anahtarları oluşturulamadı; ekran kilidini ve sahip kimliğini kontrol et." }
+                val reveal = {
+                    try {
+                        val registration = OwnerIdentity.publicRegistration(owner.text.toString().trim())
+                        val text = TextView(this).apply {
+                            this.text = registration
+                            setTextIsSelectable(true)
+                            setPadding(24, 24, 24, 24)
+                        }
+                        AlertDialog.Builder(this).setTitle("Yalnız açık kayıt bilgileri")
+                            .setView(ScrollView(this).apply { addView(text) })
+                            .setPositiveButton("Tamam", null).show()
+                    } catch (_: Exception) {
+                        connectionStatus.text = "Kayıt anahtarları okunamadı veya oluşturulamadı; cihaz kilidini kontrol et."
+                    }
+                }
+                if (packageName.endsWith(".genesis.cihatpreview")) {
+                    AlertDialog.Builder(this)
+                        .setTitle("Önizleme: gerçek Owner kaydı için uygun değil")
+                        .setMessage("Bu APK debug imzalıdır. Burada kalıcı Owner anahtarları üretmek, sonraki farklı imzalı APK'ya güvenli geçiş sağlamaz. Bu işlem sunucu yetkisi de vermez. Yalnız deneme anahtarı oluşturmak veya mevcut açık anahtarları görmek istiyor musun?")
+                        .setPositiveButton("Deneme bilgilerini göster") { _, _ -> reveal() }
+                        .setNegativeButton("Vazgeç", null).show()
+                } else reveal()
             }.setNegativeButton("Vazgeç", null).show()
     }
 
