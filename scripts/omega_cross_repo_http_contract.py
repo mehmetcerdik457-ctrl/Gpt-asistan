@@ -93,9 +93,9 @@ def run(omega_dir, output_dir):
             nonce = uuid.uuid4().hex
             path = "/api/v1/owner/models"
             # Construct independently, checking interoperability with OMEGA.
-            canonical = ("OMEGA-OWNER-API-V1\\nPOST\\n" + path + "\\n"
-                + hashlib.sha256(body).hexdigest() + "\\n" + timestamp + "\\n"
-                + nonce + "\\n" + owner_id + "\\n" + device_id).encode()
+            canonical = ("OMEGA-OWNER-API-V1\nPOST\n" + path + "\n"
+                + hashlib.sha256(body).hexdigest() + "\n" + timestamp + "\n"
+                + nonce + "\n" + owner_id + "\n" + device_id).encode()
             if canonical != owner_auth_v1.canonical(
                 "POST", path, body, timestamp, nonce, owner_id, device_id
             ):
