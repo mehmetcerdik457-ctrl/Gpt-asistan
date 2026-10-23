@@ -4,6 +4,7 @@ on:
     paths:
       - 'app/src/main/java/com/example/gptasistan/OmegaReadOnlyStatus.kt'
       - 'app/src/androidTest/java/com/example/gptasistan/OmegaHttpsEmulatorTest.kt'
+      - 'app/src/androidTest/java/com/example/gptasistan/OmegaSignedWireEmulatorTest.kt'
       - 'scripts/omega_ci_tls_loopback.py'
       - 'scripts/omega_emulator_tls_ci.sh'
       - '.github/workflows/omega-emulator-tls.yml'
@@ -11,6 +12,7 @@ on:
     paths:
       - 'app/src/main/java/com/example/gptasistan/OmegaReadOnlyStatus.kt'
       - 'app/src/androidTest/java/com/example/gptasistan/OmegaHttpsEmulatorTest.kt'
+      - 'app/src/androidTest/java/com/example/gptasistan/OmegaSignedWireEmulatorTest.kt'
       - 'scripts/omega_ci_tls_loopback.py'
       - 'scripts/omega_emulator_tls_ci.sh'
       - '.github/workflows/omega-emulator-tls.yml'

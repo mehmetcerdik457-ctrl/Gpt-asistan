@@ -22,3 +22,6 @@ The source repositories and signed historical apps are preserved; main untouched
 \nPinned OMEGA commit updated to the new signed-but-denied Owner models
 route; Android TLS workflow remains a read-only status test. Existing APK
 runtime and Owner enrollment are not changed.\n
+
+## Actual Android-generated dual P-256 HTTPS signatures (synthetic CI only)
+The Android emulator generates TWO independent ephemeral P-256 software private keys and transmits only public SPKI DER via a one-time synthetic registration endpoint on a CI-local OMEGA server subclass. That endpoint does not exist in production OMEGA. The ORIGINAL Android OmegaEnvelope.canonical() is signed with Android SHA256withECDSA; real TLS requests to /api/v1/owner/models and /api/v1/owner/chat must return 403 even with mathematically valid signatures. Replay, tampered-body and path-substitution signatures are also rejected. JUnit requires all 3 emulator TLS+signature tests executed, none skipped. These are not the real user-authenticated AndroidKeyStore OwnerIdentity keys, production enrollment or permission to execute.

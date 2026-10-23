@@ -61,7 +61,7 @@ PY
 adb -e reverse tcp:18443 tcp:18443
 adb -e reverse --list | grep -F 'tcp:18443 tcp:18443'
 ./gradlew :app:connectedDebugAndroidTest \
-  -Pandroid.testInstrumentationRunnerArguments.class=com.example.gptasistan.OmegaHttpsEmulatorTest \
+  -Pandroid.testInstrumentationRunnerArguments.class=com.example.gptasistan.OmegaHttpsEmulatorTest,com.example.gptasistan.OmegaSignedWireEmulatorTest \
   -Pandroid.testInstrumentationRunnerArguments.omega_tls_test=true \
   --no-daemon
 python3 - <<'PY'
@@ -71,13 +71,14 @@ paths=list(Path("app/build/outputs/androidTest-results/connected").rglob("TEST-*
 matches=[]
 for p in paths:
     root=ET.parse(p).getroot()
-    if "OmegaHttpsEmulatorTest" in p.name or "OmegaHttpsEmulatorTest" in str(root.attrib):
+    if ("OmegaHttpsEmulatorTest" in p.name or "OmegaHttpsEmulatorTest" in str(root.attrib)
+        or "OmegaSignedWireEmulatorTest" in p.name or "OmegaSignedWireEmulatorTest" in str(root.attrib)):
         matches.append(root)
-assert matches, "OmegaHttpsEmulatorTest JUnit missing"
+assert len(matches) == 2, "Both TLS and Android dual-signature JUnit XML must exist"
 total=sum(int(x.attrib.get("tests","0")) for x in matches)
 fail=sum(int(x.attrib.get("failures","0"))+int(x.attrib.get("errors","0")) for x in matches)
 skip=sum(int(x.attrib.get("skipped","0")) for x in matches)
-assert (total,fail,skip)==(2,0,0),(total,fail,skip)
-print("OMEGA_ANDROID_REAL_TLS=PASS")
+assert (total,fail,skip)==(3,0,0),(total,fail,skip)
+print("OMEGA_ANDROID_REAL_TLS_AND_SIGNED_P256=PASS")
 print("OMEGA_OWNER_DEVICE_ACCEPTANCE=NOT_TESTED")
 PY
