@@ -62,6 +62,7 @@ adb -e reverse tcp:18443 tcp:18443
 adb -e reverse --list | grep -F 'tcp:18443 tcp:18443'
 ./gradlew :app:connectedDebugAndroidTest \
   -Pandroid.testInstrumentationRunnerArguments.class=com.example.gptasistan.OmegaHttpsEmulatorTest \
+  -Pandroid.testInstrumentationRunnerArguments.omega_tls_test=true \
   --no-daemon
 python3 - <<'PY'
 from pathlib import Path

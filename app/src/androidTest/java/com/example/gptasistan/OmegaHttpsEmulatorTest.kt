@@ -10,6 +10,7 @@ import javax.net.ssl.HttpsURLConnection
 import javax.net.ssl.SSLContext
 import javax.net.ssl.TrustManagerFactory
 import org.junit.Assert.*
+import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -37,6 +38,8 @@ class OmegaHttpsEmulatorTest {
     }
 
     @Test fun emulatorToOmegaRealTlsIsReadOnly() {
+        assumeTrue("Only the dedicated CI TLS runner enables this test",
+            InstrumentationRegistry.getArguments().getString("omega_tls_test") == "true")
         val observed = OmegaReadOnlyStatus.fetchUsingConnection(origin, ::testCertOnly)
         assertFalse(observed.ownerAccepted)
         assertFalse(observed.executionApproved)
@@ -44,6 +47,8 @@ class OmegaHttpsEmulatorTest {
     }
 
     @Test fun releaseDefaultTrustMustRejectEphemeralCertificate() {
+        assumeTrue("Only the dedicated CI TLS runner enables this test",
+            InstrumentationRegistry.getArguments().getString("omega_tls_test") == "true")
         var denied = false
         try {
             OmegaReadOnlyStatus.fetch(origin)
