@@ -64,6 +64,10 @@ object OwnerGateway {
         request(base, OmegaEnvelope.SOURCES, owner,
             JSONObject().put("action", "inspect").put("source_id", sourceId))
 
+    /** Same dual-P256 gate; metadata-only list, never scans an arbitrary root. */
+    internal fun signedSourceListRequest(base: String, owner: String): JSONObject =
+        request(base, OmegaEnvelope.SOURCES, owner, JSONObject().put("action", "list"))
+
     internal fun parseReply(result: JSONObject, selected: Model): String {
         require(result.getString("contract") == OmegaEnvelope.CONTRACT)
         require(result.getString("model") == selected.id && result.getString("provider") == selected.provider)
