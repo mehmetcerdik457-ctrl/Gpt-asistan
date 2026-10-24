@@ -24,6 +24,7 @@ from pathlib import Path
 from . import owner_auth_v1 as auth
 from .secure_sqlite import secure_sqlite_file
 from .source_owner_tool import inspect_source, SourceInspectionDenied
+from .source_owner_list import list_sources
 
 CONTRACT = "OMEGA-OWNER-API-V1"
 PREFIX = "/api/v1/owner/"
@@ -330,6 +331,11 @@ class Gateway:
                 "latency_ms": elapsed, "conversation_id": str(chat_id)}
 
     def inspect_owner_source(self, data):
+        if set(data) == {"action"} and data.get("action") == "list":
+            try:
+                return list_sources(os.getenv("KRAL_SOURCE_ROOT", ""))
+            except SourceInspectionDenied as exc:
+                raise Denied(str(exc), 403) from None
         if set(data) != {"action", "source_id"} or data.get("action") != "inspect":
             raise Denied("SOURCE_FIELDS_DENIED", 400)
         try:
