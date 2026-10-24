@@ -20,7 +20,7 @@ class ApkUnsafe(Exception):
     """A static inspection safety boundary rejected the input."""
 
 
-def inspect_apk(path, *, expected_sha256,
+def inspect_apk(path, *, expected_sha256, source_fd=None,
                 max_entries=10000, max_total_uncompressed=512 * 1024 * 1024,
                 max_single_uncompressed=256 * 1024 * 1024):
     """Inspect an already hashed file through a no-follow, read-only fd.
@@ -34,23 +34,33 @@ def inspect_apk(path, *, expected_sha256,
         raise ValueError("Expected SHA-256 required")
     if min(max_entries, max_total_uncompressed, max_single_uncompressed) <= 0:
         raise ValueError("Inspection limits must be positive")
-    if not hasattr(os, "O_NOFOLLOW"):
+    if source_fd is None and not hasattr(os, "O_NOFOLLOW"):
         return {"status": "BLOCKED", "reason": "NO_NOFOLLOW"}
-    path = Path(path)
-    if path.is_symlink():
-        return {"status": "BLOCKED", "reason": "SOURCE_SYMLINK"}
     try:
-        before = path.lstat()
-        if not stat.S_ISREG(before.st_mode):
-            return {"status": "BLOCKED", "reason": "NOT_REGULAR"}
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW |
-                     getattr(os, "O_CLOEXEC", 0))
+        if source_fd is None:
+            path = Path(path)
+            if path.is_symlink():
+                return {"status": "BLOCKED", "reason": "SOURCE_SYMLINK"}
+            before = path.lstat()
+            if not stat.S_ISREG(before.st_mode):
+                return {"status": "BLOCKED", "reason": "NOT_REGULAR"}
+            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW |
+                         getattr(os, "O_CLOEXEC", 0))
+        else:
+            # Borrow the caller's *already anchored* file. dup() preserves its
+            # inode even if an attacker swaps intermediate directory names.
+            fd = os.dup(source_fd)
+            before = os.fstat(fd)
+            if not stat.S_ISREG(before.st_mode):
+                os.close(fd)
+                return {"status": "BLOCKED", "reason": "NOT_REGULAR"}
         with os.fdopen(fd, "rb") as stream:
             start = os.fstat(stream.fileno())
             if not stat.S_ISREG(start.st_mode) or (
                 before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns
             ) != (start.st_dev, start.st_ino, start.st_size, start.st_mtime_ns):
                 raise ApkUnsafe("SOURCE_CHANGED")
+            stream.seek(0)
             digest = hashlib.sha256()
             while True:
                 chunk = stream.read(1024 * 1024)
