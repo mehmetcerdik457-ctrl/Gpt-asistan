@@ -2,7 +2,7 @@ name: KRAL Branch Task Queue - Fixed CI
 on:
   push:
     branches:
-      - integration/cihat-github-task-bridge-20261021
+      - integration/genesis8-copilot-20261024
     paths:
       - server/task_ticket.json
       - .github/workflows/kral-branch-pilot.yml
@@ -18,7 +18,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
+      # Source checkout must never retain a token while running tests.
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'

@@ -16,7 +16,8 @@ from pathlib import Path
 
 from server import github_issue_bridge as bridge
 
-PILOT_BRANCH = "refs/heads/integration/cihat-github-task-bridge-20261021"
+PILOT_BRANCH = "refs/heads/integration/genesis8-copilot-20261024"
+TASK_TITLE_PREFIX = "[GENESIS8]"
 TICKET_PATH = Path(__file__).with_name("task_ticket.json")
 TICKET_LIMIT = 2048
 ISSUE_LIMIT = 65536
@@ -88,7 +89,7 @@ def run():
     token = os.environ.get("GITHUB_TOKEN", "")
     issue = read_current_issue(token, ticket_number)
     event = {"action": "opened", "repository": {"full_name": bridge.REPOSITORY}, "issue": issue}
-    checked_number, _ = bridge.validate_check_event(event)
+    checked_number, _ = bridge.validate_check_event(event, title_prefix=TASK_TITLE_PREFIX)
     if checked_number != ticket_number:
         raise bridge.TaskRejected("TASK_ISSUE_MISMATCH")
     if bridge.already_answered(ticket_number, token, bridge.CHECK_MARKER):
