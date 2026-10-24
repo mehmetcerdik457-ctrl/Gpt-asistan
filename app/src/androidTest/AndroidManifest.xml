@@ -1,11 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application>
-        <!-- Test-APK-only synthetic provider. The production APK never registers it. -->
+        <!-- Test APK only. Exported for target-app (different UID) tests;
+             FixtureSourceProvider enforces the exact preview caller UID. -->
         <provider
             android:name="com.example.gptasistan.FixtureSourceProvider"
             android:authorities="com.example.gptasistan.testfixture"
-            android:exported="false"
+            android:exported="true"
             android:grantUriPermissions="false" />
     </application>
 </manifest>
