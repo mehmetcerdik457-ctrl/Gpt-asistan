@@ -29,8 +29,14 @@ def _open_beneath(root_path: Path, components: list[str]):
         parent = os.open(root_path, folder_flags)
         handles.append(parent)
         for component in components[:-1]:
+            # lstat-like preflight is only for a stable error code; the
+            # O_NOFOLLOW+dirfd open below remains the security boundary.
+            if stat.S_ISLNK(os.stat(component, dir_fd=parent, follow_symlinks=False).st_mode):
+                raise SourceInspectionDenied("SOURCE_LINK_DENIED")
             parent = os.open(component, folder_flags, dir_fd=parent)
             handles.append(parent)
+        if stat.S_ISLNK(os.stat(components[-1], dir_fd=parent, follow_symlinks=False).st_mode):
+            raise SourceInspectionDenied("SOURCE_LINK_DENIED")
         # O_NONBLOCK avoids blocking on a substituted FIFO.
         file_fd = os.open(components[-1],
                           common_flags | getattr(os, "O_NONBLOCK", 0),
