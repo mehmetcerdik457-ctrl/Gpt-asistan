@@ -56,7 +56,7 @@ object OwnerSourceInspection {
         val format: String,
         val sizeBytes: Long,
     ) {
-        fun label(): String = "$"+"{sourceId} — $"+ "{format} ($"+"{sizeBytes} bayt)"
+        fun label(): String = "${sourceId} — ${format} (${sizeBytes} bayt)"
     }
 
     /** Every listing request is an explicit, user-authenticated Owner action. */
