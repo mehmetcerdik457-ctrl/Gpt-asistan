@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "max_specialists": 3,
+  "max_parallel": 2,
+  "timeout_seconds": 60,
+  "max_output_tokens": 1200,
+  "max_input_chars": 12000,
+  "max_answer_chars": 8000,
+  "coordinators": ["local-coordinator", "local-reviewer"],
+  "models": [
+    {
+      "id": "local-coordinator",
+      "model": "REPLACE_WITH_INSTALLED_MODEL_ID",
+      "base_url": "http://127.0.0.1:11434/v1",
+      "role": "Planlama, mantık ve sonuçları birleştirme",
+      "tasks": ["general", "code", "research", "writing"]
+    },
+    {
+      "id": "local-reviewer",
+      "model": "REPLACE_WITH_SECOND_INSTALLED_MODEL_ID",
+      "base_url": "http://127.0.0.1:11434/v1",
+      "role": "Eleştirel inceleme, yanlış varsayımları ve eksikleri bulma",
+      "tasks": ["general", "code", "research", "writing"]
+    }
+  ]
+}
