@@ -1,7 +1,7 @@
 ---
 name: Security Auditor
 description: Adversarial read-only reviewer for Android, Kotlin, CI, dependency, secret, permission, authentication, storage, networking, WebView, and release-security defects.
-tools: ["read", "search", "agent", "github/get_file_contents", "github/search_code", "github/pull_request_read"]
+tools: ["read", "search", "github/get_file_contents", "github/search_code", "github/pull_request_read"]
 user-invocable: true
 disable-model-invocation: false
 ---
