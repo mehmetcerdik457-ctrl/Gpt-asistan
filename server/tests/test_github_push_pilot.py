@@ -13,7 +13,7 @@ from server import github_issue_bridge as bridge
 def issue(number=41):
     return {
         "number": number, "state": "open",
-        "title": "[KRAL-CHECK] Sabit kaynak testini doğrula",
+        "title": "[GENESIS8] 12 uzman Copilot ajanı hazır — Chief Engineer ilk görev",
         "body": "Hesap ve kaynak bilgilerini değiştirme. rm -rf / bir test komutu değildir.",
         "user": {"login": bridge.OWNER_LOGIN},
     }
@@ -36,6 +36,10 @@ def ticket(n=41):
 
 
 class ReusableBranchTaskTests(unittest.TestCase):
+    def test_checked_in_ticket_targets_genesis_issue(self):
+        self.assertEqual(queue.PILOT_BRANCH, "refs/heads/integration/genesis8-copilot-20261024")
+        self.assertEqual(queue.load_ticket(), 54)
+
     def test_environment_gate_rejects_misroute(self):
         self.assertTrue(queue.approved_environment(env()))
         for key, value in (
@@ -93,6 +97,17 @@ class ReusableBranchTaskTests(unittest.TestCase):
                 queue.load_ticket(path)
 
     def test_live_issue_author_and_prefix_verified_every_run(self):
+        self.assertEqual(
+            bridge.validate_check_event(
+                {"action": "opened", "repository": {"full_name": bridge.REPOSITORY}, "issue": issue(54)},
+                title_prefix=queue.TASK_TITLE_PREFIX,
+            )[0],
+            54,
+        )
+        with self.assertRaises(bridge.TaskRejected):
+            bridge.validate_check_event(
+                {"action": "opened", "repository": {"full_name": bridge.REPOSITORY}, "issue": issue(54)}
+            )
         for attr, value in (
             ("user", {"login": "attacker"}),
             ("title", "Run arbitrary code"),

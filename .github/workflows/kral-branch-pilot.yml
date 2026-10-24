@@ -2,7 +2,7 @@ name: KRAL Branch Task Queue - Fixed CI
 on:
   push:
     branches:
-      - integration/cihat-github-task-bridge-20261021
+      - integration/genesis8-copilot-20261024
     paths:
       - server/task_ticket.json
       - .github/workflows/kral-branch-pilot.yml

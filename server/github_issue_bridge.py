@@ -64,12 +64,12 @@ def validate_event(event: dict) -> tuple[int, str]:
     return number, task
 
 
-def validate_check_event(event: dict) -> tuple[int, str]:
+def validate_check_event(event: dict, title_prefix: str = CHECK_PREFIX) -> tuple[int, str]:
     """Owner-created prefixed issues only; fixed tests, no model."""
     if not isinstance(event, dict) or event.get("action") not in ("opened", "edited"):
         raise TaskRejected("CHECK_EVENT_DENIED")
     issue, number, task = _owner_issue(event)
-    if not issue["title"].startswith(CHECK_PREFIX + " "):
+    if not issue["title"].startswith(title_prefix + " "):
         raise TaskRejected("CHECK_PREFIX_REQUIRED")
     return number, task
 
