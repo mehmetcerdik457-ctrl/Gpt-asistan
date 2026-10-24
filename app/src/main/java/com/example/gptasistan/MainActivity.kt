@@ -559,10 +559,8 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 }
                 val labels = listing.entries.map { it.label() }.toTypedArray()
                 AlertDialog.Builder(this)
-                    .setTitle("İzinli dosyalar (yalnızca aday)")
-                    .setMessage(if (listing.truncated)
-                        "Liste sınırlı; tüm kaynakları göstermeyebilir. Bir dosya seçilirse yeniden Owner doğrulaması istenir." else
-                        "Bunlar henüz test edilmiş yetenekler değildir. İncelemek istediğin dosyayı seç.")
+                    .setTitle(if (listing.truncated) "İzinli dosyalar (eksik liste)" else
+                        "İzinli dosyalar (test edilmemiş)")
                     .setItems(labels) { _, index ->
                         val sourceId = listing.entries[index].sourceId
                         unlock {
