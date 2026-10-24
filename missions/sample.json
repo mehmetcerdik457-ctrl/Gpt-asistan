@@ -1,0 +1,54 @@
+{
+  "schema": 1,
+  "owner": "mehmetcerdik457-ctrl",
+  "worker_slots": 50,
+  "max_parallel": 4,
+  "tasks": [
+    {
+      "id": "T001",
+      "repo": "mehmetcerdik457-ctrl/Gpt-asistan",
+      "role": "chief-engineer",
+      "title": "Review current KRAL task bridge",
+      "description": "Read-only inventory of task bridge; report source SHA and observed behavior.",
+      "depends_on": [],
+      "paths": [
+        "server/github_issue_bridge.py"
+      ]
+    },
+    {
+      "id": "T002",
+      "repo": "mehmetcerdik457-ctrl/benim-uygulamam",
+      "role": "code-reviewer",
+      "title": "Review PROJECT OMEGA issue boundaries",
+      "description": "Read-only audit; no source mutations or claims without CI logs.",
+      "depends_on": [],
+      "paths": [
+        ".github/workflows/"
+      ]
+    },
+    {
+      "id": "T003",
+      "repo": "mehmetcerdik457-ctrl/Gpt-asistan",
+      "role": "test-engineer",
+      "title": "Test previous bridge inventory",
+      "description": "Requires owner-approved review of T001 and verifiable output before dispatch.",
+      "depends_on": [
+        "T001"
+      ],
+      "paths": [
+        "server/tests/"
+      ]
+    },
+    {
+      "id": "T004",
+      "repo": "mehmetcerdik457-ctrl/doktor",
+      "role": "security-auditor",
+      "title": "Classify the doctor template safely",
+      "description": "Read-only: determine whether this is a template or working specialist agent.",
+      "depends_on": [],
+      "paths": [
+        "README.md"
+      ]
+    }
+  ]
+}
