@@ -15,3 +15,11 @@ The example is four **realistic scopes**, not proof that their goals have been e
 ## Owner-approved real issue dispatch (not yet activated)
 The default `python -m server.mission_dispatch missions/sample.json --task T001 --branch integration/your-approved-existing-branch` is strictly a dry run.
 A real issue would require *explicit* `--execute --owner-approved --public-issue-approved`, a user-to-server `KRAL_COPILOT_USER_TOKEN` from an authorized private environment, a previously existing allowlisted non-main base branch, no prerequisites, no duplicate issue and no credential-like text. Never paste a token into a chat, issue, PR or source code. GitHub App installation / Actions tokens cannot be assumed to support Copilot assignment. One dispatch creates at most one Copilot-assigned issue, not 50 agents; verify acceptance by GitHub session events. Pilot is disabled until approved capability is genuinely available. This is not a permission bypass.
+
+
+## Local open-weight model execution
+Install and start a trusted Ollama runtime on your own computer; ensure sufficient RAM/storage. For small machines use qwen3:1.7b (Ollama catalog). For stronger machines change the model IDs to gpt-oss:20b after verifying memory requirements and downloading the model weights. Never assume weights are already installed.
+
+Command: `python -m server.local_open_workers missions/sample.json --provider missions/local_provider.example.json --run-local`
+
+Without `--run-local` this outputs a dry-run plan. With it, the code calls `/v1/models` and actual Chat Completions on a LOCALHOST endpoint only; each task has separate worker identity/context and separately prompted supervisor review. Only the first dependency-free wave runs, maximum 4 at once. No GitHub writes, no secrets, no paid cloud, no shell, no automatic progression past approval. Successful inference is NOT a completed coding task, nor 50 separate models. For reproducible offline protocol tests, CI runs an HTTP fixture. GitHub Actions does not install model weights or prove live inference with gpt-oss.

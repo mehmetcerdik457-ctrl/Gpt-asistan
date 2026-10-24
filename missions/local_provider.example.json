@@ -1,0 +1,8 @@
+{
+  "schema": 1,
+  "endpoint": "http://127.0.0.1:11434/v1",
+  "model": "qwen3:1.7b",
+  "supervisor_model": "qwen3:1.7b",
+  "timeout_seconds": 45,
+  "max_output_tokens": 600
+}
