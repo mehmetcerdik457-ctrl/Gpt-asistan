@@ -1,0 +1,82 @@
+name: KRAL OMEGA pinned HTTP Kotlin contract
+on:
+  push:
+    paths:
+      - 'app/src/main/java/com/example/gptasistan/OmegaReadOnlyStatus.kt'
+      - 'app/src/test/java/com/example/gptasistan/OmegaRealHttpContractTest.kt'
+      - 'scripts/omega_cross_repo_http_contract.py'
+      - '.github/workflows/omega-cross-repo-wire.yml'
+  pull_request:
+    paths:
+      - 'app/src/main/java/com/example/gptasistan/OmegaReadOnlyStatus.kt'
+      - 'app/src/test/java/com/example/gptasistan/OmegaRealHttpContractTest.kt'
+      - 'scripts/omega_cross_repo_http_contract.py'
+      - '.github/workflows/omega-cross-repo-wire.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  real-http-android-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify exact KRAL source SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+      - uses: actions/checkout@v4
+        with:
+          repository: mehmetcerdik457-ctrl/benim-uygulamam
+          ref: 46894ad9d87ad7c75c3c51e003b1931e890199c4
+          path: omega-pinned
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install backend crypto dependency only
+        run: python -m pip install -r omega-pinned/requirements.txt
+      - name: Request real localhost OMEGA health and deny provider routes
+        run: |
+          python scripts/omega_cross_repo_http_contract.py \
+            --omega-dir omega-pinned --out-dir app/build/omega-real-http
+          test -s app/build/omega-real-http/health.json
+          test -s app/build/omega-real-http/evidence.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Kotlin parses exact HTTP response received from OMEGA code
+        env:
+          KRAL_OMEGA_REAL_HTTP_DIR: ${{ github.workspace }}/app/build/omega-real-http
+        run: |
+          ./gradlew :app:testDebugUnitTest \
+            --tests com.example.gptasistan.OmegaRealHttpContractTest --no-daemon
+      - name: Refuse skipped cross-repo Kotlin contract tests
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          file=Path("app/build/test-results/testDebugUnitTest/TEST-com.example.gptasistan.OmegaRealHttpContractTest.xml")
+          root=ET.parse(file).getroot()
+          assert int(root.attrib.get("tests","0"))==1
+          assert int(root.attrib.get("skipped","0"))==0
+          assert int(root.attrib.get("failures","0"))==0
+          assert int(root.attrib.get("errors","0"))==0
+          print("KRAL_OMEGA_REAL_HTTP_KOTLIN=PASS")
+          PY
+      - name: Store safe contract evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kral-omega-pinned-real-http-evidence
+          path: |
+            app/build/omega-real-http/health.json
+            app/build/omega-real-http/evidence.json
+            app/build/test-results/testDebugUnitTest/TEST-com.example.gptasistan.OmegaRealHttpContractTest.xml
+          if-no-files-found: warn

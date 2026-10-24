@@ -118,12 +118,22 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         modelButton = button("Model") { configureModel() }
         root.addView(actions)
         root.addView(Button(this).apply {
+            text = "Owner cihaz ön kontrolü (salt okunur)"
+            setAllCaps(false)
+            setOnClickListener { showOwnerDevicePreflight() }
+        })
+        root.addView(Button(this).apply {
             text = "Sunucuya kayıt bilgisi"
             setOnClickListener { unlock { showRegistration() } }
         })
         root.addView(Button(this).apply {
             text = "Owner / Bridge durumu (salt okunur)"
             setOnClickListener { showLocal { OwnerStatus.readOnlyReport(this@MainActivity) } }
+        })
+        root.addView(Button(this).apply {
+            text = "OMEGA durumunu kontrol et (salt okunur)"
+            setAllCaps(false)
+            setOnClickListener { showOmegaReadOnlyStatus() }
         })
         root.addView(Button(this).apply {
             text = "CİHAT kurulumunu doğrula (salt okunur)"
@@ -391,6 +401,54 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             session.markSpoken(reply.first)
     }
 
+    private fun showOmegaReadOnlyStatus() {
+        val endpoint = EditText(this).apply {
+            hint = "https://omega-sunucusu.example"
+            isSingleLine = true
+        }
+        AlertDialog.Builder(this)
+            .setTitle("OMEGA — salt okunur bağlantı testi")
+            .setMessage("Yalnız senin girdiğin HTTPS adresine /api/health isteği yapılır. " +
+                "Sahip imzası, anahtar, hafıza veya mesaj gönderilmez. " +
+                "Bu kontrol Owner yetkisi vermez.")
+            .setView(endpoint)
+            .setPositiveButton("Durumu kontrol et") { _, _ ->
+                val address = endpoint.text.toString().trim()
+                if (!OmegaReadOnlyStatus.validBase(address)) {
+                    connectionStatus.text = "OMEGA için HTTPS kök adresi gerekli."
+                } else {
+                    connectionStatus.text = "OMEGA salt okunur bağlantı kontrolü yapılıyor…"
+                    thread {
+                        val report = try {
+                            OmegaReadOnlyStatus.fetch(address).message
+                        } catch (_: Exception) {
+                            "OMEGA güvenli durum yanıtı doğrulanamadı; Owner veya model " +
+                                "yürütmesine izin verilmedi."
+                        }
+                        runOnUiThread {
+                            if (!isFinishing && !isDestroyed && appUnlocked) {
+                                AlertDialog.Builder(this)
+                                    .setTitle("OMEGA bağlantı durumu")
+                                    .setMessage(report)
+                                    .setPositiveButton("Tamam", null)
+                                    .show()
+                            }
+                        }
+                    }
+                }
+            }
+            .setNegativeButton("Vazgeç", null)
+            .show()
+    }
+
+    private fun showOwnerDevicePreflight() {
+        if (!appUnlocked || !uiReady || isFinishing || isDestroyed) return
+        AlertDialog.Builder(this)
+            .setTitle("Owner cihaz hazırlığı — salt okunur")
+            .setMessage(OwnerDevicePreflight.readOnlyReport(this))
+            .setPositiveButton("Tamam", null).show()
+    }
+
     private fun showRegistration() {
         val owner = EditText(this).apply {
             hint = "Sunucuda tanımlanacak sahip kimliği"
@@ -400,12 +458,28 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         AlertDialog.Builder(this).setTitle("Sunucu kaydı").setView(owner)
             .setMessage("Bu açık anahtar bilgilerini yalnız yönettiğin sunucuda kaydet. Burada kimlik yazmak sunucu yetkisi vermez.")
             .setPositiveButton("Açık bilgileri göster") { _, _ ->
-                try {
-                    val registration = OwnerIdentity.publicRegistration(owner.text.toString().trim())
-                    val text = TextView(this).apply { this.text = registration; setTextIsSelectable(true); setPadding(24, 24, 24, 24) }
-                    AlertDialog.Builder(this).setTitle("Yalnız açık kayıt bilgileri").setView(ScrollView(this).apply { addView(text) })
-                        .setPositiveButton("Tamam", null).show()
-                } catch (_: Exception) { connectionStatus.text = "Kayıt anahtarları oluşturulamadı; ekran kilidini ve sahip kimliğini kontrol et." }
+                val reveal = {
+                    try {
+                        val registration = OwnerIdentity.publicRegistration(owner.text.toString().trim())
+                        val text = TextView(this).apply {
+                            this.text = registration
+                            setTextIsSelectable(true)
+                            setPadding(24, 24, 24, 24)
+                        }
+                        AlertDialog.Builder(this).setTitle("Yalnız açık kayıt bilgileri")
+                            .setView(ScrollView(this).apply { addView(text) })
+                            .setPositiveButton("Tamam", null).show()
+                    } catch (_: Exception) {
+                        connectionStatus.text = "Kayıt anahtarları okunamadı veya oluşturulamadı; cihaz kilidini kontrol et."
+                    }
+                }
+                if (packageName.endsWith(".genesis.cihatpreview")) {
+                    AlertDialog.Builder(this)
+                        .setTitle("Önizleme: gerçek Owner kaydı için uygun değil")
+                        .setMessage("Bu APK debug imzalıdır. Burada kalıcı Owner anahtarları üretmek, sonraki farklı imzalı APK'ya güvenli geçiş sağlamaz. Bu işlem sunucu yetkisi de vermez. Yalnız deneme anahtarı oluşturmak veya mevcut açık anahtarları görmek istiyor musun?")
+                        .setPositiveButton("Deneme bilgilerini göster") { _, _ -> reveal() }
+                        .setNegativeButton("Vazgeç", null).show()
+                } else reveal()
             }.setNegativeButton("Vazgeç", null).show()
     }
 
