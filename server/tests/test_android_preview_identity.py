@@ -52,6 +52,18 @@ class AndroidPreviewNamespaceTests(unittest.TestCase):
         self.assertIn("metadata['package'] == '" + PREVIEW_PACKAGE + "'", smoke)
         self.assertNotIn("package=com.example.gptasistan.genesis\n", smoke)
 
+    def test_pull_request_build_and_emulator_use_exact_head(self):
+        workflow = (ROOT / ".github/workflows/android.yml").read_text()
+        smoke = (ROOT / "scripts/android_emulator_smoke.sh").read_text()
+        expression = "github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha"
+        self.assertGreaterEqual(workflow.count(expression), 3)
+        self.assertEqual(workflow.count("persist-credentials: false"), 2)
+        self.assertEqual(workflow.count("Fail closed unless checkout matches the exact source HEAD"), 2)
+        self.assertIn('test "$actual" = "$EXPECTED_SOURCE_SHA"', workflow)
+        self.assertIn("metadata['source_commit'] == os.environ['EXPECTED_SOURCE_SHA']", smoke)
+        self.assertIn("'source_commit': os.environ['EXPECTED_SOURCE_SHA']", smoke)
+        self.assertNotIn("metadata['source_commit'] == os.environ['GITHUB_SHA']", smoke)
+
     def test_launcher_is_visibly_marked_preview(self):
         strings = (ROOT / "app/src/debug/res/values/strings.xml").read_text()
         self.assertIn("KRAL CİHAT Önizleme", strings)
