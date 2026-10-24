@@ -131,6 +131,11 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             setOnClickListener { showLocal { OwnerStatus.readOnlyReport(this@MainActivity) } }
         })
         root.addView(Button(this).apply {
+            text = "Doğrulanmış Owner Companion'ı aç (izinli)"
+            setAllCaps(false)
+            setOnClickListener { openVerifiedOwnerCompanion() }
+        })
+        root.addView(Button(this).apply {
             text = "OMEGA durumunu kontrol et (salt okunur)"
             setAllCaps(false)
             setOnClickListener { showOmegaReadOnlyStatus() }
@@ -210,6 +215,57 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             if (appUnlocked) speakLatestReply()
         }
         tts = TextToSpeech(this, this)
+    }
+
+    /**
+     * Owner Companion is an already signed, separately installed application.
+     * This is only explicit user-approved launching, never Bridge/Accessibility
+     * control, APK install, Cihat data access or Owner server authorization.
+     */
+    private fun openVerifiedOwnerCompanion() {
+        if (!appUnlocked || !uiReady || isFinishing || isDestroyed ||
+            session.state.value?.busy == true
+        ) return
+
+        val owner = OwnerStatus.inspect(this, OwnerStatus.OWNER)
+        if (!OwnerStatus.canOfferOwnerLaunch(owner)) {
+            AlertDialog.Builder(this)
+                .setTitle("Owner Companion doğrulanamadı")
+                .setMessage(owner.report() + "\n\nUygulama başlatılmadı. Eski APK'ları silme veya üzerine farklı imzalı APK kurma.")
+                .setPositiveButton("Tamam", null).show()
+            return
+        }
+        val launch = try {
+            packageManager.getLaunchIntentForPackage(OwnerStatus.OWNER_PACKAGE)
+        } catch (_: RuntimeException) { null }
+        if (launch == null) {
+            connectionStatus.text = "Owner Companion açılış bileşeni bulunamadı."
+            return
+        }
+        val bridge = OwnerStatus.inspect(this, OwnerStatus.BRIDGE)
+        val bridgeNote = if (bridge.matches)
+            "Bridge 1.2.1 kurulum kimliği de eşleşiyor."
+        else "Bridge 1.2.1 ayrıca doğrulanmadı; kurulum veya izin değiştirmeyeceğim."
+
+        AlertDialog.Builder(this)
+            .setTitle("Mevcut Owner Companion 1.5.4")
+            .setMessage(
+                "Bu telefondaki mevcut Owner APK'sının sürüm ve imzası eşleşiyor. " +
+                bridgeNote + "\n\nYalnız Owner uygulaması açılacak. " +
+                "KRAL herhangi bir erişilebilirlik iznini açmaz, CİHAT'a mesaj göndermez, " +
+                "gizli anahtar paylaşmaz veya işlem yetkisi kazanmaz.\n\nDevam edilsin mi?"
+            )
+            .setPositiveButton("Yalnız Owner'ı aç") { _, _ ->
+                if (appUnlocked && !isFinishing && !isDestroyed &&
+                    OwnerStatus.canOfferOwnerLaunch(
+                        OwnerStatus.inspect(this, OwnerStatus.OWNER))
+                ) {
+                    try { startActivity(launch) }
+                    catch (_: RuntimeException) {
+                        connectionStatus.text = "Owner Companion başlatılamadı; kurulumu kontrol et."
+                    }
+                }
+            }.setNegativeButton("Vazgeç", null).show()
     }
 
     /** Explicit user-initiated, read-only phone package inspection. */

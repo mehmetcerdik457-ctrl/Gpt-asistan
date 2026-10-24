@@ -44,6 +44,12 @@ object OwnerStatus {
         return Verdict.MATCH
     }
 
+    /** Only the exact known signed Owner *launcher* can be offered for user handoff. */
+    fun canOfferOwnerLaunch(finding: Finding): Boolean =
+        finding.ref.pkg == OWNER_PACKAGE && finding.ref.launcher &&
+            finding.ref.version == OWNER.version && finding.ref.code == OWNER.code &&
+            finding.matches
+
     @Suppress("DEPRECATION")
     fun inspect(context: Context, ref: Reference): Finding = try {
         val pm = context.packageManager

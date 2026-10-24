@@ -27,4 +27,23 @@ class OwnerStatusTest {
         val result = OwnerStatus.Finding(OwnerStatus.OWNER, OwnerStatus.Verdict.MATCH).report()
         assertFalse(result.contains("Owner yetkisi verildi"))
     }
+
+    @Test fun explicitOwnerLaunchMustFailClosedWhenOldOrWrongSigner() {
+        for (wrong in listOf(
+            OwnerStatus.Verdict.WRONG_VERSION,
+            OwnerStatus.Verdict.WRONG_SIGNER,
+            OwnerStatus.Verdict.AMBIGUOUS_SIGNER,
+            OwnerStatus.Verdict.NO_LAUNCHER,
+            OwnerStatus.Verdict.MISSING,
+            OwnerStatus.Verdict.UNKNOWN
+        )) {
+            assertFalse(OwnerStatus.canOfferOwnerLaunch(
+                OwnerStatus.Finding(OwnerStatus.OWNER, wrong)))
+        }
+        assertTrue(OwnerStatus.canOfferOwnerLaunch(
+            OwnerStatus.Finding(OwnerStatus.OWNER, OwnerStatus.Verdict.MATCH)))
+        // Even a valid Bridge identity must never be a launch ticket for Owner.
+        assertFalse(OwnerStatus.canOfferOwnerLaunch(
+            OwnerStatus.Finding(OwnerStatus.BRIDGE, OwnerStatus.Verdict.MATCH)))
+    }
 }
