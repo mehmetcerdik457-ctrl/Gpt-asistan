@@ -7,6 +7,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify Python test checkout is exact PR HEAD
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          echo "KRAL_PYTHON_EXACT_HEAD=PASS"
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'

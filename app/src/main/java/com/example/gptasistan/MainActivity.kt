@@ -118,12 +118,27 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         modelButton = button("Model") { configureModel() }
         root.addView(actions)
         root.addView(Button(this).apply {
+            text = "Owner cihaz ön kontrolü (salt okunur)"
+            setAllCaps(false)
+            setOnClickListener { showOwnerDevicePreflight() }
+        })
+        root.addView(Button(this).apply {
             text = "Sunucuya kayıt bilgisi"
             setOnClickListener { unlock { showRegistration() } }
         })
         root.addView(Button(this).apply {
             text = "Owner / Bridge durumu (salt okunur)"
             setOnClickListener { showLocal { OwnerStatus.readOnlyReport(this@MainActivity) } }
+        })
+        root.addView(Button(this).apply {
+            text = "Doğrulanmış Owner Companion'ı aç (izinli)"
+            setAllCaps(false)
+            setOnClickListener { openVerifiedOwnerCompanion() }
+        })
+        root.addView(Button(this).apply {
+            text = "OMEGA durumunu kontrol et (salt okunur)"
+            setAllCaps(false)
+            setOnClickListener { showOmegaReadOnlyStatus() }
         })
         root.addView(Button(this).apply {
             text = "CİHAT kurulumunu doğrula (salt okunur)"
@@ -200,6 +215,57 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             if (appUnlocked) speakLatestReply()
         }
         tts = TextToSpeech(this, this)
+    }
+
+    /**
+     * Owner Companion is an already signed, separately installed application.
+     * This is only explicit user-approved launching, never Bridge/Accessibility
+     * control, APK install, Cihat data access or Owner server authorization.
+     */
+    private fun openVerifiedOwnerCompanion() {
+        if (!appUnlocked || !uiReady || isFinishing || isDestroyed ||
+            session.state.value?.busy == true
+        ) return
+
+        val owner = OwnerStatus.inspect(this, OwnerStatus.OWNER)
+        if (!OwnerStatus.canOfferOwnerLaunch(owner)) {
+            AlertDialog.Builder(this)
+                .setTitle("Owner Companion doğrulanamadı")
+                .setMessage(owner.report() + "\n\nUygulama başlatılmadı. Eski APK'ları silme veya üzerine farklı imzalı APK kurma.")
+                .setPositiveButton("Tamam", null).show()
+            return
+        }
+        val launch = try {
+            packageManager.getLaunchIntentForPackage(OwnerStatus.OWNER_PACKAGE)
+        } catch (_: RuntimeException) { null }
+        if (launch == null) {
+            connectionStatus.text = "Owner Companion açılış bileşeni bulunamadı."
+            return
+        }
+        val bridge = OwnerStatus.inspect(this, OwnerStatus.BRIDGE)
+        val bridgeNote = if (bridge.matches)
+            "Bridge 1.2.1 kurulum kimliği de eşleşiyor."
+        else "Bridge 1.2.1 ayrıca doğrulanmadı; kurulum veya izin değiştirmeyeceğim."
+
+        AlertDialog.Builder(this)
+            .setTitle("Mevcut Owner Companion 1.5.4")
+            .setMessage(
+                "Bu telefondaki mevcut Owner APK'sının sürüm ve imzası eşleşiyor. " +
+                bridgeNote + "\n\nYalnız Owner uygulaması açılacak. " +
+                "KRAL herhangi bir erişilebilirlik iznini açmaz, CİHAT'a mesaj göndermez, " +
+                "gizli anahtar paylaşmaz veya işlem yetkisi kazanmaz.\n\nDevam edilsin mi?"
+            )
+            .setPositiveButton("Yalnız Owner'ı aç") { _, _ ->
+                if (appUnlocked && !isFinishing && !isDestroyed &&
+                    OwnerStatus.canOfferOwnerLaunch(
+                        OwnerStatus.inspect(this, OwnerStatus.OWNER))
+                ) {
+                    try { startActivity(launch) }
+                    catch (_: RuntimeException) {
+                        connectionStatus.text = "Owner Companion başlatılamadı; kurulumu kontrol et."
+                    }
+                }
+            }.setNegativeButton("Vazgeç", null).show()
     }
 
     /** Explicit user-initiated, read-only phone package inspection. */
@@ -391,6 +457,54 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             session.markSpoken(reply.first)
     }
 
+    private fun showOmegaReadOnlyStatus() {
+        val endpoint = EditText(this).apply {
+            hint = "https://omega-sunucusu.example"
+            isSingleLine = true
+        }
+        AlertDialog.Builder(this)
+            .setTitle("OMEGA — salt okunur bağlantı testi")
+            .setMessage("Yalnız senin girdiğin HTTPS adresine /api/health isteği yapılır. " +
+                "Sahip imzası, anahtar, hafıza veya mesaj gönderilmez. " +
+                "Bu kontrol Owner yetkisi vermez.")
+            .setView(endpoint)
+            .setPositiveButton("Durumu kontrol et") { _, _ ->
+                val address = endpoint.text.toString().trim()
+                if (!OmegaReadOnlyStatus.validBase(address)) {
+                    connectionStatus.text = "OMEGA için HTTPS kök adresi gerekli."
+                } else {
+                    connectionStatus.text = "OMEGA salt okunur bağlantı kontrolü yapılıyor…"
+                    thread {
+                        val report = try {
+                            OmegaReadOnlyStatus.fetch(address).message
+                        } catch (_: Exception) {
+                            "OMEGA güvenli durum yanıtı doğrulanamadı; Owner veya model " +
+                                "yürütmesine izin verilmedi."
+                        }
+                        runOnUiThread {
+                            if (!isFinishing && !isDestroyed && appUnlocked) {
+                                AlertDialog.Builder(this)
+                                    .setTitle("OMEGA bağlantı durumu")
+                                    .setMessage(report)
+                                    .setPositiveButton("Tamam", null)
+                                    .show()
+                            }
+                        }
+                    }
+                }
+            }
+            .setNegativeButton("Vazgeç", null)
+            .show()
+    }
+
+    private fun showOwnerDevicePreflight() {
+        if (!appUnlocked || !uiReady || isFinishing || isDestroyed) return
+        AlertDialog.Builder(this)
+            .setTitle("Owner cihaz hazırlığı — salt okunur")
+            .setMessage(OwnerDevicePreflight.readOnlyReport(this))
+            .setPositiveButton("Tamam", null).show()
+    }
+
     private fun showRegistration() {
         val owner = EditText(this).apply {
             hint = "Sunucuda tanımlanacak sahip kimliği"
@@ -400,12 +514,28 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         AlertDialog.Builder(this).setTitle("Sunucu kaydı").setView(owner)
             .setMessage("Bu açık anahtar bilgilerini yalnız yönettiğin sunucuda kaydet. Burada kimlik yazmak sunucu yetkisi vermez.")
             .setPositiveButton("Açık bilgileri göster") { _, _ ->
-                try {
-                    val registration = OwnerIdentity.publicRegistration(owner.text.toString().trim())
-                    val text = TextView(this).apply { this.text = registration; setTextIsSelectable(true); setPadding(24, 24, 24, 24) }
-                    AlertDialog.Builder(this).setTitle("Yalnız açık kayıt bilgileri").setView(ScrollView(this).apply { addView(text) })
-                        .setPositiveButton("Tamam", null).show()
-                } catch (_: Exception) { connectionStatus.text = "Kayıt anahtarları oluşturulamadı; ekran kilidini ve sahip kimliğini kontrol et." }
+                val reveal = {
+                    try {
+                        val registration = OwnerIdentity.publicRegistration(owner.text.toString().trim())
+                        val text = TextView(this).apply {
+                            this.text = registration
+                            setTextIsSelectable(true)
+                            setPadding(24, 24, 24, 24)
+                        }
+                        AlertDialog.Builder(this).setTitle("Yalnız açık kayıt bilgileri")
+                            .setView(ScrollView(this).apply { addView(text) })
+                            .setPositiveButton("Tamam", null).show()
+                    } catch (_: Exception) {
+                        connectionStatus.text = "Kayıt anahtarları okunamadı veya oluşturulamadı; cihaz kilidini kontrol et."
+                    }
+                }
+                if (packageName.endsWith(".genesis.cihatpreview")) {
+                    AlertDialog.Builder(this)
+                        .setTitle("Önizleme: gerçek Owner kaydı için uygun değil")
+                        .setMessage("Bu APK debug imzalıdır. Burada kalıcı Owner anahtarları üretmek, sonraki farklı imzalı APK'ya güvenli geçiş sağlamaz. Bu işlem sunucu yetkisi de vermez. Yalnız deneme anahtarı oluşturmak veya mevcut açık anahtarları görmek istiyor musun?")
+                        .setPositiveButton("Deneme bilgilerini göster") { _, _ -> reveal() }
+                        .setNegativeButton("Vazgeç", null).show()
+                } else reveal()
             }.setNegativeButton("Vazgeç", null).show()
     }
 
