@@ -46,6 +46,16 @@ jobs:
           git archive --format=tar.gz --output=build/delivery/source.tar.gz HEAD
           cd build/delivery
           sha256sum source.tar.gz > SOURCE-SHA256SUMS
+      - name: Verify real built APK through signed Owner API (temporary CI keys only)
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install -r server/requirements.txt
+          PYTHONPATH=. python3 scripts/owner_source_real_apk_ci.py \
+            build/delivery/app-debug.apk > build/delivery/REAL_APK_SIGNED_LOOPBACK.json
+          python3 -m json.tool build/delivery/REAL_APK_SIGNED_LOOPBACK.json >/dev/null
+          echo "KRAL_REAL_APK_SIGNED_LOOPBACK=PASS"
       - name: Upload candidate APK and provenance
         if: success()
         uses: actions/upload-artifact@v4
