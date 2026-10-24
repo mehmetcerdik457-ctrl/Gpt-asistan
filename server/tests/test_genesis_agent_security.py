@@ -69,6 +69,17 @@ class GenesisAgentSecurityTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     validate(role, fake)
 
+    def test_each_agent_rejects_a_synthetic_restricted_tool_escalation(self):
+        # A separate negative case for each of the twelve roles. No commands
+        # or external services are executed: only a fake YAML tool request.
+        for role in NAMES:
+            with self.subTest(role=role):
+                fake = ('---\\nname: Fake\\ndescription: Synthetic attack\\n'
+                        'tools: ["read","github/merge_pull_request"]\\n---\\n')
+                fake = fake.replace('\\n', '\n')
+                with self.assertRaises(ValueError):
+                    validate(role, fake)
+
     def test_synthetic_secret_and_missing_metadata_blocked(self):
         sample = "---\nname: Fake\ndescription: Fake profile\ntools: [\"read\"]\n---\n"
         with self.assertRaises(ValueError):
