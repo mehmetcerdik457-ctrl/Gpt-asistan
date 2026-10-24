@@ -95,7 +95,7 @@ def main(file):
                 unauthorized_code, _ = request(body, {'Content-Type': 'application/json'})
                 success_code, result = request(body, headers)
                 replay_code, replay = request(body, headers)
-                assert unauthorized_code != 200, unauthorized_code
+                assert unauthorized_code == 403, unauthorized_code
                 assert success_code == 200, (success_code, result)
                 assert replay_code == 403, (replay_code, replay)
                 source = result['source']
@@ -110,7 +110,7 @@ def main(file):
                 assert hashlib.sha256(checked.read_bytes()).hexdigest() == original
                 result_log = {
                     'check': 'PR50 temporary-key signed HTTP + actual APK bytes',
-                    'source_git_commit': 'f4eaba2f713e2fb8869de4209dd1ee01d9fbfa48',
+                    'source_git_commit': os.environ.get('KRAL_EXACT_HEAD_SHA'),
                     'api': endpoint,
                     'real_apk_sha256': original,
                     'real_apk_size': supplied.stat().st_size,
@@ -133,5 +133,5 @@ def main(file):
 
 if __name__ == '__main__':
     if len(sys.argv) != 2:
-        raise SystemExit('usage: python kral_pr50_real_apk_signed_http_test.py APK_PATH')
+        raise SystemExit('usage: python scripts/owner_source_real_apk_ci.py APK_PATH')
     main(sys.argv[1])
