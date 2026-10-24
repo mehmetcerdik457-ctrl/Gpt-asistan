@@ -50,6 +50,45 @@ object OwnerSourceInspection {
         val status: String, val dexCount: Int,
         val nativeCount: Int, val abis: List<String>
     )
+    
+    data class SourceCandidate(
+        val sourceId: String,
+        val format: String,
+        val sizeBytes: Long,
+    ) {
+        fun label(): String = "$"+"{sourceId} — $"+ "{format} ($"+"{sizeBytes} bayt)"
+    }
+
+    /** Every listing request is an explicit, user-authenticated Owner action. */
+    fun listAvailable(base: String, owner: String): List<SourceCandidate> {
+        require(OwnerGateway.validBase(base) && OmegaEnvelope.validOwner(owner))
+        return parseSourceList(OwnerGateway.signedSourceListRequest(base, owner))
+    }
+
+    internal fun parseSourceList(json: JSONObject): List<SourceCandidate> {
+        require(json.get("contract") == OmegaEnvelope.CONTRACT)
+        require(json.get("read_only") === true)
+        require(json.get("capability_status") == "UNTESTED")
+        require(json.get("integration_status") == "NOT_CONNECTED")
+        require(json.get("truncated") is Boolean)
+        val entries = json.getJSONArray("sources")
+        require(entries.length() <= 50)
+        val candidates = (0 until entries.length()).map { index ->
+            val row = entries.getJSONObject(index)
+            val id = row.get("source_id")
+            val format = row.get("format_hint")
+            val size = row.get("size_bytes")
+            require(id is String && validSourceId(id))
+            require(format is String && format.length <= 40 &&
+                format.matches(Regex("[a-z0-9_]+")))
+            require((size is Int || size is Long) &&
+                (size as Number).toLong() in 0..134217728L)
+            SourceCandidate(id, format, (size as Number).toLong())
+        }
+        require(candidates.map { it.sourceId }.distinct().size == candidates.size)
+        return candidates
+    }
+
 
     internal fun validSourceId(sourceId: String): Boolean {
         if (sourceId.isBlank() || sourceId.length > 512 ||
