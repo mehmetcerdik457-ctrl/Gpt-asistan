@@ -20,6 +20,17 @@ class FixtureSourceProvider : ContentProvider() {
 
     override fun onCreate(): Boolean = true
 
+    /** Test-only provider accepts only requests from the exact preview app UID. */
+    @Suppress("DEPRECATION")
+    private fun requirePreviewCaller() {
+        val target = context?.packageManager?.getPackageUid(
+            "com.example.gptasistan.genesis.cihatpreview", 0
+        ) ?: throw SecurityException("FIXTURE_PREVIEW_NOT_INSTALLED")
+        if (android.os.Binder.getCallingUid() != target) {
+            throw SecurityException("FIXTURE_CALLER_DENIED")
+        }
+    }
+
     override fun getType(uri: Uri): String = "application/octet-stream"
 
     override fun query(
@@ -27,6 +38,7 @@ class FixtureSourceProvider : ContentProvider() {
         selection: String?, selectionArgs: Array<out String>?,
         sortOrder: String?
     ): Cursor {
+        requirePreviewCaller()
         val document = uri.lastPathSegment.orEmpty()
         val cursor = MatrixCursor(arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE))
         when (document) {
@@ -40,6 +52,7 @@ class FixtureSourceProvider : ContentProvider() {
     }
 
     override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor {
+        requirePreviewCaller()
         require(mode == "r") { "READ_ONLY_FIXTURE" }
         val bytes = "abc".toByteArray(Charsets.UTF_8)
         val ends = ParcelFileDescriptor.createPipe()
