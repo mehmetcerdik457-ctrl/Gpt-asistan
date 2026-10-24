@@ -65,6 +65,7 @@ def list_sources(root: str, *, max_files: int = 50,
                     try:
                         if entry.is_dir(follow_symlinks=False):
                             if depth >= max_depth:
+                                truncated = True
                                 continue
                             # Pin the child inode. A race replacing it with a
                             # symlink must fail rather than follow the target.
