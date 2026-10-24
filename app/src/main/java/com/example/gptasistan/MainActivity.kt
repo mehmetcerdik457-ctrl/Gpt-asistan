@@ -34,6 +34,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private var ttsReady = false
     private var stopped = false
     private var appUnlocked = false
+    private var sourceInspectionBusy = false
     private var uiReady = false
     private var pendingUnlock: (() -> Unit)? = null
     private lateinit var contentRoot: LinearLayout
@@ -149,6 +150,11 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             text = "CİHAT yanıtını panodan al (önizleme)"
             setAllCaps(false)
             setOnClickListener { previewClipboardReply() }
+        })
+        root.addView(Button(this).apply {
+            text = "Owner kaynak dosyasını incele (imzalı, salt okunur)"
+            setAllCaps(false)
+            setOnClickListener { showOwnerSourceInspection() }
         })
         connectionStatus = TextView(this).apply {
             text = if ((prefs.getString("endpoint", "") ?: "").isBlank())
@@ -439,6 +445,86 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             }
             .setNegativeButton("Vazgeç", null)
             .show()
+    }
+
+    /** Explicit Owner action only: no provider call, auto-enrollment or chat write. */
+    private fun showOwnerSourceInspection() {
+        if (!appUnlocked || !uiReady || isFinishing || isDestroyed ||
+            session.state.value?.busy == true || sourceInspectionBusy) return
+        // Do not let an inspection silently create AndroidKeyStore identities.
+        val facts = OwnerDevicePreflight.readOnlyFacts(this)
+        if (!facts.secureLock ||
+            facts.owner != OwnerDevicePreflight.KeyState.AUTH_REQUIRED_P256 ||
+            facts.device != OwnerDevicePreflight.KeyState.AUTH_REQUIRED_P256) {
+            AlertDialog.Builder(this).setTitle("Owner anahtarı doğrulanamadı")
+                .setMessage("Bu telefonda mevcut, kullanıcı doğrulamalı Owner ve cihaz " +
+                    "anahtarları hazır değil. Yeni anahtar oluşturulmayacak, ağ isteği " +
+                    "yapılmayacak. Önce cihaz ön kontrolü ve gerçek sunucu kaydını doğrula.")
+                .setPositiveButton("Tamam", null).show()
+            return
+        }
+        val inputs = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(24, 12, 24, 0)
+        }
+        val endpoint = EditText(this).apply {
+            hint = "https://sana-ait-sunucu.example"
+            isSingleLine = true
+            setText(prefs.getString("endpoint", ""))
+            filters = arrayOf(InputFilter.LengthFilter(256))
+        }
+        val owner = EditText(this).apply {
+            hint = "Sunucuda kayıtlı Owner kimliği"
+            isSingleLine = true
+            setText(prefs.getString("owner_id", ""))
+            filters = arrayOf(InputFilter.LengthFilter(64))
+        }
+        val file = EditText(this).apply {
+            hint = "İzinli sunucu klasöründe dosya: ornek.apk"
+            isSingleLine = true
+            filters = arrayOf(InputFilter.LengthFilter(512))
+        }
+        inputs.addView(endpoint); inputs.addView(owner); inputs.addView(file)
+        AlertDialog.Builder(this)
+            .setTitle("KRAL kaynak incelemesi")
+            .setMessage("Yalnızca senin seçtiğin HTTPS sunucusuna, yazdığın dosya " +
+                "adını içeren çift imzalı istek gönderilir. Sunucunun önceden " +
+                "izin verdiği klasör incelenir. Anahtarlar, sohbet ve hafıza " +
+                "gönderilmez. İzin veriyorsan 'İncele'ye dokun. Bu bir " +
+                "üretim Owner kabul testi değildir.")
+            .setView(inputs)
+            .setPositiveButton("İncele") { _, _ ->
+                val base = endpoint.text.toString().trim().trimEnd('/')
+                val identity = owner.text.toString().trim()
+                val sourceId = file.text.toString().trim()
+                if (!OwnerGateway.validBase(base) || !OmegaEnvelope.validOwner(identity) ||
+                    !OwnerSourceInspection.validSourceId(sourceId)) {
+                    connectionStatus.text = "HTTPS kökü, Owner kimliği veya dosya adı geçersiz."
+                } else unlock {
+                    if (!appUnlocked || !uiReady || sourceInspectionBusy) return@unlock
+                    sourceInspectionBusy = true
+                    connectionStatus.text = "İmzalı kaynak incelemesi yapılıyor…"
+                    thread {
+                        val report = try {
+                            OwnerSourceInspection.inspect(base, identity, sourceId).report()
+                        } catch (_: Exception) {
+                            "Kaynak incelemesi doğrulanamadı. İstek, sunucu klasörü, " +
+                                "Owner kaydı veya HTTPS kontrolünü denetle. " +
+                                "Dosya ya da model çalıştırılmadı."
+                        }
+                        runOnUiThread {
+                            sourceInspectionBusy = false
+                            if (!isFinishing && !isDestroyed && appUnlocked && uiReady) {
+                                AlertDialog.Builder(this)
+                                    .setTitle("İmzalı kaynak inceleme sonucu")
+                                    .setMessage(report)
+                                    .setPositiveButton("Tamam", null).show()
+                            }
+                        }
+                    }
+                }
+            }
+            .setNegativeButton("Vazgeç", null).show()
     }
 
     private fun showOwnerDevicePreflight() {

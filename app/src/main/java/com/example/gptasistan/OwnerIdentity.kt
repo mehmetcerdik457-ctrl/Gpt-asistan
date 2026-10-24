@@ -18,10 +18,12 @@ object OwnerIdentity {
     private const val OWNER = "kral_omega_owner_v1"
     private const val DEVICE = "kral_omega_device_v1"
 
-    @Synchronized private fun key(alias: String): KeyPair {
+    @Synchronized private fun key(alias: String, allowCreate: Boolean = false): KeyPair {
         val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
         if (store.containsAlias(alias)) return KeyPair(store.getCertificate(alias).publicKey,
             store.getKey(alias, null) as java.security.PrivateKey)
+        // Signing is NEVER an implicit enrollment or key-generation operation.
+        if (!allowCreate) throw SecurityException("OWNER_KEY_NOT_PROVISIONED")
         val generator = KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_EC, "AndroidKeyStore")
         val builder = KeyGenParameterSpec.Builder(alias, KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY)
             .setAlgorithmParameterSpec(ECGenParameterSpec("secp256r1"))
@@ -37,8 +39,8 @@ object OwnerIdentity {
 
     fun publicRegistration(ownerId: String): String {
         require(OmegaEnvelope.validOwner(ownerId))
-        val owner = key(OWNER).public.encoded
-        val device = key(DEVICE).public.encoded
+        val owner = key(OWNER, allowCreate = true).public.encoded
+        val device = key(DEVICE, allowCreate = true).public.encoded
         return JSONObject().put("contract", OmegaEnvelope.CONTRACT)
             .put("owner_id", ownerId).put("device_id", OmegaEnvelope.sha256(device))
             .put("owner_public_der_b64", encode(owner)).put("device_public_der_b64", encode(device)).toString(2)
@@ -67,12 +69,13 @@ object OmegaEnvelope {
     const val CONTRACT = "OMEGA-OWNER-API-V1"
     const val CHAT = "/api/v1/owner/chat"
     const val MODELS = "/api/v1/owner/models"
+    const val SOURCES = "/api/v1/owner/sources"
     fun validOwner(value: String) = value.matches(Regex("[A-Za-z0-9_-]{1,64}"))
     fun sha256(bytes: ByteArray) = MessageDigest.getInstance("SHA-256").digest(bytes)
         .joinToString("") { "%02x".format(it.toInt() and 255) }
 
     fun canonical(path: String, body: ByteArray, timestamp: String, nonce: String, ownerId: String, deviceId: String): ByteArray {
-        require(path in setOf(CHAT, MODELS))
+        require(path in setOf(CHAT, MODELS, SOURCES))
         require(body.isNotEmpty() && body.size <= 65536)
         require(timestamp.matches(Regex("[0-9]{10}")))
         require(nonce.matches(Regex("[a-f0-9]{32,64}")))

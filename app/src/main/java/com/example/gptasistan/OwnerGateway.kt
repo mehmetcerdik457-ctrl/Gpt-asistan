@@ -59,6 +59,11 @@ object OwnerGateway {
         return parseReply(result, chosen)
     }
 
+    /** Read-only source lookup; authentication is identical to Owner chat. */
+    internal fun signedSourceRequest(base: String, owner: String, sourceId: String): JSONObject =
+        request(base, OmegaEnvelope.SOURCES, owner,
+            JSONObject().put("action", "inspect").put("source_id", sourceId))
+
     internal fun parseReply(result: JSONObject, selected: Model): String {
         require(result.getString("contract") == OmegaEnvelope.CONTRACT)
         require(result.getString("model") == selected.id && result.getString("provider") == selected.provider)
