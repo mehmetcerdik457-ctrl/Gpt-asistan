@@ -11,3 +11,7 @@ Existing assets only. Never treat this offline planner as 50 running AIs.
 - The inventory lists the 20 repositories returned by the linked GitHub account on 2026-10-25; it is an authorization *candidate list*, not evidence that an agent can access them independently.
 
 The example is four **realistic scopes**, not proof that their goals have been executed. Replace with a user-approved 100-step roadmap after checking its actual contents and dependencies.
+
+## Owner-approved real issue dispatch (not yet activated)
+The default `python -m server.mission_dispatch missions/sample.json --task T001 --branch integration/your-approved-existing-branch` is strictly a dry run.
+A real issue would require *explicit* `--execute --owner-approved --public-issue-approved`, a user-to-server `KRAL_COPILOT_USER_TOKEN` from an authorized private environment, a previously existing allowlisted non-main base branch, no prerequisites, no duplicate issue and no credential-like text. Never paste a token into a chat, issue, PR or source code. GitHub App installation / Actions tokens cannot be assumed to support Copilot assignment. One dispatch creates at most one Copilot-assigned issue, not 50 agents; verify acceptance by GitHub session events. Pilot is disabled until approved capability is genuinely available. This is not a permission bypass.
