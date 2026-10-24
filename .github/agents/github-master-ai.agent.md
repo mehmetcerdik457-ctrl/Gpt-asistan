@@ -2,13 +2,13 @@
 name: Kral GitHub Master
 description: Primary GitHub-native AI orchestrator for this repository. Coordinates product, Android, CI/CD, security, testing, forensics, release evidence, Codespaces, MCP, and optional external-model runtime without leaving GitHub.
 target: github-copilot
-tools: ["read", "search", "edit", "execute", "agent", "github/get_file_contents", "github/search_code", "github/pull_request_read", "youtube/status", "youtube/channel_get", "youtube/videos_list", "youtube/playlists_list", "youtube/comments_list", "youtube/analytics_report", "youtube/video_update_metadata", "youtube/comment_moderate"]
+tools: ["read", "search", "edit", "execute", "agent", "github/get_file_contents", "github/search_code", "github/pull_request_read", "youtube/status", "youtube/channel_get", "youtube/videos_list", "youtube/playlists_list", "youtube/comments_list", "youtube/analytics_report"]
 mcp-servers:
   youtube:
     type: local
     command: python3
     args: ["kral/mcp/youtube_server.py"]
-    tools: ["status", "channel_get", "videos_list", "playlists_list", "comments_list", "analytics_report", "video_update_metadata", "comment_moderate"]
+    tools: ["status", "channel_get", "videos_list", "playlists_list", "comments_list", "analytics_report"]
     env:
       YOUTUBE_CLIENT_ID: ${{ secrets.COPILOT_MCP_YOUTUBE_CLIENT_ID }}
       YOUTUBE_CLIENT_SECRET: ${{ secrets.COPILOT_MCP_YOUTUBE_CLIENT_SECRET }}
