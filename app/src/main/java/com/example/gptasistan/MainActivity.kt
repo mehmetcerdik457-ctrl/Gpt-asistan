@@ -35,6 +35,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private var stopped = false
     private var appUnlocked = false
     private var sourceInspectionBusy = false
+    private var localAuditBusy = false
     private var uiReady = false
     private var pendingUnlock: (() -> Unit)? = null
     private lateinit var contentRoot: LinearLayout
@@ -82,6 +83,16 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     @Deprecated("Activity result used for the platform device credential screen")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == 4702) {
+            if (resultCode == Activity.RESULT_OK) {
+                val uri = data?.data
+                if (uri?.scheme == "content") {
+                    // Re-authenticate after returning from an external document picker.
+                    unlock { inspectSelectedLocalSource(uri) }
+                }
+            }
+            return
+        }
         if (requestCode != 4701) return
         val action = pendingUnlock
         pendingUnlock = null
@@ -156,6 +167,11 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             setAllCaps(false)
             setOnClickListener { showOwnerSourceInspection() }
         })
+        root.addView(Button(this).apply {
+            text = "Telefondan dosya seç ve SHA-256 hesapla (çevrimdışı)"
+            setAllCaps(false)
+            setOnClickListener { openLocalSourcePicker() }
+        })
         connectionStatus = TextView(this).apply {
             text = if ((prefs.getString("endpoint", "") ?: "").isBlank())
                 "Model bağlantısı yapılandırılmadı" else "Model adresi kayıtlı; bağlantı doğrulanmadı"
@@ -216,6 +232,66 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             if (appUnlocked) speakLatestReply()
         }
         tts = TextToSpeech(this, this)
+    }
+
+    /** One explicitly user-selected document, never a storage-wide scan. */
+    private fun openLocalSourcePicker() {
+        if (!appUnlocked || !uiReady || localAuditBusy || isFinishing || isDestroyed ||
+            session.state.value?.busy == true) return
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "*/*"
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        try {
+            startActivityForResult(intent, 4702)
+        } catch (_: RuntimeException) {
+            connectionStatus.text = "Android dosya seçicisi açılamadı."
+        }
+    }
+
+    /** No persistent URI grant, copy, upload, extraction or chat/memory write. */
+    private fun inspectSelectedLocalSource(uri: android.net.Uri) {
+        if (!appUnlocked || !uiReady || localAuditBusy || isFinishing || isDestroyed ||
+            session.state.value?.busy == true || uri.scheme != "content") return
+        localAuditBusy = true
+        connectionStatus.text = "Telefondaki seçili dosya salt okunur inceleniyor…"
+        thread {
+            val report = try {
+                val fields = arrayOf(android.provider.OpenableColumns.DISPLAY_NAME,
+                    android.provider.OpenableColumns.SIZE)
+                val metadata = contentResolver.query(uri, fields, null, null, null)?.use { c ->
+                    if (!c.moveToFirst()) null else {
+                        val nameIndex = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                        val sizeIndex = c.getColumnIndex(android.provider.OpenableColumns.SIZE)
+                        if (nameIndex < 0 || c.isNull(nameIndex)) null else {
+                            val name = c.getString(nameIndex)
+                            val size = if (sizeIndex >= 0 && !c.isNull(sizeIndex))
+                                c.getLong(sizeIndex) else null
+                            Pair(name, size)
+                        }
+                    }
+                } ?: throw SecurityException("LOCAL_SOURCE_METADATA_DENIED")
+                require(LocalSourceEvidence.validDisplayName(metadata.first))
+                require(metadata.second == null || metadata.second in 0..LocalSourceEvidence.MAX_BYTES)
+                val input = contentResolver.openInputStream(uri)
+                    ?: throw SecurityException("LOCAL_SOURCE_READ_DENIED")
+                input.use { LocalSourceEvidence.scan(it, metadata.first, metadata.second).report() }
+            } catch (_: Exception) {
+                "Dosya incelenemedi. Yalnızca desteklenen türde, en fazla 128 MB " +
+                    "olan, Android tarafından okunabilir bir dosya seç. Hiçbir kayıt değişmedi."
+            }
+            runOnUiThread {
+                localAuditBusy = false
+                if (!isFinishing && !isDestroyed && appUnlocked && uiReady) {
+                    AlertDialog.Builder(this)
+                        .setTitle("Yerel dosya SHA-256 sonucu")
+                        .setMessage(report)
+                        .setPositiveButton("Tamam", null)
+                        .show()
+                }
+            }
+        }
     }
 
     /** Explicit user-initiated, read-only phone package inspection. */
