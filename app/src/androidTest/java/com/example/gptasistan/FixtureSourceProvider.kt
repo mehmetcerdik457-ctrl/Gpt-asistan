@@ -30,11 +30,11 @@ class FixtureSourceProvider : ContentProvider() {
         val document = uri.lastPathSegment.orEmpty()
         val cursor = MatrixCursor(arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE))
         when (document) {
-            "valid" -> cursor.addRow(arrayOf("reference.apk", 3L))
-            "unknown" -> cursor.addRow(arrayOf("model.gguf", null))
-            "mismatch" -> cursor.addRow(arrayOf("reference.apk", 2L))
-            "secret" -> cursor.addRow(arrayOf("credentials.json", 3L))
-            "oversize" -> cursor.addRow(arrayOf("reference.apk", 3L))
+            "valid" -> cursor.addRow(arrayOf<Any?>("reference.apk", 3L))
+            "unknown" -> cursor.addRow(arrayOf<Any?>("model.gguf", null))
+            "mismatch" -> cursor.addRow(arrayOf<Any?>("reference.apk", 2L))
+            "secret" -> cursor.addRow(arrayOf<Any?>("credentials.json", 3L))
+            "oversize" -> cursor.addRow(arrayOf<Any?>("reference.apk", 3L))
         }
         return cursor
     }
