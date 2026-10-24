@@ -96,7 +96,7 @@ def validate_manifest(data, allowed_repositories: frozenset[str]):
         if identifier in by_id:
             raise MissionRejected("TASK_ID_DUPLICATE")
         repo = task["repo"]
-        if repo not in allowed_repositories:
+        if not isinstance(repo, str) or repo not in allowed_repositories:
             raise MissionRejected("TARGET_REPOSITORY_NOT_IN_INVENTORY")
         if task["role"] not in ROLES:
             raise MissionRejected("AGENT_ROLE_NOT_APPROVED")
