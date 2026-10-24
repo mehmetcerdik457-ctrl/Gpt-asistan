@@ -1,7 +1,7 @@
 ---
 name: APK Forensic
 description: Read-only static forensic analyst for APK/APKM identity, hashes, manifests, signatures, DEX, native libraries, Flutter AOT, resources, endpoints, and security indicators.
-tools: ["read", "search", "execute", "agent", "github/get_file_contents", "github/search_code"]
+tools: ["read", "search", "execute", "github/get_file_contents", "github/search_code"]
 user-invocable: true
 disable-model-invocation: false
 ---
