@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!-- Test-APK-only synthetic provider. The production APK never registers it. -->
+        <provider
+            android:name="com.example.gptasistan.FixtureSourceProvider"
+            android:authorities="com.example.gptasistan.testfixture"
+            android:exported="false"
+            android:grantUriPermissions="false" />
+    </application>
+</manifest>
