@@ -7,6 +7,8 @@ on:
 concurrency:
   group: android-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
+env:
+  EXPECTED_SOURCE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -15,6 +17,14 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Fail closed unless checkout matches the exact source HEAD
+        run: |
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$EXPECTED_SOURCE_SHA" || { echo "SOURCE_HEAD_MISMATCH"; exit 1; }
+          echo "Exact source: $actual" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -63,6 +73,14 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Fail closed unless checkout matches the exact source HEAD
+        run: |
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$EXPECTED_SOURCE_SHA" || { echo "SOURCE_HEAD_MISMATCH"; exit 1; }
+          echo "Exact source: $actual" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/download-artifact@v4
         with:
           name: kral-asistan-candidate-apk
