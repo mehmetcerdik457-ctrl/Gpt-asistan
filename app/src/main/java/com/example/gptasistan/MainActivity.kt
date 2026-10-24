@@ -258,25 +258,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         connectionStatus.text = "Telefondaki seçili dosya salt okunur inceleniyor…"
         thread {
             val report = try {
-                val fields = arrayOf(android.provider.OpenableColumns.DISPLAY_NAME,
-                    android.provider.OpenableColumns.SIZE)
-                val metadata = contentResolver.query(uri, fields, null, null, null)?.use { c ->
-                    if (!c.moveToFirst()) null else {
-                        val nameIndex = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
-                        val sizeIndex = c.getColumnIndex(android.provider.OpenableColumns.SIZE)
-                        if (nameIndex < 0 || c.isNull(nameIndex)) null else {
-                            val name = c.getString(nameIndex)
-                            val size = if (sizeIndex >= 0 && !c.isNull(sizeIndex))
-                                c.getLong(sizeIndex) else null
-                            Pair(name, size)
-                        }
-                    }
-                } ?: throw SecurityException("LOCAL_SOURCE_METADATA_DENIED")
-                require(LocalSourceEvidence.validDisplayName(metadata.first))
-                require(metadata.second == null || metadata.second in 0..LocalSourceEvidence.MAX_BYTES)
-                val input = contentResolver.openInputStream(uri)
-                    ?: throw SecurityException("LOCAL_SOURCE_READ_DENIED")
-                input.use { LocalSourceEvidence.scan(it, metadata.first, metadata.second).report() }
+                LocalSourceDocument.inspect(contentResolver, uri).report()
             } catch (_: Exception) {
                 "Dosya incelenemedi. Yalnızca desteklenen türde, en fazla 128 MB " +
                     "olan, Android tarafından okunabilir bir dosya seç. Hiçbir kayıt değişmedi."
