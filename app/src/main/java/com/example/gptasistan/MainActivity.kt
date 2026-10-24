@@ -524,7 +524,73 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                     }
                 }
             }
+            .setNeutralButton("İzinli dosyaları listele") { _, _ ->
+                val base = endpoint.text.toString().trim().trimEnd('/')
+                val identity = owner.text.toString().trim()
+                if (!OwnerGateway.validBase(base) || !OmegaEnvelope.validOwner(identity)) {
+                    connectionStatus.text = "Dosya listesi için geçerli HTTPS ve Owner kimliği gerekli."
+                } else unlock { showOwnerSourceChoices(base, identity) }
+            }
             .setNegativeButton("Vazgeç", null).show()
+    }
+
+    /** Signed, read-only candidates; each selection requires another explicit signed action. */
+    private fun showOwnerSourceChoices(base: String, owner: String) {
+        if (!appUnlocked || !uiReady || isFinishing || isDestroyed || sourceInspectionBusy ||
+            session.state.value?.busy == true) return
+        sourceInspectionBusy = true
+        connectionStatus.text = "İzinli kaynak adları isteniyor…"
+        thread {
+            val listing = try {
+                OwnerSourceInspection.listAvailable(base, owner)
+            } catch (_: Exception) { null }
+            runOnUiThread {
+                sourceInspectionBusy = false
+                if (isFinishing || isDestroyed || !appUnlocked || !uiReady) return@runOnUiThread
+                if (listing == null) {
+                    connectionStatus.text = "İmzalı kaynak listesi alınamadı; Owner ve sunucu kaydını kontrol et."
+                    return@runOnUiThread
+                }
+                if (listing.entries.isEmpty()) {
+                    connectionStatus.text = if (listing.truncated)
+                        "Kaynak listeleme sınırına ulaşıldı; sonuç eksik." else
+                        "İzinli klasörde gösterilebilir kaynak bulunmadı."
+                    return@runOnUiThread
+                }
+                val labels = listing.entries.map { it.label() }.toTypedArray()
+                AlertDialog.Builder(this)
+                    .setTitle("İzinli dosyalar (yalnızca aday)")
+                    .setMessage(if (listing.truncated)
+                        "Liste sınırlı; tüm kaynakları göstermeyebilir. Bir dosya seçilirse yeniden Owner doğrulaması istenir." else
+                        "Bunlar henüz test edilmiş yetenekler değildir. İncelemek istediğin dosyayı seç.")
+                    .setItems(labels) { _, index ->
+                        val sourceId = listing.entries[index].sourceId
+                        unlock {
+                            if (!appUnlocked || !uiReady || sourceInspectionBusy ||
+                                isFinishing || isDestroyed) return@unlock
+                            sourceInspectionBusy = true
+                            connectionStatus.text = "Seçilen kaynak imzalı olarak inceleniyor…"
+                            thread {
+                                val report = try {
+                                    OwnerSourceInspection.inspect(base, owner, sourceId).report()
+                                } catch (_: Exception) {
+                                    "Kaynak incelemesi doğrulanamadı. İzinli klasörü ve Owner kaydını kontrol et."
+                                }
+                                runOnUiThread {
+                                    sourceInspectionBusy = false
+                                    if (!isFinishing && !isDestroyed && appUnlocked && uiReady) {
+                                        AlertDialog.Builder(this)
+                                            .setTitle("Seçilen kaynak inceleme sonucu")
+                                            .setMessage(report)
+                                            .setPositiveButton("Tamam", null).show()
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    .setNegativeButton("Vazgeç", null).show()
+            }
+        }
     }
 
     private fun showOwnerDevicePreflight() {
