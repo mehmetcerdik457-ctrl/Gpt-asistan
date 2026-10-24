@@ -59,13 +59,15 @@ object OwnerSourceInspection {
         fun label(): String = "${sourceId} — ${format} (${sizeBytes} bayt)"
     }
 
+    data class SourceList(val entries: List<SourceCandidate>, val truncated: Boolean)
+
     /** Every listing request is an explicit, user-authenticated Owner action. */
-    fun listAvailable(base: String, owner: String): List<SourceCandidate> {
+    fun listAvailable(base: String, owner: String): SourceList {
         require(OwnerGateway.validBase(base) && OmegaEnvelope.validOwner(owner))
         return parseSourceList(OwnerGateway.signedSourceListRequest(base, owner))
     }
 
-    internal fun parseSourceList(json: JSONObject): List<SourceCandidate> {
+    internal fun parseSourceList(json: JSONObject): SourceList {
         require(json.get("contract") == OmegaEnvelope.CONTRACT)
         require(json.get("read_only") === true)
         require(json.get("capability_status") == "UNTESTED")
@@ -86,7 +88,7 @@ object OwnerSourceInspection {
             SourceCandidate(id, format, (size as Number).toLong())
         }
         require(candidates.map { it.sourceId }.distinct().size == candidates.size)
-        return candidates
+        return SourceList(candidates, json.getBoolean("truncated"))
     }
 
 
