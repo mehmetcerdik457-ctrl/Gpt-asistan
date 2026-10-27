@@ -1,0 +1,61 @@
+name: KRAL eight independent read-only runner probes
+
+on:
+  push:
+    branches:
+      - integration/kral-eight-runner-proof-20261027
+    paths:
+      - server/worker_proof.py
+      - server/tests/test_worker_proof.py
+      - .github/workflows/kral-eight-worker-proof.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kral-eight-proof-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  specialist:
+    name: ${{ matrix.role }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        role:
+          - github-master-ai
+          - chief-engineer
+          - android-engineer
+          - ai-ml-engineer
+          - mcp-engineer
+          - ci-cd-engineer
+          - test-engineer
+          - security-auditor
+    env:
+      KRAL_ROLE: ${{ matrix.role }}
+    steps:
+      - name: Checkout exact source without persisting credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Prepare Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run bounded role-specific subprocess tests and real public GitHub network read
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m server.worker_proof --role "$KRAL_ROLE" --out "$RUNNER_TEMP/kral-worker-proof.json"
+      - name: Upload redacted evidence per job
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kral-proof-${{ matrix.role }}
+          path: ${{ runner.temp }}/kral-worker-proof.json
+          if-no-files-found: warn
+          retention-days: 2
