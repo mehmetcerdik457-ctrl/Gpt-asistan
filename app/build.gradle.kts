@@ -4,7 +4,8 @@ android {
     namespace = "com.example.gptasistan"
     compileSdk = 34
     defaultConfig {
-        applicationId = "com.example.gptasistan"
+        // Every variant is a separate candidate; never target the original app.
+        applicationId = "com.example.gptasistan.genesis"
         minSdk = 26
         targetSdk = 34
         versionCode = 4
@@ -16,7 +17,6 @@ android {
         }
         debug {
             isDebuggable = true
-            applicationIdSuffix = ".genesis"
         }
     }
     compileOptions {

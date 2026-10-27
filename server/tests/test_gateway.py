@@ -1,6 +1,7 @@
 """Real HTTP and P-256 crypto, synthetic upstream. No live provider/device claim."""
 import base64
 import hashlib
+import http.client
 import json
 import os
 import tempfile
@@ -120,6 +121,59 @@ class GatewayHttpTests(unittest.TestCase):
     def test_no_provider_calls_without_auth(self):
         status, _ = self.post("models", {}, headers={"Content-Type": "application/json"})
         self.assertEqual(status, 403)
+        self.assertEqual(self.provider.calls, [])
+
+    def test_unsigned_history_and_memory_cannot_read_or_change_owner_data(self):
+        self.assertEqual(self.post("memory", {"action": "save", "text": "private owner note"})[0], 200)
+        actual = self.verify_model()
+        self.assertEqual(self.post("chat", {"message": "private owner question", "model": actual})[0], 200)
+        history_before = self.gateway.store.history()
+        memories_before = self.gateway.store.recall()
+        calls_before = list(self.provider.calls)
+
+        for route, data in (("history", {}), ("memory", {"action": "recall"}),
+                            ("memory", {"action": "save", "text": "unauthorized note"})):
+            with self.subTest(route=route, action=data.get("action")):
+                status, response = self.post(route, data, headers={"Content-Type": "application/json"})
+                self.assertEqual((status, response.get("error")), (403, "OWNER_AUTH_REQUIRED"))
+                self.assertNotIn("messages", response)
+                self.assertNotIn("memories", response)
+                self.assertNotIn("private owner", json.dumps(response))
+        self.assertEqual(self.gateway.store.history(), history_before)
+        self.assertEqual(self.gateway.store.recall(), memories_before)
+        self.assertEqual(self.provider.calls, calls_before)
+
+    def post_header_pairs(self, path, raw, headers):
+        # urllib's mapping cannot represent duplicate fields; send them on the wire.
+        connection = http.client.HTTPConnection("127.0.0.1", self.httpd.server_port, timeout=5)
+        try:
+            connection.putrequest("POST", path)
+            for name, value in headers:
+                connection.putheader(name, value)
+            connection.endheaders(raw)
+            response = connection.getresponse()
+            return response.status, json.loads(response.read())
+        finally:
+            connection.close()
+
+    def test_duplicate_auth_headers_are_rejected_before_provider_call(self):
+        path, raw = g.PREFIX + "models", b"{}"
+        for name in auth.REQUIRED:
+            with self.subTest(header=name):
+                signed = self.signed(path, raw)
+                headers = [("Content-Length", str(len(raw))), *signed.items(), (name, signed[name])]
+                status, response = self.post_header_pairs(path, raw, headers)
+                self.assertEqual((status, response.get("error")), (403, "OWNER_AUTH_REQUIRED"))
+        self.assertEqual(self.provider.calls, [])
+
+    def test_duplicate_content_length_is_rejected_before_provider_call(self):
+        path, raw = g.PREFIX + "models", b"{}"
+        for extra_length in (len(raw), len(raw) + 1):
+            with self.subTest(extra_length=extra_length):
+                headers = [("Content-Length", str(len(raw))), *self.signed(path, raw).items(),
+                           ("Content-Length", str(extra_length))]
+                status, response = self.post_header_pairs(path, raw, headers)
+                self.assertEqual((status, response.get("error")), (411, "BODY_LENGTH_REQUIRED"))
         self.assertEqual(self.provider.calls, [])
 
     def test_expired_and_future_proof_denied(self):

@@ -9,6 +9,9 @@
 local.properties
 *.keystore
 *.jks
+keystore.properties
+*.p12
+*.pfx
 
 # Runtime memory, environments, and test bytecode are never delivery sources.
 __pycache__/
