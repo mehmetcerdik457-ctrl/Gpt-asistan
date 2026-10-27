@@ -19,7 +19,26 @@ jobs:
         shell: bash
         run: |
           mkdir -p build/delivery
-          ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug --no-daemon --stacktrace 2>&1 | tee build/delivery/gradle.log
+          ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleRelease --no-daemon --stacktrace 2>&1 | tee build/delivery/gradle.log
+      - name: Check unsigned release variant package without publishing it
+        if: success()
+        shell: bash
+        run: |
+          "$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging app/build/outputs/apk/release/app-release-unsigned.apk > build/delivery/release-variant-badging.txt
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          from scripts.android_artifact import EXPECTED_CANDIDATE_PACKAGE, field
+          text = Path('build/delivery/release-variant-badging.txt').read_text()
+          package = field(r"^package: name='([^']+)'", text)
+          assert package == EXPECTED_CANDIDATE_PACKAGE, 'Release targets an unexpected package'
+          assert 'application-debuggable' not in text, 'Release variant is debuggable'
+          result = {'package': package, 'release_variant_package_verified': True,
+                    'debuggable': False, 'signature_verified': False,
+                    'installable_release_delivered': False}
+          Path('build/delivery/release-variant-check.json').write_text(json.dumps(result, indent=2) + '\n')
+          print(json.dumps(result))
+          PY
       - name: Verify APK signature and record source and SHA-256
         if: success()
         run: |

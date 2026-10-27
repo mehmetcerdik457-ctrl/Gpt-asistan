@@ -28,7 +28,7 @@ parola dosyası ve PKCS#12 dosyaları kaynak arşivine eklenmez.
 python -m pip install -r server/requirements.txt
 python -m unittest discover -s scripts/tests -v
 python -m unittest discover -s server/tests -v
-./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug --no-daemon
+./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleRelease --no-daemon
 ```
 
 Python artifact testleri sentetik APK/araç çıktıları kullanır; gerçek
@@ -42,6 +42,10 @@ Android CI, kaynak commit'ini, APK hash'ini ve imzayı kaydeder. Emülatör
 işi aynı APK'yı hash kontrolünden geçirerek kurar ve sahip kilit ekranını
 denetler. Bu kapsam fiziksel telefon, biyometri, gerçek ses çıktısı veya
 canlı model kabulü değildir.
+
+CI ayrıca imzasız release varyantını derleyip gerçek manifestten aday
+paket kimliğini ve debug kapalı durumunu kontrol eder. Yalnız kontrol
+sonucu kanıt paketine girer; imzasız release APK teslim edilmez.
 
 ## Canlı test için gereken gerçek girdiler
 
