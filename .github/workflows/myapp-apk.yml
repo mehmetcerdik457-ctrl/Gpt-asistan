@@ -1,0 +1,62 @@
+name: MyApp signed candidate APK
+
+on:
+  push:
+    branches:
+      - build/myapp-apk-20261028
+    paths:
+      - "MyApp/**"
+      - ".github/workflows/myapp-apk.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-myapp:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK components
+        run: sdkmanager "platforms;android-34" "build-tools;34.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+      - name: Create temporary candidate signing key
+        shell: bash
+        run: |
+          set -euo pipefail
+          KEYSTORE_PASS="$(openssl rand -hex 32)"
+          echo "::add-mask::$KEYSTORE_PASS"
+          {
+            echo "KEYSTORE_PATH=$GITHUB_WORKSPACE/MyApp/release.keystore"
+            echo "KEYSTORE_PASS=$KEYSTORE_PASS"
+            echo "KEY_PASS=$KEYSTORE_PASS"
+            echo "KEY_ALIAS=mykey"
+          } >> "$GITHUB_ENV"
+          export KEYSTORE_PASS KEY_PASS="$KEYSTORE_PASS"
+          keytool -genkeypair -keystore "$GITHUB_WORKSPACE/MyApp/release.keystore" -storetype PKCS12 -alias mykey -keyalg RSA -keysize 2048 -validity 10000 -storepass:env KEYSTORE_PASS -keypass:env KEY_PASS -dname "CN=MyApp CI candidate, OU=Test only, O=Temporary, L=Istanbul, C=TR"
+      - name: Build signed release candidate
+        run: gradle -p MyApp clean assembleRelease --no-daemon
+      - name: Verify release APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="$GITHUB_WORKSPACE/MyApp/app/build/outputs/apk/release/app-release.apk"
+          test -s "$APK"
+          sha256sum "$APK" | tee "$GITHUB_WORKSPACE/MyApp/candidate-apk.sha256"
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose --print-certs "$APK" | tee "$GITHUB_WORKSPACE/MyApp/apksigner-report.txt"
+      - name: Upload APK and checksum
+        uses: actions/upload-artifact@v4
+        with:
+          name: MyApp-signed-test-candidate
+          path: |
+            MyApp/app/build/outputs/apk/release/app-release.apk
+            MyApp/candidate-apk.sha256
+            MyApp/apksigner-report.txt
+          if-no-files-found: error
