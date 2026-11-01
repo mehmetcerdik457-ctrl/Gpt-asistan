@@ -1,6 +1,7 @@
 package com.example.gptasistan
 
 import android.content.Context
+import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
@@ -56,6 +57,36 @@ object OwnerGateway {
         val body = JSONObject().put("message", question).put("model", chosen.id).put("include_memory", false)
         val result = request(base, OmegaEnvelope.CHAT, owner, body)
         return parseReply(result, chosen)
+    }
+
+    /** Explicit owner-signed read-only local batch. No model or external writes. */
+    fun localWorkers(context: Context, base: String, tasks: JSONArray, maxParallel: Int = 4): JSONArray {
+        require(tasks.length() in 1..50 && maxParallel in 1..4)
+        val owner = context.getSharedPreferences("kral_model", Context.MODE_PRIVATE)
+            .getString("owner_id", "").orEmpty()
+        val body = JSONObject().put("tasks", tasks).put("max_parallel", maxParallel)
+        return parseLocalWorkers(request(base, OmegaEnvelope.WORKERS, owner, body), tasks.length())
+    }
+
+    internal fun parseLocalWorkers(result: JSONObject, expectedTasks: Int): JSONArray {
+        require(expectedTasks in 1..50)
+        require(result.getString("contract") == OmegaEnvelope.CONTRACT)
+        require(result.getString("mode") == "SIGNED_OWNER_READ_ONLY_LOCAL")
+        require(result.getInt("logical_worker_slots") == 50)
+        require(result.getInt("executed_tasks") == expectedTasks)
+        require(result.getInt("parallel_limit") in 1..4)
+        require(result.getInt("provider_calls") == 0)
+        require(result.getInt("external_actions") == 0)
+        require(result.getInt("automatic_approvals") == 0)
+        require(result.getString("task_sha256").matches(Regex("[a-f0-9]{64}")))
+        val entries = result.getJSONArray("results")
+        require(entries.length() == expectedTasks)
+        for (i in 0 until entries.length()) {
+            val item = entries.getJSONObject(i)
+            require(item.getString("id").matches(Regex("W(0[1-9]|[1-4][0-9]|50)")))
+            require(item.getString("status") in setOf("COMPLETED_LOCAL_READ", "BLOCKED_LOCAL_READ", "DENIED"))
+        }
+        return entries
     }
 
     internal fun parseReply(result: JSONObject, selected: Model): String {
