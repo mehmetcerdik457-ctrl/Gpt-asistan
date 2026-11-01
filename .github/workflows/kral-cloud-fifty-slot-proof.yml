@@ -1,0 +1,88 @@
+name: KRAL 50 GitHub-hosted read-only process slots
+
+on:
+  push:
+    branches:
+      - integration/kral-cloud-fifty-slot-20261028
+    paths:
+      - server/github_cloud_slots.py
+      - server/tests/test_github_cloud_slots.py
+      - .github/workflows/kral-cloud-fifty-slot-proof.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kral-cloud-fifty-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  cloud-process-slot:
+    name: worker-${{ matrix.slot }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        slot: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50]
+    steps:
+      - name: Checkout pinned source without saved credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Assert exact source HEAD
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA" || { echo SOURCE_HEAD_MISMATCH; exit 1; }
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Execute one bounded role-specific subprocess and public GitHub read
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m server.github_cloud_slots --slot "${{ matrix.slot }}" --out "$RUNNER_TEMP/kral-cloud-slot.json"
+      - name: Upload nonsecret per-worker evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kral-cloud-slot-${{ matrix.slot }}
+          path: ${{ runner.temp }}/kral-cloud-slot.json
+          if-no-files-found: warn
+          retention-days: 2
+
+  verify-fifty:
+    name: Validate all 50 source-bound proof artifacts
+    needs: cloud-process-slot
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify source
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Download all 50 proofs
+        uses: actions/download-artifact@v4
+        with:
+          pattern: kral-cloud-slot-*
+          path: ${{ runner.temp }}/kral-cloud-slot-artifacts
+          merge-multiple: false
+      - name: Verify all 50 slots and exact run provenance
+        run: |
+          set -euo pipefail
+          python -m server.github_cloud_slots --verify-dir "$RUNNER_TEMP/kral-cloud-slot-artifacts" --out "$RUNNER_TEMP/kral-cloud-rollup.json"
+          cat "$RUNNER_TEMP/kral-cloud-rollup.json"
+      - name: Upload merged result
+        uses: actions/upload-artifact@v4
+        with:
+          name: kral-cloud-fifty-rollup
+          path: ${{ runner.temp }}/kral-cloud-rollup.json
+          if-no-files-found: error
+          retention-days: 2

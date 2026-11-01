@@ -415,9 +415,17 @@ class ProviderTests(unittest.TestCase):
         with self.assertRaises(g.Denied):
             g.NoRedirect().redirect_request(None, None, 302, "Found", {}, "https://evil.invalid")
 
-    def test_empty_allowlist_never_invents_models(self):
-        with patch.dict(os.environ, {"OPENAI_ALLOWED_MODELS": ""}):
-            self.assertEqual(g.OpenAIProvider().candidates(), ())
+    def test_empty_legacy_allowlist_uses_full_model_default(self):
+        with patch.dict(os.environ, {"OPENAI_ALLOWED_MODELS": ""}, clear=True):
+            self.assertEqual(g.OpenAIProvider().selected_model(), "gpt-4.1")
+            self.assertEqual(g.OpenAIProvider().candidates(), ("gpt-4.1",))
+
+    def test_legacy_allowlist_does_not_override_selected_model(self):
+        with patch.dict(os.environ, {
+            "OPENAI_MODEL": "owner-selected-model",
+            "OPENAI_ALLOWED_MODELS": "mini-a,mini-b,mini-c,mini-d,mini-e,invalid model",
+        }, clear=True):
+            self.assertEqual(g.OpenAIProvider().candidates(), ("owner-selected-model",))
 
     def test_upstream_error_body_and_key_are_never_relayed(self):
         from io import BytesIO
@@ -427,8 +435,9 @@ class ProviderTests(unittest.TestCase):
                 BytesIO(b"synthetic-sensitive-key private upstream details"))
             with self.assertRaises(g.Denied) as context:
                 g.OpenAIProvider().reply("requested", "Merhaba")
-            self.assertEqual(str(context.exception), "PROVIDER_AUTH_DENIED")
+            self.assertEqual(str(context.exception), "OPENAI_ACCESS_DENIED")
 
 
 if __name__ == "__main__":
     unittest.main()
+
