@@ -65,6 +65,8 @@ jobs:
   emulator:
     needs: build
     runs-on: ubuntu-latest
+    env:
+      KRAL_EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     timeout-minutes: 15
     permissions:
       contents: read
