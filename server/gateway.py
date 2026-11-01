@@ -307,10 +307,10 @@ class Gateway:
                 text = data["text"]
                 if isinstance(text, str) and 0 < len(text.strip()) <= 8000:
                     return {"id": self.store.remember(text, data.get("embedding"))}
-            if action == "recall" and not set(data) - {"action", "query"}:
+            if action == "recall" and not set(data) - {"action", "query", "embedding"}:
                 query = data.get("query", "")
                 if isinstance(query, str) and len(query) <= 1000:
-                    return {"memories": self.store.recall(query)}
+                    return {"memories": self.store.recall(query, embedding=data.get("embedding"))}
             raise Denied("MEMORY_FIELDS_INVALID")
         raise Denied("ROUTE_NOT_FOUND", 404)
 
