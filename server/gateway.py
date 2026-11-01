@@ -240,6 +240,16 @@ class Gateway:
         if not isinstance(model, str) or not isinstance(include_memory, bool):
             raise Denied("CHAT_FIELDS_INVALID")
         request_hash = None
+        with self.lock:
+            row = self.models.get(model)
+            now = time.time()
+            if row is None or not 0 <= now - row[0]["verified_at"] < MODEL_TTL:
+                raise Denied("MODEL_NOT_VERIFIED", 409)
+            while self.calls and now - self.calls[0] >= 60:
+                self.calls.popleft()
+            if len(self.calls) >= 10:
+                raise Denied("OWNER_RATE_LIMIT", 429)
+            self.calls.append(now)
         if idem_key is not None:
             try:
                 request_hash = idempotency.request_digest({
@@ -254,16 +264,6 @@ class Gateway:
                 raise Denied("IDEMPOTENCY_KEY_CONFLICT", 409) from None
             except RuntimeError:
                 raise Denied("IDEMPOTENCY_REQUEST_IN_PROGRESS", 409) from None
-        with self.lock:
-            row = self.models.get(model)
-            now = time.time()
-            if row is None or not 0 <= now - row[0]["verified_at"] < MODEL_TTL:
-                raise Denied("MODEL_NOT_VERIFIED", 409)
-            while self.calls and now - self.calls[0] >= 60:
-                self.calls.popleft()
-            if len(self.calls) >= 10:
-                raise Denied("OWNER_RATE_LIMIT", 429)
-            self.calls.append(now)
         prompt = message
         if include_memory:
             memories = self.store.recall(message, limit=10, embedding=memory_embedding)
