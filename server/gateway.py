@@ -303,10 +303,10 @@ class Gateway:
             return {"messages": self.store.history(limit)}
         if path == PREFIX + "memory":
             action = data.get("action")
-            if action == "save" and set(data) == {"action", "text"}:
+            if action == "save" and set(data) in ({"action", "text"}, {"action", "text", "embedding"}):
                 text = data["text"]
                 if isinstance(text, str) and 0 < len(text.strip()) <= 8000:
-                    return {"id": self.store.remember(text)}
+                    return {"id": self.store.remember(text, data.get("embedding"))}
             if action == "recall" and not set(data) - {"action", "query"}:
                 query = data.get("query", "")
                 if isinstance(query, str) and len(query) <= 1000:
