@@ -10,6 +10,19 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          # PR default refs are synthetic merges. APK source MUST be exact head SHA.
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify source commit, not synthetic PR merge
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA" || { echo "SOURCE_SHA_MISMATCH"; exit 1; }
+          test -z "$(git status --porcelain)" || { echo "SOURCE_TREE_DIRTY"; exit 1; }
+          echo "SOURCE_SHA_VERIFIED=$EXPECTED_SHA"
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -24,7 +37,7 @@ jobs:
         if: success()
         run: |
           cp app/build/outputs/apk/debug/app-debug.apk build/delivery/app-debug.apk
-          python3 scripts/android_artifact.py build/delivery/app-debug.apk build/delivery
+          python3 scripts/android_artifact.py build/delivery/app-debug.apk build/delivery --expected-sha "${{ github.event.pull_request.head.sha || github.sha }}"
           git archive --format=tar.gz --output=build/delivery/source.tar.gz HEAD
           cd build/delivery
           sha256sum source.tar.gz > SOURCE-SHA256SUMS
@@ -52,11 +65,26 @@ jobs:
   emulator:
     needs: build
     runs-on: ubuntu-latest
+    env:
+      KRAL_EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     timeout-minutes: 15
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          # PR default refs are synthetic merges. APK source MUST be exact head SHA.
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify source commit, not synthetic PR merge
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA" || { echo "SOURCE_SHA_MISMATCH"; exit 1; }
+          test -z "$(git status --porcelain)" || { echo "SOURCE_TREE_DIRTY"; exit 1; }
+          echo "SOURCE_SHA_VERIFIED=$EXPECTED_SHA"
       - uses: actions/download-artifact@v4
         with:
           name: kral-asistan-candidate-apk

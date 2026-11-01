@@ -31,7 +31,11 @@ from pathlib import Path
 root = Path('build/emulator/evidence')
 metadata = json.loads((root / 'apk-metadata.json').read_text())
 assert metadata['package'] == 'com.example.gptasistan.genesis', 'Unexpected APK package'
-assert metadata['source_commit'] == os.environ['GITHUB_SHA'], 'APK/source commit mismatch'
+expected = os.environ.get('KRAL_EXPECTED_SOURCE_SHA', '')
+assert len(expected) == 40 and all(c in '0123456789abcdef' for c in expected), 'Expected source SHA missing'
+assert metadata['source_commit'] == expected, 'APK/source commit mismatch'
+assert metadata['expected_source_commit'] == expected, 'Recorded source expectation mismatch'
+assert metadata['exact_source_head_verified'] is True, 'APK head provenance not verified'
 assert (root / 'is-emulator.txt').read_text().strip() == '1', 'Target must be an emulator'
 assert (root / 'api-level.txt').read_text().strip() == '30', 'Unexpected emulator API'
 assert (root / 'abi.txt').read_text().strip() == 'x86_64', 'Unexpected emulator architecture'
@@ -78,7 +82,7 @@ from pathlib import Path
 root = Path('build/emulator/evidence')
 apk = json.loads((root / 'apk-metadata.json').read_text())
 result = {
-    'source_commit': os.environ['GITHUB_SHA'],
+    'source_commit': os.environ['KRAL_EXPECTED_SOURCE_SHA'],
     'github_run_id': os.environ['GITHUB_RUN_ID'],
     'apk_sha256': apk['sha256'],
     'package': apk['package'],

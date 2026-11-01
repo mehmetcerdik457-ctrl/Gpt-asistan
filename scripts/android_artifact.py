@@ -29,7 +29,11 @@ def main() -> None:
     parser.add_argument("output", type=Path)
     parser.add_argument("--sdk", type=Path, default=os.environ.get("ANDROID_HOME"))
     parser.add_argument("--build-tools", default="34.0.0")
+    parser.add_argument("--expected-sha", help="CI-provided exact head commit, never synthetic PR merge")
     args = parser.parse_args()
+    actual_sha = command("git", "rev-parse", "HEAD").strip()
+    if args.expected_sha and (not re.fullmatch(r"[0-9a-f]{40}", args.expected_sha) or actual_sha != args.expected_sha):
+        raise ValueError("SOURCE_SHA_MISMATCH")
     if not args.sdk:
         parser.error("--sdk or ANDROID_HOME is required")
     sdk_tools = args.sdk / "build-tools" / args.build_tools
@@ -44,7 +48,9 @@ def main() -> None:
         if archive.testzip() is not None:
             raise ValueError("APK ZIP integrity check failed")
     metadata = {
-        "source_commit": command("git", "rev-parse", "HEAD").strip(),
+        "source_commit": actual_sha,
+        "expected_source_commit": args.expected_sha or None,
+        "exact_source_head_verified": bool(args.expected_sha),
         "source_branch": command("git", "branch", "--show-current").strip(),
         "source_tree_clean": not command("git", "status", "--porcelain").strip(),
         "apk": args.apk.name,
