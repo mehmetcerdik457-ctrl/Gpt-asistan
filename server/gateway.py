@@ -21,7 +21,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from . import owner_auth_v1 as auth
-from . import kral_memory, idempotency
+from . import kral_memory, idempotency, owner_workers
 
 CONTRACT = "OMEGA-OWNER-API-V1"
 PREFIX = "/api/v1/owner/"
@@ -57,7 +57,12 @@ class OpenAIProvider:
         models = [m.strip() for m in os.getenv("OPENAI_ALLOWED_MODELS", "").split(",") if m.strip()]
         if len(models) > 4 or any(not MODEL_ID.fullmatch(m) for m in models):
             raise Denied("MODEL_CONFIGURATION_INVALID", 503)
-        return tuple(dict.fromkeys(models))
+        preferred = os.getenv("OPENAI_MODEL_PREFERRED", "").strip()
+        ordered = list(dict.fromkeys(models))
+        if preferred and preferred in ordered:
+            ordered.remove(preferred)
+            ordered.insert(0, preferred)
+        return tuple(ordered)
 
     def reply(self, model, message, *, probe=False):
         key = os.getenv("OPENAI_API_KEY", "").strip()
@@ -292,6 +297,11 @@ class Gateway:
         )
 
     def route(self, path, data):
+        if path == PREFIX + "workers":
+            try:
+                return owner_workers.run_batch(self, data)
+            except (ValueError, TypeError):
+                raise Denied("WORKER_REQUEST_DENIED", 400) from None
         if path == PREFIX + "models":
             if data:
                 raise Denied("MODEL_FIELDS_DENIED")
@@ -350,7 +360,7 @@ def handler_for(gateway):
         def do_POST(self):
             acquired = False
             try:
-                if self.path not in {PREFIX + p for p in ("chat", "models", "history", "memory")}:
+                if self.path not in {PREFIX + p for p in ("chat", "models", "history", "memory", "workers")}:
                     raise Denied("ROUTE_NOT_FOUND", 404)
                 if self.headers.get("Transfer-Encoding") or len(self.headers.get_all("Content-Length", [])) != 1:
                     raise Denied("BODY_LENGTH_REQUIRED", 411)

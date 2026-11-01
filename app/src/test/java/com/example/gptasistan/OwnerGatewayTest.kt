@@ -66,6 +66,49 @@ class OwnerGatewayTest {
         }
     }
 
+    @Test fun workerPathUsesExistingDualP256CanonicalButOtherPathsDenied() {
+        val body = "{\"tasks\":[{\"id\":\"W01\",\"kind\":\"status\",\"args\":{}}],\"max_parallel\":1}".toByteArray()
+        val nonce = "b".repeat(48)
+        val device = "a".repeat(64)
+        val signed = OmegaEnvelope.canonical(OmegaEnvelope.WORKERS, body, "1792537200",
+            nonce, "Mehmet", device).toString(Charsets.UTF_8)
+        assertTrue(signed.contains("/api/v1/owner/workers"))
+        assertFalse(signed.contains("/api/v1/owner/chat"))
+        assertThrows(IllegalArgumentException::class.java) {
+            OmegaEnvelope.canonical("/api/v1/owner/github-merge", body, "1792537200", nonce, "Mehmet", device)
+        }
+    }
+
+    @Test fun localWorkersRejectForgedExternalActionsAndModelCalls() {
+        fun safe() = JSONObject()
+            .put("contract", OmegaEnvelope.CONTRACT)
+            .put("mode", "SIGNED_OWNER_READ_ONLY_LOCAL")
+            .put("task_sha256", "a".repeat(64))
+            .put("logical_worker_slots", 50).put("executed_tasks", 1)
+            .put("parallel_limit", 1).put("provider_calls", 0)
+            .put("external_actions", 0).put("automatic_approvals", 0)
+            .put("results", org.json.JSONArray().put(JSONObject()
+                .put("id", "W01").put("status", "COMPLETED_LOCAL_READ")
+                .put("result", JSONObject().put("scope", "local-owner-reads"))))
+        assertEquals(1, OwnerGateway.parseLocalWorkers(safe(), 1).length())
+        listOf(
+            safe().put("provider_calls", 1),
+            safe().put("external_actions", 1),
+            safe().put("automatic_approvals", 1),
+            safe().put("mode", "REMOTE_AUTONOMOUS"),
+            safe().put("task_sha256", "bad"),
+            safe().put("executed_tasks", 50)
+        ).forEach { forged ->
+            assertThrows(IllegalArgumentException::class.java) {
+                OwnerGateway.parseLocalWorkers(forged, 1)
+            }
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            OwnerGateway.parseLocalWorkers(safe().put("results", org.json.JSONArray()
+                .put(JSONObject().put("id", "W01").put("status", "EXECUTED_SHELL"))), 1)
+        }
+    }
+
     @Test fun noModelsAreVerifiedAtProcessStart() {
         OwnerGateway.clear()
         assertTrue(OwnerGateway.verifiedModels("https://server.example", "Mehmet").isEmpty())
