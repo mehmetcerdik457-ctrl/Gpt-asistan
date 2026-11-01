@@ -119,7 +119,7 @@ class OwnerWorkerTests(unittest.TestCase):
     def test_signed_memory_search_and_wal_persistence(self):
         with self.store.connect() as db:
             self.assertEqual(db.execute("PRAGMA journal_mode").fetchone()[0], "wal")
-        self.store.remember("Güvenli yerel hafıza kontrolü")
+        # Bind the empty store to the verified owner before inserting data.\n        # Pre-populated unbound stores MUST return HTTP 503, not be claimed silently.\n        status, _ = self.post({"tasks": [self.job(1)], "max_parallel": 1})\n        self.assertEqual(status, 200)\n        self.store.remember("Güvenli yerel hafıza kontrolü")
         payload = {"tasks": [self.job(1, "memory.search", {"query": "hafıza", "limit": 5})],
                    "max_parallel": 1}
         status, data = self.post(payload)
