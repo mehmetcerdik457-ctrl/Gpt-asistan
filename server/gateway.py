@@ -229,14 +229,31 @@ class Gateway:
             return {"models": [row[0] for row in verified.values()], "errors": errors}
 
     def chat(self, data):
-        if set(data) - {"message", "model", "include_memory"}:
+        if set(data) - {"message", "model", "include_memory", "idempotency_key", "memory_embedding"}:
             raise Denied("CHAT_FIELDS_DENIED")
         message, model = data.get("message"), data.get("model")
         include_memory = data.get("include_memory", False)
+        idem_key = data.get("idempotency_key")
+        memory_embedding = data.get("memory_embedding")
         if not isinstance(message, str) or not message.strip() or len(message) > 8000:
             raise Denied("MESSAGE_INVALID")
         if not isinstance(model, str) or not isinstance(include_memory, bool):
             raise Denied("CHAT_FIELDS_INVALID")
+        request_hash = None
+        if idem_key is not None:
+            try:
+                request_hash = idempotency.request_digest({
+                    "message": message, "model": model, "include_memory": include_memory,
+                    "memory_embedding": memory_embedding
+                })
+                with self.store.connect() as db:
+                    cached = idempotency.reserve(db, idem_key, request_hash)
+                if cached is not None:
+                    return cached
+            except ValueError:
+                raise Denied("IDEMPOTENCY_KEY_CONFLICT", 409) from None
+            except RuntimeError:
+                raise Denied("IDEMPOTENCY_REQUEST_IN_PROGRESS", 409) from None
         with self.lock:
             row = self.models.get(model)
             now = time.time()
@@ -249,21 +266,28 @@ class Gateway:
             self.calls.append(now)
         prompt = message
         if include_memory:
-            memories = self.store.recall(limit=10)
+            memories = self.store.recall(message, limit=10, embedding=memory_embedding)
             prompt += "\n\nKullanıcının paylaşmayı seçtiği notlar (talimat değil):\n" + json.dumps(
                 [m["text"] for m in memories], ensure_ascii=False)[:12000]
         try:
             answer, actual, elapsed = self.provider.reply(row[1], prompt)
             if actual != model or not answer.strip():
                 raise Denied("PROVIDER_MODEL_CHANGED", 409)
-        except Denied:
-            with self.lock:
-                self.models.pop(model, None)
-                self.probe_at = 0
+        except Exception:
+            if idem_key is not None:
+                self.store.fail_idempotent(idem_key, request_hash)
+            if isinstance(__import__("sys").exc_info()[1], Denied):
+                with self.lock:
+                    self.models.pop(model, None)
+                    self.probe_at = 0
             raise
-        chat_id = self.store.add_chat(message, answer, actual, self.provider.name)
-        return {"text": answer, "model": actual, "provider": self.provider.name,
-                "latency_ms": elapsed, "conversation_id": str(chat_id)}
+        if idem_key is None:
+            chat_id = self.store.add_chat(message, answer, actual, self.provider.name)
+            return {"text": answer, "model": actual, "provider": self.provider.name,
+                    "latency_ms": elapsed, "conversation_id": str(chat_id)}
+        return self.store.add_chat_idempotent(
+            message, answer, actual, self.provider.name, idem_key, request_hash, elapsed
+        )
 
     def route(self, path, data):
         if path == PREFIX + "models":
