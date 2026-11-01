@@ -21,6 +21,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from . import owner_auth_v1 as auth
+from . import kral_memory, idempotency
 
 CONTRACT = "OMEGA-OWNER-API-V1"
 PREFIX = "/api/v1/owner/"
@@ -117,10 +118,17 @@ class Store:
                     singleton INTEGER PRIMARY KEY CHECK(singleton=1),
                     owner_id TEXT NOT NULL, public_key_sha256 TEXT NOT NULL);
             """)
+            kral_memory.initialize(db)
+            idempotency.initialize(db)
         os.chmod(self.path, 0o600)
 
     def connect(self):
-        return sqlite3.connect(str(self.path), timeout=3)
+        db = sqlite3.connect(str(self.path), timeout=3)
+        db.execute("PRAGMA busy_timeout=3000")
+        db.execute("PRAGMA journal_mode=WAL")
+        db.execute("PRAGMA synchronous=NORMAL")
+        kral_memory.load_vector_extension(db)
+        return db
 
     def bind_owner(self, owner_id, public_key_sha256):
         """An identity configuration change cannot silently inherit another owner DB."""
