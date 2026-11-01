@@ -148,23 +148,36 @@ class Store:
             return db.execute("INSERT INTO chat(ts,question,answer,model,provider) VALUES(?,?,?,?,?)",
                               (int(time.time()), question, answer, model, provider)).lastrowid
 
+    def add_chat_idempotent(self, question, answer, model, provider, key, payload_hash, elapsed):
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            chat_id = db.execute(
+                "INSERT INTO chat(ts,question,answer,model,provider) VALUES(?,?,?,?,?)",
+                (int(time.time()), question, answer, model, provider)
+            ).lastrowid
+            result = {"text": answer, "model": model, "provider": provider,
+                      "latency_ms": elapsed, "conversation_id": str(chat_id)}
+            idempotency.complete(db, key, payload_hash, result)
+            return result
+
+    def fail_idempotent(self, key, payload_hash):
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            idempotency.fail(db, key, payload_hash)
+
     def history(self, limit=30):
         with self.connect() as db:
             db.row_factory = sqlite3.Row
             rows = db.execute("SELECT * FROM chat ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
             return [dict(row) for row in reversed(rows)]
 
-    def remember(self, text):
+    def remember(self, text, embedding=None):
         with self.connect() as db:
-            return db.execute("INSERT INTO memory(ts,text) VALUES(?,?)", (int(time.time()), text)).lastrowid
+            return kral_memory.remember(db, text, embedding)
 
-    def recall(self, query="", limit=20):
-        # instr uses a literal search; SQL metacharacters and LIKE wildcards stay data.
+    def recall(self, query="", limit=20, embedding=None):
         with self.connect() as db:
-            db.row_factory = sqlite3.Row
-            rows = db.execute("SELECT * FROM memory WHERE instr(text,?)>0 ORDER BY id DESC LIMIT ?",
-                              (query, limit)).fetchall()
-            return [dict(row) for row in reversed(rows)]
+            return kral_memory.recall(db, query, limit, embedding)
 
 
 class Gateway:
