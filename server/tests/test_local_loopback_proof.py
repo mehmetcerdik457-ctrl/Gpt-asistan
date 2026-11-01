@@ -1,10 +1,10 @@
 """Signed local HTTP 200 proof using the existing synthetic provider fixture only."""
 import unittest
-from test_gateway import GatewayHttpTests
 
 
 class LocalLoopbackProof(unittest.TestCase):
     def test_owner_chat_returns_http_200_on_localhost(self):
+        from test_gateway import GatewayHttpTests
         fixture = GatewayHttpTests(methodName="test_signed_live_probe_contract_and_actual_id")
         fixture.setUp()
         try:
