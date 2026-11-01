@@ -435,7 +435,7 @@ class ProviderTests(unittest.TestCase):
                 BytesIO(b"synthetic-sensitive-key private upstream details"))
             with self.assertRaises(g.Denied) as context:
                 g.OpenAIProvider().reply("requested", "Merhaba")
-            self.assertEqual(str(context.exception), "PROVIDER_AUTH_DENIED")
+            self.assertEqual(str(context.exception), "OPENAI_ACCESS_DENIED")
 
 
 if __name__ == "__main__":

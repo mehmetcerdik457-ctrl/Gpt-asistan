@@ -49,6 +49,7 @@ class OpenAIModelSelectionHttpTests(unittest.TestCase):
                 BytesIO(g.json_bytes({"error": self.upstream_error})))
         requested = json.loads(request.data)["model"]
         response = BytesIO(g.json_bytes({
+            "id": "resp_synthetic_actual",
             "status": "completed", "model": self.actual_model or requested,
             "output": [{"type": "message", "content": [
                 {"type": "output_text", "text": "Merhaba"}]}],
@@ -166,7 +167,7 @@ class OpenAIModelSelectionHttpTests(unittest.TestCase):
     def test_missing_provider_key_never_reaches_upstream(self):
         with patch.dict(os.environ, {"OPENAI_API_KEY": ""}):
             status, data = self.post_chat({"message": "Merhaba", "model": "gpt-4o"})
-        self.assertEqual((status, data["error"]), (503, "PROVIDER_NOT_CONFIGURED"))
+        self.assertEqual((status, data["error"]), (503, "OPENAI_NOT_CONFIGURED"))
         self.assertEqual(self.requests, [])
 
     def test_rate_limit_does_not_trigger_a_cheaper_model_or_retry(self):
