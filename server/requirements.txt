@@ -1,0 +1,4 @@
+cryptography==46.0.4
+cffi==2.1.1
+pycparser==3.11
+sqlite-vec==0.1.6

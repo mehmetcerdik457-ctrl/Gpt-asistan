@@ -1,0 +1,11 @@
+{
+  "source_repository": "https://github.com/mehmetcerdik457-ctrl/benim-uygulamam",
+  "source_commit": "b33f07ad9a008f072f07a8bd90dc2ba0e43bd4ed",
+  "source_path": "backend/owner_auth_v1.py",
+  "source_sha256": "4560da60f504dcce82045d9733f14e154276a733c36ec71fadbf237efa47b9bb",
+  "derived_path": "server/owner_auth_v1.py",
+  "runtime": "KRAL Python gateway; public OMEGA-OWNER-API-V1 transport reuse",
+  "private_omega_equivalence": false,
+  "authorization": "User-directed reuse of existing source in the user's GitHub account; no third-party APK keys used",
+  "changes": ["Require distinct enrolled P-256 keys", "Bind device ID to SHA-256 of enrolled public DER", "Reject malformed base64 and oversized signed envelopes"]
+}
