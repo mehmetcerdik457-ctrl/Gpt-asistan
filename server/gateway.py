@@ -71,13 +71,20 @@ class OpenAIProvider:
     def configured(self):
         return bool(os.getenv("OPENAI_API_KEY", "").strip())
 
-    def candidates(self):
-        models = [m.strip() for m in os.getenv("OPENAI_ALLOWED_MODELS", "").split(",") if m.strip()]
-        if len(models) > 4 or any(not MODEL_ID.fullmatch(m) for m in models):
+    def selected_model(self):
+        model = os.getenv("OPENAI_MODEL", "").strip() or "gpt-4.1"
+        if not MODEL_ID.fullmatch(model):
             raise Denied("MODEL_CONFIGURATION_INVALID", 503)
-        return tuple(dict.fromkeys(models))
+        return model
+
+    def candidates(self):
+        # Discovery describes the configured default, not an authorization list.
+        # Signed owner chat may select another syntactically valid model directly.
+        return (self.selected_model(),)
 
     def reply(self, model, message, *, probe=False):
+        if not isinstance(model, str) or not MODEL_ID.fullmatch(model):
+            raise Denied("MODEL_INVALID")
         key = os.getenv("OPENAI_API_KEY", "").strip()
         if not key:
             raise Denied("PROVIDER_NOT_CONFIGURED", 503)
@@ -109,8 +116,22 @@ class OpenAIProvider:
                 raise Denied("PROVIDER_TEXT_INVALID", 502)
             return text, returned_model, max(0, round((time.monotonic() - started) * 1000))
         except urllib.error.HTTPError as exc:
-            # Error bodies may contain upstream request information. Never relay them.
-            exc.close()
+            # Read only a bounded, recognized billing code; never relay raw bodies.
+            insufficient_quota = False
+            try:
+                if exc.code == 429:
+                    error = json.loads(exc.read(16384)).get("error", {})
+                    if isinstance(error, dict):
+                        billing_codes = {"insufficient_quota", "billing_hard_limit_reached"}
+                        insufficient_quota = (
+                            error.get("code") in billing_codes or error.get("type") in billing_codes
+                        )
+            except (ValueError, AttributeError, TypeError):
+                pass
+            finally:
+                exc.close()
+            if insufficient_quota:
+                raise Denied("PROVIDER_INSUFFICIENT_QUOTA", 502) from None
             code = "PROVIDER_AUTH_DENIED" if exc.code in (401, 403) else (
                 "PROVIDER_QUOTA_OR_RATE_LIMIT" if exc.code == 429 else "PROVIDER_HTTP_FAILURE")
             raise Denied(code, 502) from None
@@ -263,7 +284,7 @@ class Gateway:
                     return (actual, row, candidate), None
                 except Denied as exc:
                     return None, {"code": exc.code}
-            # At most four configured models, two concurrent 12-second probes.
+            # Discovery uses two concurrent probes; it never gates OpenAI choice.
             with ThreadPoolExecutor(max_workers=2) as probes:
                 for result, error in probes.map(verify, candidates):
                     if result is not None:
@@ -287,16 +308,21 @@ class Gateway:
         if set(data) - {"message", "model", "include_memory", "include_history"}:
             raise Denied("CHAT_FIELDS_DENIED")
         message, model = data.get("message"), data.get("model")
+        direct_openai = isinstance(self.provider, OpenAIProvider)
+        if direct_openai and "model" not in data:
+            model = self.provider.selected_model()
         include_memory = data.get("include_memory", False)
         include_history = data.get("include_history", False)
         if not isinstance(message, str) or not message.strip() or len(message) > 8000:
             raise Denied("MESSAGE_INVALID")
         if not isinstance(model, str) or not isinstance(include_memory, bool) or not isinstance(include_history, bool):
             raise Denied("CHAT_FIELDS_INVALID")
+        if direct_openai and not MODEL_ID.fullmatch(model):
+            raise Denied("MODEL_INVALID")
         with self.lock:
-            row = self.models.get(model)
+            row = ({"provider": self.provider.name}, model) if direct_openai else self.models.get(model)
             now = time.time()
-            if row is None or not 0 <= now - row[0]["verified_at"] < MODEL_TTL:
+            if not direct_openai and (row is None or not 0 <= now - row[0]["verified_at"] < MODEL_TTL):
                 raise Denied("MODEL_NOT_VERIFIED", 409)
             while self.calls and now - self.calls[0] >= 60:
                 self.calls.popleft()
@@ -314,7 +340,13 @@ class Gateway:
             prompt = message
         try:
             answer, actual, elapsed = self.provider.reply(row[1], prompt)
-            if actual != model or not answer.strip():
+            # An alias may resolve to its dated snapshot, never to a mini variant
+            # or a different model. Quota errors propagate without another attempt.
+            dated_snapshot = (
+                direct_openai and isinstance(actual, str)
+                and re.fullmatch(re.escape(model) + r"-\d{4}-\d{2}-\d{2}", actual) is not None
+            )
+            if (actual != model and not dated_snapshot) or not answer.strip():
                 raise Denied("PROVIDER_MODEL_CHANGED", 409)
         except Denied:
             with self.lock:
@@ -325,7 +357,7 @@ class Gateway:
         # Android reply contract; never label multiple providers as a fake one.
         verified_provider = row[0]["provider"]
         chat_id = self.store.add_chat(message, answer, actual, verified_provider)
-        return {"text": answer, "model": actual, "provider": verified_provider,
+        return {"text": answer, "model": actual, "requested_model": model, "provider": verified_provider,
                 "latency_ms": elapsed, "conversation_id": str(chat_id)}
 
     def route(self, path, data):
@@ -449,7 +481,10 @@ def handler_for(gateway):
                 result = gateway.route(self.path, data)
                 self.send_json(200, result)
             except Denied as exc:
-                self.send_json(exc.status, {"error": exc.code})
+                error = {"error": exc.code}
+                if exc.code == "PROVIDER_INSUFFICIENT_QUOTA":
+                    error["message"] = "Hesaba bakiye yükle. Seçilen model değiştirilmedi."
+                self.send_json(exc.status, error)
             except (ValueError, UnicodeError):
                 self.send_json(400, {"error": "REQUEST_INVALID"})
             except sqlite3.Error:
@@ -474,3 +509,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
