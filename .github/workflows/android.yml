@@ -37,7 +37,7 @@ jobs:
         if: success()
         run: |
           cp app/build/outputs/apk/debug/app-debug.apk build/delivery/app-debug.apk
-          python3 scripts/android_artifact.py build/delivery/app-debug.apk build/delivery
+          python3 scripts/android_artifact.py build/delivery/app-debug.apk build/delivery --expected-sha "${{ github.event.pull_request.head.sha || github.sha }}"
           git archive --format=tar.gz --output=build/delivery/source.tar.gz HEAD
           cd build/delivery
           sha256sum source.tar.gz > SOURCE-SHA256SUMS
