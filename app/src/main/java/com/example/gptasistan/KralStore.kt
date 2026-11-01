@@ -10,6 +10,8 @@ import java.time.Instant
 data class ChatEntry(val id: Long, val ts: String, val role: String, val text: String)
 
 class KralStore(context: Context) : SQLiteOpenHelper(context, "kral_local.db", null, 2) {
+    init { setWriteAheadLoggingEnabled(true) }
+
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("CREATE TABLE mem(id INTEGER PRIMARY KEY, ts TEXT NOT NULL, text TEXT NOT NULL)")
         db.execSQL("CREATE TABLE tasks(id INTEGER PRIMARY KEY, title TEXT NOT NULL, done INTEGER NOT NULL DEFAULT 0)")

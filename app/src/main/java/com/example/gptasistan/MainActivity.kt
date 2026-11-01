@@ -20,9 +20,11 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.SwitchCompat
 import androidx.lifecycle.ViewModelProvider
 import java.util.Locale
+import java.util.UUID
 
 class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private lateinit var store: KralStore
+    private lateinit var orchestrator: KralCoreOrchestrator
     private lateinit var session: ChatSession
     private lateinit var transcript: TextView
     private lateinit var input: EditText
@@ -92,6 +94,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     private fun buildContent(savedInstanceState: Bundle?) {
         store = KralStore(this)
+        orchestrator = KralCoreOrchestrator(store)
         session = ViewModelProvider(this)[ChatSession::class.java]
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -186,14 +189,13 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     // Keep command changes and their conversation record in one transaction.
     private fun recordLocal(raw: String, action: () -> String): Boolean {
-        val db = store.writableDatabase
-        db.beginTransaction()
-        try {
+        val operationId = "ui-" + UUID.randomUUID().toString()
+        orchestrator.execute(operationId, "local-command", raw) {
             val reply = action()
             store.saveMessage("user", "Sen: " + raw)
             store.saveMessage("assistant", reply)
-            db.setTransactionSuccessful()
-        } finally { db.endTransaction() }
+            reply
+        }
         session.refreshHistory()
         return true
     }
