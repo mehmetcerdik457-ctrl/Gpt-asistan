@@ -2,11 +2,11 @@ plugins { id("com.android.application"); kotlin("android") }
 
 android {
     namespace = "com.example.gptasistan"
-    compileSdk = 34
+    compileSdk = 36
     defaultConfig {
         applicationId = "com.example.gptasistan"
         minSdk = 26
-        targetSdk = 34
+        targetSdk = 36
         versionCode = 4
         versionName = "1.0.3-genesis-candidate"
     }
