@@ -1,6 +1,7 @@
 package com.example.gptasistan
 
 import android.os.Bundle
+import android.os.Build
 import android.app.KeyguardManager
 import android.app.Activity
 import android.content.Intent
@@ -18,6 +19,8 @@ import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.SwitchCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.ViewModelProvider
 import java.util.Locale
 import java.util.UUID
@@ -49,11 +52,23 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         showLocked()
     }
 
+    // Android 15+ enforces edge-to-edge for modern targets. Protect lock and
+    // conversation controls from overlapping system navigation/status bars.
+    private fun applySystemBarInsets(root: LinearLayout, left: Int, top: Int, right: Int, bottom: Int) {
+        if (Build.VERSION.SDK_INT < 35) return
+        ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            view.setPadding(left + bars.left, top + bars.top, right + bars.right, bottom + bars.bottom)
+            insets
+        }
+    }
+
     private fun showLocked() {
         val locked = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(24, 48, 24, 24)
         }
+        applySystemBarInsets(locked, 24, 48, 24, 24)
         locked.addView(TextView(this).apply { text = "KRAL ASİSTAN — cihaz kilidiyle aç"; textSize = 20f })
         locked.addView(Button(this).apply {
             text = "Kilidi aç"
@@ -100,6 +115,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             orientation = LinearLayout.VERTICAL
             setPadding(24, 24, 24, 24)
         }
+        applySystemBarInsets(root, 24, 24, 24, 24)
         contentRoot = root
         uiReady = true
         root.addView(TextView(this).apply {
