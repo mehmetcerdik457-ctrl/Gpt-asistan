@@ -87,9 +87,14 @@ jobs:
           if-no-files-found: error
   emulator:
     needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        sdk: [30, 36]
     runs-on: ubuntu-latest
     env:
       KRAL_EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      KRAL_EMULATOR_API: ${{ matrix.sdk }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -124,7 +129,7 @@ jobs:
       - name: Install canonical APK and check owner lock screen
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 30
+          api-level: ${{ matrix.sdk }}
           arch: x86_64
           target: google_apis
           profile: pixel_2
@@ -136,6 +141,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: kral-asistan-emulator-evidence
+          name: kral-asistan-emulator-evidence-api${{ matrix.sdk }}
           path: build/emulator/evidence/
           if-no-files-found: warn
