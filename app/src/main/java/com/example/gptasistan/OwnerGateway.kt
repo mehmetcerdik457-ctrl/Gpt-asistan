@@ -65,26 +65,95 @@ object OwnerGateway {
         val owner = context.getSharedPreferences("kral_model", Context.MODE_PRIVATE)
             .getString("owner_id", "").orEmpty()
         val body = JSONObject().put("tasks", tasks).put("max_parallel", maxParallel)
-        return parseLocalWorkers(request(base, OmegaEnvelope.WORKERS, owner, body), tasks.length())
+        return parseLocalWorkers(request(base, OmegaEnvelope.WORKERS, owner, body), tasks, maxParallel)
     }
 
-    internal fun parseLocalWorkers(result: JSONObject, expectedTasks: Int): JSONArray {
-        require(expectedTasks in 1..50)
+    // Match Python owner_workers.run_batch: sorted JSON keys, UTF-8 and no whitespace.
+    // Only the four approved read-only worker kinds are eligible for signed requests.
+    internal fun workerTaskDigest(tasks: JSONArray): String {
+        require(tasks.length() in 1..50)
+        val ids = mutableSetOf<String>()
+        val encoded = (0 until tasks.length()).joinToString(",", "[", "]") { index ->
+            val task = tasks.getJSONObject(index)
+            require(task.length() == 3 && task.has("id") && task.has("kind") && task.has("args"))
+            val id = task.get("id")
+            val kind = task.get("kind")
+            require(id is String && id.matches(Regex("W(0[1-9]|[1-4][0-9]|50)")) && ids.add(id))
+            require(kind is String)
+            val args = task.getJSONObject("args")
+            val encodedArgs = when (kind) {
+                "status", "models.cached" -> {
+                    require(args.length() == 0)
+                    "{}"
+                }
+                "history.recent" -> {
+                    require(args.length() == 1 && args.has("limit"))
+                    val count = integer(args, "limit")
+                    require(count in 1..5)
+                    """{"limit":$count}"""
+                }
+                "memory.search" -> {
+                    require(args.length() == 2 && args.has("query") && args.has("limit"))
+                    val query = args.get("query")
+                    require(query is String && query.length in 1..200)
+                    val count = integer(args, "limit")
+                    require(count in 1..10)
+                    """{"limit":$count,"query":${quoteTaskString(query)}}"""
+                }
+                else -> throw IllegalArgumentException("WORKER_KIND_DENIED")
+            }
+            """{"args":$encodedArgs,"id":${quoteTaskString(id)},"kind":${quoteTaskString(kind)}}"""
+        }
+        return KralAndroidCore.sha256Hex(encoded)
+    }
+
+    private fun quoteTaskString(value: String): String = buildString {
+        append('"')
+        for (ch in value) {
+            when (ch) {
+                '"' -> append("\\\"")
+                '\\' -> append("\\\\")
+                '\b' -> append("\\b")
+                '\u000C' -> append("\\f")
+                '\n' -> append("\\n")
+                '\r' -> append("\\r")
+                '\t' -> append("\\t")
+                else -> {
+                    if (ch.code < 0x20) {
+                        val hex = "0123456789abcdef"
+                        append("\\u00")
+                        append(hex[ch.code ushr 4])
+                        append(hex[ch.code and 15])
+                    } else append(ch)
+                }
+            }
+        }
+        append('"')
+    }
+
+    internal fun parseLocalWorkers(result: JSONObject, requestedTasks: JSONArray, maxParallel: Int): JSONArray {
+        require(maxParallel in 1..4)
+        val expectedDigest = workerTaskDigest(requestedTasks)
+        val expectedTasks = requestedTasks.length()
         require(result.getString("contract") == OmegaEnvelope.CONTRACT)
         require(result.getString("mode") == "SIGNED_OWNER_READ_ONLY_LOCAL")
-        require(result.getInt("logical_worker_slots") == 50)
-        require(result.getInt("executed_tasks") == expectedTasks)
-        require(result.getInt("parallel_limit") in 1..4)
-        require(result.getInt("provider_calls") == 0)
-        require(result.getInt("external_actions") == 0)
-        require(result.getInt("automatic_approvals") == 0)
-        require(result.getString("task_sha256").matches(Regex("[a-f0-9]{64}")))
+        require(integer(result, "logical_worker_slots") == 50L)
+        require(integer(result, "executed_tasks") == expectedTasks.toLong())
+        require(integer(result, "parallel_limit") == maxParallel.toLong())
+        require(integer(result, "provider_calls") == 0L)
+        require(integer(result, "external_actions") == 0L)
+        require(integer(result, "automatic_approvals") == 0L)
+        val digest = result.get("task_sha256")
+        require(digest is String && digest == expectedDigest)
         val entries = result.getJSONArray("results")
         require(entries.length() == expectedTasks)
         for (i in 0 until entries.length()) {
             val item = entries.getJSONObject(i)
-            require(item.getString("id").matches(Regex("W(0[1-9]|[1-4][0-9]|50)")))
-            require(item.getString("status") in setOf("COMPLETED_LOCAL_READ", "BLOCKED_LOCAL_READ", "DENIED"))
+            val expectedId = requestedTasks.getJSONObject(i).getString("id")
+            val id = item.get("id")
+            val status = item.get("status")
+            require(id is String && id == expectedId)
+            require(status is String && status in setOf("COMPLETED_LOCAL_READ", "BLOCKED_LOCAL_READ", "DENIED"))
         }
         return entries
     }
