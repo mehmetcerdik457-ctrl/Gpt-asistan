@@ -69,7 +69,7 @@ class KralCoreOrchestrator(private val store: KralStore) {
                 require(result.length <= 32_000)
                 db.execSQL(
                     "INSERT INTO kral_idempotency(operation_id,payload_sha256,result_text,created_at) VALUES(?,?,?,?)",
-                    arrayOf(operationId, digest, result, System.currentTimeMillis() / 1000L)
+                    arrayOf<Any>(operationId, digest, result, System.currentTimeMillis() / 1000L)
                 )
                 db.setTransactionSuccessful()
                 return result
