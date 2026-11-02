@@ -79,33 +79,93 @@ class OwnerGatewayTest {
         }
     }
 
+    private fun workerTasks() = org.json.JSONArray().put(JSONObject()
+        .put("id", "W01").put("kind", "status").put("args", JSONObject()))
+
+    private fun safeWorkers(tasks: org.json.JSONArray = workerTasks(), parallel: Int = 1) = JSONObject()
+        .put("contract", OmegaEnvelope.CONTRACT)
+        .put("mode", "SIGNED_OWNER_READ_ONLY_LOCAL")
+        .put("task_sha256", OwnerGateway.workerTaskDigest(tasks))
+        .put("logical_worker_slots", 50).put("executed_tasks", tasks.length())
+        .put("parallel_limit", parallel).put("provider_calls", 0)
+        .put("external_actions", 0).put("automatic_approvals", 0)
+        .put("results", org.json.JSONArray().put(JSONObject()
+            .put("id", "W01").put("status", "COMPLETED_LOCAL_READ")
+            .put("result", JSONObject().put("scope", "local-owner-reads"))))
+
+    @Test fun workerCanonicalShaMatchesPythonSortKeysUtf8Contract() {
+        assertEquals("c9c33602cded68f89b200a4489094eb94cdfa8712e5a73d7e2447edffd2fbe72",
+            OwnerGateway.workerTaskDigest(workerTasks()))
+        val unicode = org.json.JSONArray()
+            .put(JSONObject().put("id", "W01").put("kind", "memory.search")
+                .put("args", JSONObject().put("query", "İstanbul cuma").put("limit", 5)))
+            .put(JSONObject().put("id", "W02").put("kind", "history.recent")
+                .put("args", JSONObject().put("limit", 2)))
+        assertEquals("0cd44897334226832ac06b973e118368db60d03486199bc3a36b42a711b5404d",
+            OwnerGateway.workerTaskDigest(unicode))
+    }
+
     @Test fun localWorkersRejectForgedExternalActionsAndModelCalls() {
-        fun safe() = JSONObject()
-            .put("contract", OmegaEnvelope.CONTRACT)
-            .put("mode", "SIGNED_OWNER_READ_ONLY_LOCAL")
-            .put("task_sha256", "a".repeat(64))
-            .put("logical_worker_slots", 50).put("executed_tasks", 1)
-            .put("parallel_limit", 1).put("provider_calls", 0)
-            .put("external_actions", 0).put("automatic_approvals", 0)
-            .put("results", org.json.JSONArray().put(JSONObject()
-                .put("id", "W01").put("status", "COMPLETED_LOCAL_READ")
-                .put("result", JSONObject().put("scope", "local-owner-reads"))))
-        assertEquals(1, OwnerGateway.parseLocalWorkers(safe(), 1).length())
+        val tasks = workerTasks()
+        assertEquals(1, OwnerGateway.parseLocalWorkers(safeWorkers(tasks), tasks, 1).length())
         listOf(
-            safe().put("provider_calls", 1),
-            safe().put("external_actions", 1),
-            safe().put("automatic_approvals", 1),
-            safe().put("mode", "REMOTE_AUTONOMOUS"),
-            safe().put("task_sha256", "bad"),
-            safe().put("executed_tasks", 50)
+            safeWorkers().put("provider_calls", 1),
+            safeWorkers().put("external_actions", 1),
+            safeWorkers().put("automatic_approvals", 1),
+            safeWorkers().put("mode", "REMOTE_AUTONOMOUS"),
+            safeWorkers().put("task_sha256", "a".repeat(64)),
+            safeWorkers().put("executed_tasks", 50),
+            safeWorkers().put("parallel_limit", 4),
+            safeWorkers().put("parallel_limit", "1")
         ).forEach { forged ->
             assertThrows(IllegalArgumentException::class.java) {
-                OwnerGateway.parseLocalWorkers(forged, 1)
+                OwnerGateway.parseLocalWorkers(forged, tasks, 1)
             }
         }
         assertThrows(IllegalArgumentException::class.java) {
-            OwnerGateway.parseLocalWorkers(safe().put("results", org.json.JSONArray()
-                .put(JSONObject().put("id", "W01").put("status", "EXECUTED_SHELL"))), 1)
+            OwnerGateway.parseLocalWorkers(safeWorkers().put("results", org.json.JSONArray()
+                .put(JSONObject().put("id", "W01").put("status", "EXECUTED_SHELL"))), tasks, 1)
+        }
+    }
+
+    @Test fun localWorkersRequireExactlyTheRequestedJobIdsInOrder() {
+        val tasks = org.json.JSONArray().put(JSONObject()
+            .put("id", "W01").put("kind", "status").put("args", JSONObject()))
+            .put(JSONObject().put("id", "W02").put("kind", "models.cached").put("args", JSONObject()))
+        fun response() = safeWorkers(tasks).put("executed_tasks", 2)
+            .put("results", org.json.JSONArray()
+                .put(JSONObject().put("id", "W01").put("status", "COMPLETED_LOCAL_READ"))
+                .put(JSONObject().put("id", "W02").put("status", "BLOCKED_LOCAL_READ")))
+        assertEquals(2, OwnerGateway.parseLocalWorkers(response(), tasks, 1).length())
+
+        listOf(
+            org.json.JSONArray().put(JSONObject().put("id", "W02").put("status", "COMPLETED_LOCAL_READ"))
+                .put(JSONObject().put("id", "W01").put("status", "BLOCKED_LOCAL_READ")),
+            org.json.JSONArray().put(JSONObject().put("id", "W01").put("status", "COMPLETED_LOCAL_READ"))
+                .put(JSONObject().put("id", "W01").put("status", "BLOCKED_LOCAL_READ")),
+            org.json.JSONArray().put(JSONObject().put("id", "W01").put("status", "COMPLETED_LOCAL_READ"))
+                .put(JSONObject().put("id", "W03").put("status", "BLOCKED_LOCAL_READ"))
+        ).forEach { forged ->
+            assertThrows(IllegalArgumentException::class.java) {
+                OwnerGateway.parseLocalWorkers(response().put("results", forged), tasks, 1)
+            }
+        }
+    }
+
+    @Test fun workerRequestRejectsUnsupportedOrDuplicatedOperationsBeforeSending() {
+        val tasks = workerTasks()
+        assertThrows(IllegalArgumentException::class.java) {
+            OwnerGateway.workerTaskDigest(tasks.put(JSONObject()
+                .put("id", "W01").put("kind", "status").put("args", JSONObject())))
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            OwnerGateway.workerTaskDigest(org.json.JSONArray().put(JSONObject()
+                .put("id", "W01").put("kind", "github.merge").put("args", JSONObject())))
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            OwnerGateway.workerTaskDigest(org.json.JSONArray().put(JSONObject()
+                .put("id", "W01").put("kind", "memory.search")
+                .put("args", JSONObject().put("query", "hafıza").put("limit", "5"))))
         }
     }
 
