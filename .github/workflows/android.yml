@@ -28,11 +28,12 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
-      - name: Run unit tests, lint and assemble candidate APK
+      - name: Run unit tests, lint, APK and unsigned release AAB builds
         shell: bash
         run: |
+          set -euo pipefail
           mkdir -p build/delivery
-          ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug --no-daemon --stacktrace 2>&1 | tee build/delivery/gradle.log
+          ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:bundleRelease --no-daemon --stacktrace 2>&1 | tee build/delivery/gradle.log
       - name: Verify APK signature and record source and SHA-256
         if: success()
         run: |
@@ -51,6 +52,27 @@ jobs:
             build/delivery/apk-metadata.json
             build/delivery/APK-SHA256SUMS
           if-no-files-found: error
+      - name: Verify and record unsigned release AAB (NOT Play-ready)
+        if: success()
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          python3 scripts/android_bundle_artifact.py \
+            app/build/outputs/bundle/release/app-release.aab \
+            build/delivery \
+            --expected-sha "$EXPECTED_SHA"
+      - name: Upload unsigned release AAB and provenance
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kral-asistan-unsigned-aab
+          path: |
+            build/delivery/app-release-unsigned.aab
+            build/delivery/aab-metadata.json
+            build/delivery/AAB-SHA256SUMS
+          if-no-files-found: error
       - name: Upload build and test evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -59,6 +81,7 @@ jobs:
           path: |
             build/delivery/
             !build/delivery/app-debug.apk
+            !build/delivery/app-release-unsigned.aab
             app/build/test-results/
             app/build/reports/lint-results-debug.*
           if-no-files-found: error
