@@ -125,6 +125,39 @@ class KralStoreTest {
     }
 
     @Test
+    fun plaintextVersionTwoChatAndTaskRowsArePreservedInCipherDatabase() {
+        val original = context.openOrCreateDatabase(DATABASE_NAME, Context.MODE_PRIVATE, null)
+        try {
+            original.execSQL("CREATE TABLE mem(id INTEGER PRIMARY KEY, ts TEXT NOT NULL, text TEXT NOT NULL)")
+            original.execSQL("CREATE TABLE tasks(id INTEGER PRIMARY KEY, title TEXT NOT NULL, done INTEGER NOT NULL DEFAULT 0)")
+            original.execSQL(
+                "CREATE TABLE chat_messages(id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL, " +
+                    "role TEXT NOT NULL CHECK(role IN ('user','assistant','system')), text TEXT NOT NULL)",
+            )
+            original.execSQL("INSERT INTO mem(id,ts,text) VALUES(1,'time','Kişisel not')")
+            original.execSQL("INSERT INTO tasks(id,title,done) VALUES(3,'Görev üç',1)")
+            original.execSQL(
+                "INSERT INTO chat_messages(id,ts,role,text) VALUES(4,'time','user','Korumalı sohbet')",
+            )
+            original.version = 2
+        } finally {
+            original.close()
+        }
+        val sourceBytes = context.getDatabasePath(DATABASE_NAME).readBytes()
+        val migrated = openStore()
+        assertEquals(KralStore.DATABASE_VERSION, migrated.readableDatabase.version)
+        assertTrue(migrated.memory().contains("Kişisel not"))
+        assertTrue(migrated.tasks().contains("Görev üç"))
+        assertEquals("Korumalı sohbet", migrated.history().single().text)
+        assertTrue(
+            context.getDatabasePath("$DATABASE_NAME.plaintext-legacy")
+                .readBytes().contentEquals(sourceBytes),
+        )
+        migrated.close()
+        assertEquals("Korumalı sohbet", openStore().history().single().text)
+    }
+
+    @Test
     fun interruptedStagingFileBlocksMigrationWithoutRemovingOriginal() {
         val plain = createLegacyVersionOne()
         val staged = context.getDatabasePath("$DATABASE_NAME.cipher-staging")
