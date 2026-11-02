@@ -1,6 +1,6 @@
 package com.example.gptasistan
 
-import android.database.sqlite.SQLiteDatabase
+import net.zetetic.database.sqlcipher.SQLiteDatabase
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 
