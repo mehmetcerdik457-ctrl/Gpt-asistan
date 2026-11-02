@@ -37,7 +37,9 @@ assert metadata['source_commit'] == expected, 'APK/source commit mismatch'
 assert metadata['expected_source_commit'] == expected, 'Recorded source expectation mismatch'
 assert metadata['exact_source_head_verified'] is True, 'APK head provenance not verified'
 assert (root / 'is-emulator.txt').read_text().strip() == '1', 'Target must be an emulator'
-assert (root / 'api-level.txt').read_text().strip() == '30', 'Unexpected emulator API'
+expected_api = os.environ.get('KRAL_EMULATOR_API', '30')
+assert expected_api in ('30', '36'), 'Unsupported emulator API parameter'
+assert (root / 'api-level.txt').read_text().strip() == expected_api, 'Unexpected emulator API'
 assert (root / 'abi.txt').read_text().strip() == 'x86_64', 'Unexpected emulator architecture'
 PY
 
@@ -86,7 +88,7 @@ result = {
     'github_run_id': os.environ['GITHUB_RUN_ID'],
     'apk_sha256': apk['sha256'],
     'package': apk['package'],
-    'api_level': 30,
+    'api_level': int(os.environ.get('KRAL_EMULATOR_API', '30')),
     'abi': 'x86_64',
     'installation_passed': True,
     'launch_passed': True,
