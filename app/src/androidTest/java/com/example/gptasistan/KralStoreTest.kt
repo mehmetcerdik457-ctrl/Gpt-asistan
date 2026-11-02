@@ -78,7 +78,12 @@ class KralStoreTest {
         val upgraded = openStore()
         assertTrue(upgraded.history().isEmpty())
         assertEquals(KralStore.DATABASE_VERSION, upgraded.readableDatabase.version)
-        assertFalse(context.getDatabasePath("$DATABASE_NAME.plaintext-legacy").exists())
+        // The original pre-migration data is deliberately retained for owner recovery.
+        // This plaintext copy MUST be handled by an explicit follow-up cleanup policy.
+        val preserved = context.getDatabasePath("$DATABASE_NAME.plaintext-legacy")
+        assertTrue(preserved.exists())
+        assertTrue(preserved.readBytes().copyOfRange(0, 16)
+            .contentEquals("SQLite format 3\u0000".toByteArray(Charsets.US_ASCII)))
 
         upgraded.readableDatabase.rawQuery("SELECT id,ts,text FROM mem ORDER BY id", null).use { rows ->
             assertTrue(rows.moveToNext())
@@ -117,6 +122,68 @@ class KralStoreTest {
         val raw = String(context.getDatabasePath(DATABASE_NAME).readBytes(), Charsets.ISO_8859_1)
         assertFalse(raw.contains("Eski kişisel hafızam"))
         assertFalse(raw.contains("Eski bekleyen görev"))
+    }
+
+    @Test
+    fun interruptedStagingFileBlocksMigrationWithoutRemovingOriginal() {
+        val plain = createLegacyVersionOne()
+        val staged = context.getDatabasePath("$DATABASE_NAME.cipher-staging")
+        staged.writeText("PREVIOUS_MIGRATION_EVIDENCE")
+        val before = plain.readBytes()
+        assertThrows(IllegalStateException::class.java) { openStore() }
+        assertTrue(plain.readBytes().contentEquals(before))
+        assertEquals("PREVIOUS_MIGRATION_EVIDENCE", staged.readText())
+        assertFalse(context.getDatabasePath("$DATABASE_NAME.plaintext-legacy").exists())
+    }
+
+    @Test
+    fun oldPlaintextWalOrJournalBlocksMigrationWithoutDeletingFiles() {
+        for (suffix in listOf("-wal", "-journal", "-shm")) {
+            deleteTestDatabases()
+            val plain = createLegacyVersionOne()
+            val before = plain.readBytes()
+            val sidecar = File(plain.absolutePath + suffix)
+            sidecar.writeText("PRESERVE_SIDECAR")
+            assertThrows(IllegalStateException::class.java) { openStore() }
+            assertTrue(plain.readBytes().contentEquals(before))
+            assertEquals("PRESERVE_SIDECAR", sidecar.readText())
+            assertFalse(context.getDatabasePath("$DATABASE_NAME.cipher-staging").exists())
+        }
+    }
+
+    @Test
+    fun oldPlaintextSnapshotSurvivesMigrationAndFailedReopen() {
+        val source = createLegacyVersionOne()
+        val before = source.readBytes()
+        val converted = openStore()
+        assertEquals(KralStore.DATABASE_VERSION, converted.readableDatabase.version)
+        converted.close()
+        val preserved = context.getDatabasePath("$DATABASE_NAME.plaintext-legacy")
+        assertTrue(preserved.readBytes().contentEquals(before))
+        assertFalse(context.getDatabasePath("$DATABASE_NAME.cipher-staging").exists())
+
+        val otherKey = DatabaseKeyProvider { ByteArray(32) { 99.toByte() } }
+        assertThrows(Exception::class.java) {
+            KralStore(context, otherKey)
+        }
+        assertTrue(preserved.readBytes().contentEquals(before))
+        assertEquals(KralStore.DATABASE_VERSION, openStore().readableDatabase.version)
+    }
+
+    private fun createLegacyVersionOne(): File {
+        val legacy = context.openOrCreateDatabase(DATABASE_NAME, Context.MODE_PRIVATE, null)
+        try {
+            legacy.execSQL("CREATE TABLE mem(id INTEGER PRIMARY KEY, ts TEXT NOT NULL, text TEXT NOT NULL)")
+            legacy.execSQL("CREATE TABLE tasks(id INTEGER PRIMARY KEY, title TEXT NOT NULL, done INTEGER NOT NULL DEFAULT 0)")
+            legacy.execSQL(
+                "INSERT INTO mem(id,ts,text) VALUES(?,?,?)",
+                arrayOf<Any>(8L, "2026-10-19T09:30:00Z", "İlk kayıt korunmalı"),
+            )
+            legacy.version = 1
+        } finally {
+            legacy.close()
+        }
+        return context.getDatabasePath(DATABASE_NAME)
     }
 
     @Test
