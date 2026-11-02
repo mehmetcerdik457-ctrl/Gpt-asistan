@@ -16,6 +16,7 @@ import org.junit.runner.RunWith
 class OwnerLockTest {
     @Test fun launchDoesNotRenderSavedPrivateConversationBeforeCredentialGate() {
         val app = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext
+        InstrumentationSafety.requireDisposableEmulator(app)
         app.deleteDatabase("kral_local.db")
         app.deleteDatabase("kral_local.db.plaintext-legacy")
         app.deleteDatabase("kral_local.db.cipher-staging")

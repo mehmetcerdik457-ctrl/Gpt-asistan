@@ -27,6 +27,8 @@ internal object AndroidDatabaseKeyProvider : DatabaseKeyProvider {
     private const val IV_BYTES = 12
     private const val KEY_BYTES = 32
 
+    // First-open races must never create two different passphrases for one database.
+    @Synchronized
     override fun getKey(context: Context): ByteArray {
         val appContext = context.applicationContext
         val prefs = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)

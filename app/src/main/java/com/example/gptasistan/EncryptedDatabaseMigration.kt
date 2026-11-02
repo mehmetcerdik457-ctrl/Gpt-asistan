@@ -5,13 +5,15 @@ import android.database.sqlite.SQLiteDatabase as PlatformSQLiteDatabase
 import net.zetetic.database.sqlcipher.SQLiteDatabase as CipherSQLiteDatabase
 import java.io.File
 import java.io.FileInputStream
+import java.security.MessageDigest
 
-/** One-time plaintext-to-SQLCipher migration with a rollback copy until verification succeeds. */
+/** Fail-closed plaintext to SQLCipher conversion. The original is never deleted automatically. */
 internal object EncryptedDatabaseMigration {
     private const val LEGACY_NAME = "kral_local.db.plaintext-legacy"
     private const val STAGING_NAME = "kral_local.db.cipher-staging"
     private const val TARGET_VERSION = 3
 
+    @Synchronized
     fun migrateIfNeeded(context: Context, key: ByteArray) {
         val appContext = context.applicationContext
         System.loadLibrary("sqlcipher")
@@ -19,31 +21,30 @@ internal object EncryptedDatabaseMigration {
         val legacy = appContext.getDatabasePath(LEGACY_NAME)
         val staging = appContext.getDatabasePath(STAGING_NAME)
 
+        // Never delete a prior copy, an unrecognized DB, or an interrupted staging file.
         if (database.exists() && !isPlaintextSqlite(database)) {
-            appContext.deleteDatabase(LEGACY_NAME)
-            appContext.deleteDatabase(STAGING_NAME)
+            verifyEncryptedFile(database, key)
             return
         }
-
-        val source = when {
-            isPlaintextSqlite(database) -> database
-            isPlaintextSqlite(legacy) -> legacy
-            else -> null
+        if (legacy.exists() || staging.exists()) {
+            throw IllegalStateException("Önceki migration izleri mevcut; hiçbir dosya değiştirilmedi.")
         }
-        if (source == null) {
-            if (database.exists() || legacy.exists()) {
-                throw IllegalStateException("Yerel veritabanı biçimi tanınmıyor; özgün dosya korunuyor.")
-            }
-            appContext.deleteDatabase(STAGING_NAME)
-            return
+        if (!database.exists()) return // Fresh installation; SQLCipher helper will create it.
+        if (!isPlaintextSqlite(database)) {
+            throw IllegalStateException("Veritabanı biçimi tanınmıyor; özgün dosya korunuyor.")
         }
-        if (source == database && legacy.exists()) {
-            throw IllegalStateException("Önceki migration kopyası bulundu; özgün veriler korunuyor.")
+        // The file-only export cannot safely copy uncheckpointed WAL or journal data.
+        // Require an explicit, independently verified checkpoint before retrying.
+        if (listOf("-wal", "-shm", "-journal").any {
+                File(database.absolutePath + it).exists()
+            }) {
+            throw IllegalStateException("SQLite WAL/journal bulundu; veri tutarlılığı için migration engellendi.")
         }
 
-        val oldVersion = readAndRecoverPlaintextVersion(source)
+        val source = database
+        val snapshot = readPlaintextSnapshot(source)
+        val oldVersion = snapshot.version
         require(oldVersion in 1..2) { "Desteklenmeyen plaintext veritabanı sürümü: $oldVersion" }
-        appContext.deleteDatabase(STAGING_NAME)
 
         val encrypted = CipherSQLiteDatabase.openOrCreateDatabase(staging, key, null, null)
         try {
@@ -55,46 +56,86 @@ internal object EncryptedDatabaseMigration {
             encrypted.execSQL("DETACH DATABASE plaintext")
             if (oldVersion == 1) createChatTable(encrypted)
             encrypted.version = TARGET_VERSION
-            verifyDatabase(encrypted)
+            verifyDatabase(encrypted, snapshot.counts)
         } finally {
             encrypted.close()
         }
 
-        val movedOriginal = source == database
-        if (movedOriginal && !database.renameTo(legacy)) {
-            appContext.deleteDatabase(STAGING_NAME)
-            throw IllegalStateException("Özgün veritabanı güvenli migration için taşınamadı; özgün dosya korundu.")
+        // Reopen the stage and verify it BEFORE touching the original DB.
+        verifyEncryptedFile(staging, key, snapshot.counts)
+        check(sha256File(source) == snapshot.sourceSha256) {
+            "Özgün veritabanı migration sırasında değişti; kaynak korunup geçiş durduruldu."
+        }
+        check(database.renameTo(legacy)) {
+            "Özgün SQLite dosyası taşınamadı; hiçbir veri silinmedi."
         }
         if (!staging.renameTo(database)) {
-            if (movedOriginal) legacy.renameTo(database)
-            appContext.deleteDatabase(STAGING_NAME)
-            throw IllegalStateException("Şifreli veritabanı devreye alınamadı; geri alma denendi.")
+            // Try to restore the original, preserving both files if restoration fails.
+            val restored = legacy.renameTo(database)
+            check(restored) {
+                "Şifreli staging devreye alınamadı ve eski veritabanı otomatik geri alınamadı."
+            }
+            throw IllegalStateException("Şifreli staging devreye alınamadı; eski veritabanı geri alındı.")
         }
 
-        try {
-            verifyEncryptedFile(database, key)
-            if (legacy.exists() && !appContext.deleteDatabase(LEGACY_NAME)) {
-                throw IllegalStateException("Şifreli DB doğrulandı ancak eski plaintext dosyası silinemedi.")
-            }
-            deleteSidecars(database)
-        } catch (error: Exception) {
-            appContext.deleteDatabase(KralStore.DATABASE_NAME)
-            if (movedOriginal && legacy.exists()) legacy.renameTo(database)
-            throw error
-        } finally {
-            appContext.deleteDatabase(STAGING_NAME)
-        }
+        // On failed final verification, keep BOTH files intact for owner recovery.
+        // The retained plaintext legacy snapshot is intentionally NOT deleted.
+        // A later owner-approved cleanup is required for full at-rest privacy.
+        verifyEncryptedFile(database, key, snapshot.counts)
     }
 
-    private fun readAndRecoverPlaintextVersion(file: File): Int {
+    private data class Snapshot(val version: Int, val counts: Map<String, Long>, val sourceSha256: String)
+
+    private fun readPlaintextSnapshot(file: File): Snapshot {
+        // OPEN_READONLY cannot create/checkpoint a journal or modify the source.
+        val before = sha256File(file)
         val database = PlatformSQLiteDatabase.openDatabase(
-            file.absolutePath, null, PlatformSQLiteDatabase.OPEN_READWRITE,
+            file.absolutePath, null, PlatformSQLiteDatabase.OPEN_READONLY,
         )
         return try {
-            database.version
+            database.rawQuery("PRAGMA quick_check", null).use { rows ->
+                check(rows.moveToFirst() && rows.getString(0) == "ok") {
+                    "Özgün SQLite bütünlüğü doğrulanamadı."
+                }
+            }
+            val version = database.version
+            require(version in 1..2)
+            val tables = mutableSetOf<String>()
+            database.rawQuery("SELECT name FROM sqlite_master WHERE type='table'", null).use { rows ->
+                while (rows.moveToNext()) tables.add(rows.getString(0))
+            }
+            check(setOf("mem", "tasks").all(tables::contains)) {
+                "Özgün SQLite şeması beklenen tabloları içermiyor."
+            }
+            if (version == 2) check("chat_messages" in tables)
+            val counts = linkedMapOf<String, Long>()
+            for (table in listOf("mem", "tasks", "chat_messages")) {
+                if (table == "chat_messages" && version == 1) {
+                    counts[table] = 0
+                } else {
+                    database.rawQuery("SELECT COUNT(*) FROM " + table, null).use { rows ->
+                        check(rows.moveToFirst())
+                        counts[table] = rows.getLong(0)
+                    }
+                }
+            }
+            Snapshot(version, counts, before)
         } finally {
             database.close()
         }
+    }
+
+    private fun sha256File(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        FileInputStream(file).use { input ->
+            val block = ByteArray(8192)
+            while (true) {
+                val count = input.read(block)
+                if (count < 0) break
+                if (count > 0) digest.update(block, 0, count)
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it.toInt() and 255) }
     }
 
     private fun createChatTable(database: CipherSQLiteDatabase) {
@@ -104,7 +145,7 @@ internal object EncryptedDatabaseMigration {
         )
     }
 
-    private fun verifyDatabase(database: CipherSQLiteDatabase) {
+    private fun verifyDatabase(database: CipherSQLiteDatabase, expected: Map<String, Long>? = null) {
         database.rawQuery("PRAGMA quick_check", null).use { result ->
             check(result.moveToFirst() && result.getString(0) == "ok") {
                 "Şifreli veritabanı bütünlük kontrolü başarısız."
@@ -117,15 +158,24 @@ internal object EncryptedDatabaseMigration {
         check(setOf("mem", "tasks", "chat_messages").all(tables::contains)) {
             "Migration sonrası beklenen tablolar bulunamadı."
         }
+        if (expected != null) {
+            for ((table, count) in expected) {
+                database.rawQuery("SELECT COUNT(*) FROM " + table, null).use { rows ->
+                    check(rows.moveToFirst() && rows.getLong(0) == count) {
+                        "Migration sonrasında kayıt sayıları eşleşmiyor."
+                    }
+                }
+            }
+        }
     }
 
-    private fun verifyEncryptedFile(file: File, key: ByteArray) {
+    private fun verifyEncryptedFile(file: File, key: ByteArray, expected: Map<String, Long>? = null) {
         val database = CipherSQLiteDatabase.openDatabase(
-            file.absolutePath, key, null, CipherSQLiteDatabase.OPEN_READWRITE, null, null,
+            file.absolutePath, key, null, CipherSQLiteDatabase.OPEN_READONLY, null, null,
         )
         try {
             check(database.version == TARGET_VERSION) { "Şifreli DB sürümü doğrulanamadı." }
-            verifyDatabase(database)
+            verifyDatabase(database, expected)
         } finally {
             database.close()
         }
@@ -140,9 +190,4 @@ internal object EncryptedDatabaseMigration {
         return header.contentEquals("SQLite format 3\u0000".toByteArray(Charsets.US_ASCII))
     }
 
-    private fun deleteSidecars(database: File) {
-        listOf("-journal", "-wal", "-shm").forEach { suffix ->
-            File(database.absolutePath + suffix).delete()
-        }
-    }
 }
