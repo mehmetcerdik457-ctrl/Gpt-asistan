@@ -13,7 +13,7 @@ import java.util.concurrent.RejectedExecutionException
 /** Owns chat work independently of any Activity or speech engine. */
 class ChatSession internal constructor(
     application: Application,
-    private val store: KralStore,
+    private val store: ChatStore,
     private val worker: ExecutorService,
     private val responder: (String, String, String) -> String
 ) : AndroidViewModel(application) {
