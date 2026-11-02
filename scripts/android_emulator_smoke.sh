@@ -31,7 +31,7 @@ from pathlib import Path
 root = Path('build/emulator/evidence')
 metadata = json.loads((root / 'apk-metadata.json').read_text())
 assert metadata['package'] == 'com.example.gptasistan.genesis', 'Unexpected APK package'
-assert metadata['source_commit'] == os.environ['GITHUB_SHA'], 'APK/source commit mismatch'
+assert metadata['source_commit'] == os.environ['KRAL_EXPECTED_SOURCE_SHA'], 'APK/source commit mismatch'
 assert (root / 'is-emulator.txt').read_text().strip() == '1', 'Target must be an emulator'
 assert (root / 'api-level.txt').read_text().strip() == '30', 'Unexpected emulator API'
 assert (root / 'abi.txt').read_text().strip() == 'x86_64', 'Unexpected emulator architecture'
@@ -49,10 +49,14 @@ for attempt in $(seq 1 10); do
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
-nodes = ET.parse(Path('build/emulator/evidence/window.xml')).getroot().iter('node')
+nodes = list(ET.parse(Path('build/emulator/evidence/window.xml')).getroot().iter('node'))
 texts = {node.get('text', '') for node in nodes}
 assert 'KRAL ASİSTAN — cihaz kilidiyle aç' in texts, 'Owner lock title missing'
-assert 'Kilidi aç' in texts, 'Owner unlock button missing'
+assert any(node.get('class') == 'android.widget.Button'
+           and node.get('package') == 'com.example.gptasistan.genesis'
+           and node.get('clickable') == 'true' and node.get('enabled') == 'true'
+           and node.get('text', '').casefold() == 'kilidi aç'
+           for node in nodes), 'Owner unlock button missing'
 PY
     then
       break
@@ -74,7 +78,7 @@ from pathlib import Path
 root = Path('build/emulator/evidence')
 apk = json.loads((root / 'apk-metadata.json').read_text())
 result = {
-    'source_commit': os.environ['GITHUB_SHA'],
+    'source_commit': os.environ['KRAL_EXPECTED_SOURCE_SHA'],
     'github_run_id': os.environ['GITHUB_RUN_ID'],
     'apk_sha256': apk['sha256'],
     'package': apk['package'],
