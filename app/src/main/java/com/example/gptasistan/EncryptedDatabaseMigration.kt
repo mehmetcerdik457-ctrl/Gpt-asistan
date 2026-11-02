@@ -153,7 +153,7 @@ internal object EncryptedDatabaseMigration {
 
     private fun verifyEncryptedFile(file: File, key: ByteArray, expected: Map<String, Long>? = null) {
         val database = CipherSQLiteDatabase.openDatabase(
-            file.absolutePath, key, null, CipherSQLiteDatabase.OPEN_READWRITE, null, null,
+            file.absolutePath, key, null, CipherSQLiteDatabase.OPEN_READONLY, null, null,
         )
         try {
             check(database.version == TARGET_VERSION) { "Şifreli DB sürümü doğrulanamadı." }
