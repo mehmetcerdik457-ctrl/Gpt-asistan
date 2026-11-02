@@ -62,10 +62,13 @@ object OwnerGateway {
     /** Explicit owner-signed read-only local batch. No model or external writes. */
     fun localWorkers(context: Context, base: String, tasks: JSONArray, maxParallel: Int = 4): JSONArray {
         require(tasks.length() in 1..50 && maxParallel in 1..4)
+        // Never allow caller mutation to change the signed request while it is in flight.
+        val frozenTasks = JSONArray(tasks.toString())
+        workerTaskDigest(frozenTasks) // Reject unapproved, malformed or repeated jobs BEFORE signing.
         val owner = context.getSharedPreferences("kral_model", Context.MODE_PRIVATE)
             .getString("owner_id", "").orEmpty()
-        val body = JSONObject().put("tasks", tasks).put("max_parallel", maxParallel)
-        return parseLocalWorkers(request(base, OmegaEnvelope.WORKERS, owner, body), tasks, maxParallel)
+        val body = JSONObject().put("tasks", frozenTasks).put("max_parallel", maxParallel)
+        return parseLocalWorkers(request(base, OmegaEnvelope.WORKERS, owner, body), frozenTasks, maxParallel)
     }
 
     // Match Python owner_workers.run_batch: sorted JSON keys, UTF-8 and no whitespace.
