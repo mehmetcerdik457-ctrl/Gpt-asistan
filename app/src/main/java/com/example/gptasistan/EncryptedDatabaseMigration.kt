@@ -5,6 +5,7 @@ import android.database.sqlite.SQLiteDatabase as PlatformSQLiteDatabase
 import net.zetetic.database.sqlcipher.SQLiteDatabase as CipherSQLiteDatabase
 import java.io.File
 import java.io.FileInputStream
+import java.security.MessageDigest
 
 /** Fail-closed plaintext to SQLCipher conversion. The original is never deleted automatically. */
 internal object EncryptedDatabaseMigration {
@@ -62,6 +63,9 @@ internal object EncryptedDatabaseMigration {
 
         // Reopen the stage and verify it BEFORE touching the original DB.
         verifyEncryptedFile(staging, key, snapshot.counts)
+        check(sha256File(source) == snapshot.sourceSha256) {
+            "Özgün veritabanı migration sırasında değişti; kaynak korunup geçiş durduruldu."
+        }
         check(database.renameTo(legacy)) {
             "Özgün SQLite dosyası taşınamadı; hiçbir veri silinmedi."
         }
@@ -80,10 +84,11 @@ internal object EncryptedDatabaseMigration {
         verifyEncryptedFile(database, key, snapshot.counts)
     }
 
-    private data class Snapshot(val version: Int, val counts: Map<String, Long>)
+    private data class Snapshot(val version: Int, val counts: Map<String, Long>, val sourceSha256: String)
 
     private fun readPlaintextSnapshot(file: File): Snapshot {
         // OPEN_READONLY cannot create/checkpoint a journal or modify the source.
+        val before = sha256File(file)
         val database = PlatformSQLiteDatabase.openDatabase(
             file.absolutePath, null, PlatformSQLiteDatabase.OPEN_READONLY,
         )
@@ -114,10 +119,23 @@ internal object EncryptedDatabaseMigration {
                     }
                 }
             }
-            Snapshot(version, counts)
+            Snapshot(version, counts, before)
         } finally {
             database.close()
         }
+    }
+
+    private fun sha256File(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        FileInputStream(file).use { input ->
+            val block = ByteArray(8192)
+            while (true) {
+                val count = input.read(block)
+                if (count < 0) break
+                if (count > 0) digest.update(block, 0, count)
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it.toInt() and 255) }
     }
 
     private fun createChatTable(database: CipherSQLiteDatabase) {
