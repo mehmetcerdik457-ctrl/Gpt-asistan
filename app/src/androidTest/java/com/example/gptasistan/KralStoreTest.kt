@@ -59,6 +59,7 @@ class KralStoreTest {
         // This is the pre-existing v1 plaintext schema, not a substitute for the v2 helper.
         val legacy = context.openOrCreateDatabase(DATABASE_NAME, Context.MODE_PRIVATE, null)
         try {
+            useDurableLegacyJournal(legacy)
             legacy.execSQL("CREATE TABLE mem(id INTEGER PRIMARY KEY, ts TEXT NOT NULL, text TEXT NOT NULL)")
             legacy.execSQL("CREATE TABLE tasks(id INTEGER PRIMARY KEY, title TEXT NOT NULL, done INTEGER NOT NULL DEFAULT 0)")
             legacy.execSQL(
@@ -131,6 +132,7 @@ class KralStoreTest {
     fun plaintextVersionTwoChatAndTaskRowsArePreservedInCipherDatabase() {
         val original = context.openOrCreateDatabase(DATABASE_NAME, Context.MODE_PRIVATE, null)
         try {
+            useDurableLegacyJournal(original)
             original.execSQL("CREATE TABLE mem(id INTEGER PRIMARY KEY, ts TEXT NOT NULL, text TEXT NOT NULL)")
             original.execSQL("CREATE TABLE tasks(id INTEGER PRIMARY KEY, title TEXT NOT NULL, done INTEGER NOT NULL DEFAULT 0)")
             original.execSQL(
@@ -206,9 +208,20 @@ class KralStoreTest {
         assertEquals(KralStore.DATABASE_VERSION, openStore().readableDatabase.version)
     }
 
+    // Test fixtures only: persist all synthetic legacy rows in the main DB file.
+    // Production migration must NEVER checkpoint or delete a real user's sidecars.
+    private fun useDurableLegacyJournal(db: android.database.sqlite.SQLiteDatabase) {
+        db.rawQuery("PRAGMA journal_mode=DELETE", null).use { rows ->
+            check(rows.moveToFirst() && rows.getString(0).equals("delete", ignoreCase = true)) {
+                "SYNTHETIC_FIXTURE_JOURNAL_MODE_NOT_DELETE"
+            }
+        }
+    }
+
     private fun createLegacyVersionOne(): File {
         val legacy = context.openOrCreateDatabase(DATABASE_NAME, Context.MODE_PRIVATE, null)
         try {
+            useDurableLegacyJournal(legacy)
             legacy.execSQL("CREATE TABLE mem(id INTEGER PRIMARY KEY, ts TEXT NOT NULL, text TEXT NOT NULL)")
             legacy.execSQL("CREATE TABLE tasks(id INTEGER PRIMARY KEY, title TEXT NOT NULL, done INTEGER NOT NULL DEFAULT 0)")
             legacy.execSQL(
