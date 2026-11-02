@@ -17,18 +17,21 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class KralStoreTest {
     private lateinit var context: Context
+    private var disposableEmulatorVerified = false
     private val openedStores = mutableListOf<KralStore>()
 
     @Before
     fun setUp() {
         context = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext
+        InstrumentationSafety.requireDisposableEmulator(context)
+        disposableEmulatorVerified = true
         deleteTestDatabases()
     }
 
     @After
     fun tearDown() {
         openedStores.forEach { it.close() }
-        deleteTestDatabases()
+        if (disposableEmulatorVerified) deleteTestDatabases()
     }
 
     @Test
