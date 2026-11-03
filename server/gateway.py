@@ -32,8 +32,15 @@ MODEL_ID = re.compile(r"[A-Za-z0-9._:/-]{1,160}")
 
 
 class Denied(Exception):
-    def __init__(self, code, status=400):
+    def __init__(self, code, status=400, *, provider_http_status=None,
+                 provider_request_id=None, provider_error_code=None,
+                 retryable=False, retry_after_seconds=None):
         self.code, self.status = code, status
+        self.provider_http_status = provider_http_status
+        self.provider_request_id = provider_request_id
+        self.provider_error_code = provider_error_code
+        self.retryable = bool(retryable)
+        self.retry_after_seconds = retry_after_seconds
         super().__init__(code)
 
 
@@ -64,47 +71,132 @@ class OpenAIProvider:
             ordered.insert(0, preferred)
         return tuple(ordered)
 
+    @staticmethod
+    def _safe_header(headers, name, limit=160):
+        try:
+            value = headers.get(name)
+        except Exception:
+            return None
+        if not isinstance(value, str) or not value.isascii() or not 1 <= len(value) <= limit:
+            return None
+        return value
+
+    @staticmethod
+    def _retry_after(headers):
+        value = OpenAIProvider._safe_header(headers, "Retry-After", 16)
+        if value is None or not value.isdigit():
+            return None
+        seconds = int(value)
+        return seconds if 0 <= seconds <= 86400 else None
+
+    @staticmethod
+    def _safe_error_code(raw):
+        try:
+            value = json.loads(raw)
+            error = value.get("error", {}) if isinstance(value, dict) else {}
+            code = error.get("code") if isinstance(error, dict) else None
+            if isinstance(code, str) and re.fullmatch(r"[A-Za-z0-9_.-]{1,80}", code):
+                return code
+        except (ValueError, TypeError):
+            pass
+        return None
+
     def reply(self, model, message, *, probe=False):
+        text, returned_model, elapsed, _metadata = self.reply_with_metadata(
+            model, message, probe=probe
+        )
+        return text, returned_model, elapsed
+
+    def reply_with_metadata(self, model, message, *, probe=False,
+                            request_metadata=None, client_request_id=None):
         key = os.getenv("OPENAI_API_KEY", "").strip()
         if not key:
             raise Denied("PROVIDER_NOT_CONFIGURED", 503)
-        body = json_bytes({"model": model, "input": message,
-                           "max_output_tokens": 64 if probe else 1024, "store": False})
-        req = urllib.request.Request("https://api.openai.com/v1/responses", data=body, method="POST", headers={
+        payload = {"model": model, "input": message,
+                   "max_output_tokens": 64 if probe else 1024, "store": False}
+        if request_metadata is not None:
+            if (not isinstance(request_metadata, dict) or len(request_metadata) > 16 or
+                    any(not isinstance(k, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", k)
+                        or not isinstance(v, str) or len(v) > 512
+                        for k, v in request_metadata.items())):
+                raise Denied("PROVIDER_METADATA_INVALID", 400)
+            payload["metadata"] = request_metadata
+        headers = {
             "Authorization": "Bearer " + key, "Content-Type": "application/json",
-            "User-Agent": "kral-owner-gateway/1.0"})
+            "User-Agent": "kral-owner-gateway/1.0"}
+        if client_request_id is not None:
+            if (not isinstance(client_request_id, str) or not client_request_id.isascii()
+                    or not 1 <= len(client_request_id) <= 512):
+                raise Denied("PROVIDER_CLIENT_REQUEST_ID_INVALID", 400)
+            headers["X-Client-Request-Id"] = client_request_id
+        body = json_bytes(payload)
+        req = urllib.request.Request("https://api.openai.com/v1/responses", data=body,
+                                     method="POST", headers=headers)
         started = time.monotonic()
         try:
             with urllib.request.build_opener(NoRedirect()).open(req, timeout=12 if probe else 30) as response:
-                if response.status != 200:
-                    raise Denied("PROVIDER_HTTP_FAILURE", 502)
+                status = getattr(response, "status", 200)
+                response_headers = getattr(response, "headers", {}) or {}
+                request_id = self._safe_header(response_headers, "x-request-id")
+                if status != 200:
+                    raise Denied("PROVIDER_HTTP_FAILURE", 502,
+                                 provider_http_status=status, provider_request_id=request_id)
                 raw = response.read(MAX_RESPONSE + 1)
             if len(raw) > MAX_RESPONSE:
-                raise Denied("PROVIDER_RESPONSE_TOO_LARGE", 502)
+                raise Denied("PROVIDER_RESPONSE_TOO_LARGE", 502,
+                             provider_http_status=200, provider_request_id=request_id)
             data = json.loads(raw)
             if not isinstance(data, dict) or data.get("status") != "completed":
-                raise Denied("PROVIDER_RESPONSE_INCOMPLETE", 502)
+                raise Denied("PROVIDER_RESPONSE_INCOMPLETE", 502,
+                             provider_http_status=200, provider_request_id=request_id)
             returned_model = data.get("model")
             if not isinstance(returned_model, str) or not MODEL_ID.fullmatch(returned_model):
-                raise Denied("PROVIDER_MODEL_MISSING", 502)
+                raise Denied("PROVIDER_MODEL_MISSING", 502,
+                             provider_http_status=200, provider_request_id=request_id)
+            response_id = data.get("id")
+            if not isinstance(response_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", response_id):
+                response_id = None
             chunks = [part["text"] for item in data.get("output", []) if isinstance(item, dict)
                       and item.get("type") == "message" for part in item.get("content", [])
                       if isinstance(part, dict) and part.get("type") == "output_text"
                       and isinstance(part.get("text"), str)]
             text = "\n".join(chunks).strip()
             if not text or len(text) > 16000:
-                raise Denied("PROVIDER_TEXT_INVALID", 502)
-            return text, returned_model, max(0, round((time.monotonic() - started) * 1000))
+                raise Denied("PROVIDER_TEXT_INVALID", 502,
+                             provider_http_status=200, provider_request_id=request_id)
+            elapsed = max(0, round((time.monotonic() - started) * 1000))
+            return text, returned_model, elapsed, {
+                "response_id": response_id, "request_id": request_id,
+                "http_status": 200, "provider_error_code": None,
+                "retryable": False, "retry_after_seconds": None,
+            }
         except urllib.error.HTTPError as exc:
-            # Error bodies may contain upstream request information. Never relay them.
-            exc.close()
+            # Read only a small bounded error body to classify retryability; never relay it.
+            response_headers = exc.headers or {}
+            request_id = self._safe_header(response_headers, "x-request-id")
+            retry_after = self._retry_after(response_headers)
+            try:
+                error_body = exc.read(8193)
+                error_code = self._safe_error_code(error_body[:8192])
+            except Exception:
+                error_code = None
+            finally:
+                exc.close()
+            retryable = (
+                exc.code == 429 and error_code in {"rate_limit_exceeded", "slow_down"} or
+                exc.code == 503 and error_code in {"server_is_overloaded", "server_overloaded"} or
+                exc.code == 500 and error_code in {"server_error", "internal_server_error"}
+            )
             code = ("PROVIDER_AUTH_DENIED" if exc.code == 401 else
                     "PROVIDER_MODEL_OR_PERMISSION_DENIED" if exc.code == 403 else
                     "PROVIDER_MODEL_NOT_AVAILABLE" if exc.code == 404 else
-                    "PROVIDER_QUOTA_OR_RATE_LIMIT" if exc.code == 429 else "PROVIDER_HTTP_FAILURE")
-            raise Denied(code, 502) from None
+                    "PROVIDER_QUOTA_OR_RATE_LIMIT" if exc.code == 429 else
+                    "PROVIDER_HTTP_FAILURE")
+            raise Denied(code, 502, provider_http_status=exc.code,
+                         provider_request_id=request_id, provider_error_code=error_code,
+                         retryable=retryable, retry_after_seconds=retry_after) from None
         except (urllib.error.URLError, TimeoutError, OSError):
-            raise Denied("PROVIDER_CONNECTION_FAILED", 502) from None
+            raise Denied("PROVIDER_CONNECTION_FAILED", 502, retryable=True) from None
         except (ValueError, TypeError, KeyError):
             raise Denied("PROVIDER_RESPONSE_INVALID", 502) from None
 
