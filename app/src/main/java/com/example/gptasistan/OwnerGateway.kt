@@ -6,6 +6,8 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.UUID
+import java.io.ByteArrayOutputStream
+import java.io.IOException
 
 /** No provider key, redirect, implicit memory upload, or unverified model is accepted here. */
 object OwnerGateway {
@@ -15,6 +17,12 @@ object OwnerGateway {
         val responseId: String, val providerRequestId: String?,
         val clientRequestId: String, val latencyMs: Long,
     )
+    internal class GatewayFailure(
+        val httpStatus: Int, val errorCode: String,
+        val providerRequestId: String?, val providerHttpStatus: Int?,
+        val providerErrorCode: String?, val retryable: Boolean,
+        val retryAfterSeconds: Long?,
+    ) : IOException(errorCode)
     data class Task(
         val taskId: String, val status: String, val requestSha256: String,
         val result: String?, val resultSha256: String?, val responseId: String?,
@@ -303,6 +311,54 @@ object OwnerGateway {
             clientRequestId, latency)
     }
 
+    internal fun parseGatewayFailure(
+        httpStatus: Int, rawBody: String?, retryAfterHeader: String? = null,
+    ): GatewayFailure {
+        require(httpStatus in 100..599)
+        val payload = try { rawBody?.takeIf { it.length <= 16384 }?.let(::JSONObject) }
+            catch (_: Exception) { null }
+        fun safeText(key: String, pattern: Regex): String? {
+            val value = payload?.opt(key)
+            return if (value is String && value.matches(pattern)) value else null
+        }
+        fun safeNumber(key: String, minimum: Long, maximum: Long): Long? {
+            val value = payload?.opt(key)
+            if (value !is Int && value !is Long) return null
+            return (value as Number).toLong().takeIf { it in minimum..maximum }
+        }
+        val providerRequestId = safeText("provider_request_id", Regex("[A-Za-z0-9_-]{1,160}"))
+        val providerHttpStatus = safeNumber("provider_http_status", 100, 599)?.toInt()
+        val providerErrorCode = safeText("provider_error_code", Regex("[A-Za-z0-9_.-]{1,80}"))
+        val errorCode = safeText("error", Regex("[A-Z0-9_]{1,64}")) ?: "OWNER_REQUEST_DENIED"
+        val retryValue = payload?.opt("retryable")
+        val retryable = retryValue is Boolean && retryValue
+        val retryAfter = safeNumber("retry_after_seconds", 0, 86400)
+            ?: retryAfterHeader?.takeIf { it.matches(Regex("[0-9]{1,5}")) }?.toLongOrNull()
+                ?.takeIf { it in 0..86400 }
+        return GatewayFailure(httpStatus, errorCode, providerRequestId, providerHttpStatus,
+            providerErrorCode, retryable, retryAfter)
+    }
+
+    private fun readErrorBody(connection: HttpURLConnection): String? {
+        val stream = connection.errorStream ?: return null
+        return try {
+            val bytes = stream.use { input ->
+                val output = ByteArrayOutputStream()
+                val buffer = ByteArray(2048)
+                var total = 0
+                while (true) {
+                    val count = input.read(buffer, 0, minOf(buffer.size, 16385 - total))
+                    if (count < 0) break
+                    total += count
+                    if (total > 16384) return null
+                    output.write(buffer, 0, count)
+                }
+                output.toByteArray()
+            }
+            if (bytes.isEmpty()) null else bytes.toString(Charsets.UTF_8)
+        } catch (_: Exception) { null }
+    }
+
     private fun integer(value: JSONObject, key: String): Long {
         val number = value.get(key)
         require(number is Int || number is Long)
@@ -324,7 +380,11 @@ object OwnerGateway {
             connection.setRequestProperty("Accept", "application/json")
             headers.forEach { (name, value) -> connection.setRequestProperty(name, value) }
             connection.outputStream.use { it.write(body) }
-            require(connection.responseCode == 200) { "OWNER_REQUEST_DENIED" }
+            val status = connection.responseCode
+            if (status != 200) {
+                throw parseGatewayFailure(status, readErrorBody(connection),
+                    connection.getHeaderField("Retry-After"))
+            }
             JSONObject(ModelGateway.readJsonResponse(connection))
         } finally { connection.disconnect() }
     }
