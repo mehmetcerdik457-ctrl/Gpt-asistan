@@ -28,6 +28,9 @@ class ChatSession internal constructor(
         val busy: Boolean, val status: String,
         val responseId: String? = null, val providerRequestId: String? = null,
         val clientRequestId: String? = null,
+        val providerHttpStatus: Int? = null, val providerErrorCode: String? = null,
+        val retryable: Boolean = false, val retryAfterSeconds: Long? = null,
+        val errorCode: String? = null,
     )
 
     private val main = Handler(Looper.getMainLooper())
@@ -102,8 +105,12 @@ class ChatSession internal constructor(
     }
 
     private fun completeRequest(endpoint: String, model: String, question: String) {
+        var gatewayFailure: OwnerGateway.GatewayFailure? = null
         val reply = try {
             responder(endpoint, model, question).takeIf { it.text.isNotBlank() }
+        } catch (failure: OwnerGateway.GatewayFailure) {
+            gatewayFailure = failure
+            null
         } catch (_: Exception) { null }
         val answer = reply?.text
         var status: String
@@ -137,7 +144,11 @@ class ChatSession internal constructor(
             }
             pending = false
             mutableState.value = State(
-                false, finalStatus, reply?.responseId, reply?.providerRequestId, reply?.clientRequestId
+                false, finalStatus, reply?.responseId,
+                reply?.providerRequestId ?: gatewayFailure?.providerRequestId,
+                reply?.clientRequestId, gatewayFailure?.httpStatus,
+                gatewayFailure?.providerErrorCode, gatewayFailure?.retryable ?: false,
+                gatewayFailure?.retryAfterSeconds, gatewayFailure?.errorCode
             )
         }
     }
