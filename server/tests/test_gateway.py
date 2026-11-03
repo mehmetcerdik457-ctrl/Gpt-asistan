@@ -38,6 +38,8 @@ class SyntheticProvider:
 
     def __init__(self):
         self.calls = []
+        self.last_request_metadata = None
+        self.last_client_request_id = None
 
     def configured(self):
         return self.available
@@ -48,6 +50,20 @@ class SyntheticProvider:
     def reply(self, model, message, *, probe=False):
         self.calls.append((model, message, probe))
         return self.answer, self.actual, 2
+
+    def reply_with_metadata(self, model, message, *, probe=False,
+                            request_metadata=None, client_request_id=None):
+        self.last_request_metadata = request_metadata
+        self.last_client_request_id = client_request_id
+        answer, actual, elapsed = self.reply(model, message, probe=probe)
+        return answer, actual, elapsed, {
+            "response_id": "resp_gateway_synthetic_001",
+            "request_id": "req_gateway_synthetic_001",
+            "http_status": 200,
+            "provider_error_code": None,
+            "retryable": False,
+            "retry_after_seconds": None,
+        }
 
 
 class GatewayHttpTests(unittest.TestCase):
@@ -75,6 +91,7 @@ class GatewayHttpTests(unittest.TestCase):
         self.httpd.shutdown()
         self.httpd.server_close()
         self.thread.join(timeout=3)
+        self.gateway.tasks.close()
         self.env.stop()
         self.tmp.cleanup()
 
@@ -112,10 +129,28 @@ class GatewayHttpTests(unittest.TestCase):
         actual = self.verify_model()
         self.assertNotEqual(actual, self.provider.candidates()[0])
         self.assertTrue(self.provider.calls[0][2])
-        status, data = self.post("chat", {"message": "Merhaba", "model": actual, "include_memory": False})
+        client_request_id = "a" * 32
+        status, data = self.post("chat", {
+            "message": "Merhaba", "model": actual, "include_memory": False,
+            "client_request_id": client_request_id
+        })
         self.assertEqual(status, 200)
         self.assertEqual(data["text"], self.provider.answer)
         self.assertEqual(data["model"], actual)
+        self.assertEqual(data["response_id"], "resp_gateway_synthetic_001")
+        self.assertEqual(data["provider_request_id"], "req_gateway_synthetic_001")
+        self.assertEqual(data["client_request_id"], client_request_id)
+        self.assertEqual(self.provider.last_client_request_id, client_request_id)
+        self.assertEqual(self.provider.last_request_metadata, {"kral_runtime": "v1"})
+
+    def test_chat_rejects_invalid_client_request_id_before_provider_call(self):
+        actual = self.verify_model()
+        calls_before = len(self.provider.calls)
+        status, data = self.post("chat", {
+            "message": "Merhaba", "model": actual, "client_request_id": "bad id"
+        })
+        self.assertEqual((status, data["error"]), (400, "CLIENT_REQUEST_ID_INVALID"))
+        self.assertEqual(len(self.provider.calls), calls_before)
 
     def test_no_provider_calls_without_auth(self):
         status, _ = self.post("models", {}, headers={"Content-Type": "application/json"})
@@ -182,6 +217,84 @@ class GatewayHttpTests(unittest.TestCase):
         status, data = self.post("chat", {"message": "Merhaba", "model": actual})
         self.assertEqual((status, data["error"]), (409, "MODEL_NOT_VERIFIED"))
         self.assertEqual(len(self.provider.calls), 1)
+
+    def test_expert_tasks_share_existing_ten_per_minute_provider_limit(self):
+        actual = self.verify_model()
+        task_ids = []
+        for _ in range(10):
+            status, data = self.post("tasks", {
+                "input": "Kısa değerlendirme", "model": actual,
+                "expert": "code-reviewer", "tools": []
+            })
+            self.assertEqual(status, 200)
+            task_ids.append(data["task_id"])
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            if all(self.gateway.tasks.get(task_id)["status"] == "completed" for task_id in task_ids):
+                break
+            time.sleep(0.01)
+        self.assertTrue(all(self.gateway.tasks.get(task_id)["status"] == "completed" for task_id in task_ids))
+        status, data = self.post("tasks", {
+            "input": "On birinci görev", "model": actual,
+            "expert": "code-reviewer", "tools": []
+        })
+        self.assertEqual((status, data["error"]), (429, "OWNER_RATE_LIMIT"))
+
+    def test_signed_task_status_cancel_and_approval_routes_are_owner_bound(self):
+        actual = self.verify_model()
+        status, created = self.post("tasks", {
+            "input": "Sentetik uzman görevi", "model": actual,
+            "expert": "security-auditor", "tools": [], "requires_approval": True
+        })
+        self.assertEqual(status, 200)
+        self.assertEqual(created["status"], "awaiting_approval")
+        task_id = created["task_id"]
+        self.assertEqual(len(self.provider.calls), 1, "approval-only task must not call the model")
+
+        raw = g.json_bytes({"task_id": task_id})
+        unsigned = self.post("tasks/status", raw, headers={"Content-Type": "application/json"})
+        self.assertEqual(unsigned[0], 403)
+        self.assertEqual(self.gateway.tasks.get(task_id)["status"], "awaiting_approval")
+
+        status, current = self.post("tasks/status", {"task_id": task_id})
+        self.assertEqual(status, 200)
+        self.assertEqual(current["task_id"], task_id)
+        self.assertEqual(current["tools_executed"], 0)
+
+        status, approved = self.post("tasks/approve", {"task_id": task_id})
+        self.assertEqual(status, 200)
+        self.assertEqual(approved["status"], "approved_not_executed")
+        self.assertEqual(approved["external_actions"], 0)
+        self.assertEqual(len(self.provider.calls), 1, "approval is recorded but never executes")
+
+        status, final = self.post("tasks/status", {"task_id": task_id})
+        self.assertEqual(status, 200)
+        self.assertEqual(final["status"], "approved_not_executed")
+
+    def test_signed_cancel_route_cancels_approval_waiting_task(self):
+        actual = self.verify_model()
+        status, created = self.post("tasks", {
+            "input": "İptal edilebilir onay bekleyen görev", "model": actual,
+            "expert": "test-engineer", "tools": [], "requires_approval": True
+        })
+        self.assertEqual(status, 200)
+        self.assertEqual(created["status"], "awaiting_approval")
+        status, cancelled = self.post("tasks/cancel", {"task_id": created["task_id"]})
+        self.assertEqual(status, 200)
+        self.assertEqual(cancelled["status"], "cancelled")
+        self.assertTrue(cancelled["cancel_requested"])
+        self.assertEqual(len(self.provider.calls), 1)
+
+    def test_task_routes_reject_unknown_tools_and_malformed_task_ids(self):
+        actual = self.verify_model()
+        status, denied = self.post("tasks", {
+            "input": "Do not run shell", "model": actual,
+            "expert": "code-reviewer", "tools": ["shell"]
+        })
+        self.assertEqual((status, denied["error"]), (403, "TASK_TOOL_CAPABILITY_DENIED"))
+        status, denied = self.post("tasks/status", {"task_id": "not-a-task-id"})
+        self.assertEqual((status, denied["error"]), (400, "TASK_ID_INVALID"))
+        self.assertEqual(len(self.provider.calls), 1, "only the explicit model probe ran")
 
     def test_model_change_invalidates_selection(self):
         actual = self.verify_model()
@@ -265,6 +378,7 @@ class ProviderTests(unittest.TestCase):
         from io import BytesIO
         response = BytesIO(g.json_bytes(data))
         response.status = status
+        response.headers = {}
         return response
 
     def invoke(self, response):
@@ -277,14 +391,81 @@ class ProviderTests(unittest.TestCase):
             return result
 
     def test_completed_response_requires_text_and_actual_model(self):
-        payload = {"status": "completed", "model": "actual-snapshot", "output": [
+        payload = {"id": "resp_synthetic_001", "status": "completed",
+                   "model": "actual-snapshot", "output": [
             {"type": "message", "content": [{"type": "output_text", "text": "Merhaba"}]}]}
         self.assertEqual(self.invoke(self.response(payload))[:2], ("Merhaba", "actual-snapshot"))
-        for missing in ("model", "output", "status"):
+        for missing in ("id", "model", "output", "status"):
             changed = dict(payload)
             del changed[missing]
             with self.assertRaises(g.Denied):
                 self.invoke(self.response(changed))
+
+    def test_responses_task_metadata_and_request_ids_are_captured_without_prompt_leakage(self):
+        payload = {"id": "resp_synthetic_123", "status": "completed", "model": "actual-snapshot",
+                   "output": [{"type": "message", "content": [
+                       {"type": "output_text", "text": "Merhaba"}]}]}
+        response = self.response(payload)
+        response.headers = {"x-request-id": "req_synthetic_123"}
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "synthetic-test-key"}), \
+             patch("urllib.request.build_opener") as mock:
+            mock.return_value.open.return_value = response
+            result = g.OpenAIProvider().reply_with_metadata(
+                "requested", "private prompt text",
+                request_metadata={"kral_task_id": "a" * 32, "kral_expert": "code-reviewer"},
+                client_request_id="a" * 32,
+            )
+            request = mock.return_value.open.call_args.args[0]
+            sent = json.loads(request.data)
+            self.assertEqual(sent["store"], False)
+            self.assertEqual(sent["metadata"], {
+                "kral_task_id": "a" * 32, "kral_expert": "code-reviewer"
+            })
+            self.assertNotIn("private prompt text", json.dumps(sent["metadata"]))
+            self.assertEqual(request.get_header("X-client-request-id"), "a" * 32)
+        self.assertEqual(result[3]["response_id"], "resp_synthetic_123")
+        self.assertEqual(result[3]["request_id"], "req_synthetic_123")
+        self.assertEqual(result[3]["http_status"], 200)
+        self.assertFalse(result[3]["retryable"])
+
+    def test_retryability_distinguishes_transient_errors_from_billing_quota(self):
+        from io import BytesIO
+        cases = [
+            (429, "rate_limit_exceeded", True),
+            (429, "slow_down", True),
+            (429, "insufficient_quota", False),
+            (429, "project_spend_limit_exceeded", False),
+            (503, "server_is_overloaded", True),
+            (500, "server_error", True),
+        ]
+        for status, error_code, expected_retryable in cases:
+            headers = {"x-request-id": "req_" + error_code, "Retry-After": "3"}
+            body = g.json_bytes({"error": {"code": error_code, "type": "test"}})
+            with patch.dict(os.environ, {"OPENAI_API_KEY": "synthetic-test-key"}), \
+                 patch("urllib.request.build_opener") as mock:
+                mock.return_value.open.side_effect = urllib.error.HTTPError(
+                    "https://api.openai.com/v1/responses", status, "private", headers, BytesIO(body))
+                with self.assertRaises(g.Denied) as context:
+                    g.OpenAIProvider().reply_with_metadata(
+                        "requested", "private prompt", client_request_id="client-test"
+                    )
+            error = context.exception
+            self.assertEqual(error.provider_http_status, status)
+            self.assertEqual(error.provider_request_id, "req_" + error_code)
+            self.assertEqual(error.provider_error_code, error_code)
+            self.assertEqual(error.retry_after_seconds, 3)
+            self.assertEqual(error.retryable, expected_retryable)
+            self.assertNotIn("private", str(error))
+
+    def test_invalid_request_metadata_is_rejected_before_network(self):
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "synthetic-test-key"}), \
+             patch("urllib.request.build_opener") as mock:
+            with self.assertRaises(g.Denied) as context:
+                g.OpenAIProvider().reply_with_metadata(
+                    "requested", "private prompt", request_metadata={"bad key": "x"}
+                )
+            self.assertEqual(context.exception.code, "PROVIDER_METADATA_INVALID")
+            mock.assert_not_called()
 
     def test_http_200_incomplete_is_not_verified(self):
         with self.assertRaises(g.Denied):
