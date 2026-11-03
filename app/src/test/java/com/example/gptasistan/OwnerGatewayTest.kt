@@ -113,7 +113,7 @@ class OwnerGatewayTest {
     }
 
     @Test fun taskRoutesAreBoundToExistingDualP256Envelope() {
-        val body = "{\\"task_id\\":\\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\"}".toByteArray()
+        val body = JSONObject().put("task_id", "a".repeat(32)).toString().toByteArray()
         val nonce = "b".repeat(48)
         val device = "c".repeat(64)
         for (path in listOf(OmegaEnvelope.TASKS, OmegaEnvelope.TASK_STATUS,
