@@ -120,6 +120,27 @@ class ChatSessionTest {
         assertTrue(session.state.value!!.status.contains("Mesaj kaydedilemedi"))
     }
 
+    @Test fun providerRateLimitMetadataSurvivesInStateWithoutRawErrorBody() {
+        val failure = OwnerGateway.parseGatewayFailure(502, org.json.JSONObject()
+            .put("error", "PROVIDER_QUOTA_OR_RATE_LIMIT")
+            .put("provider_request_id", "req_synthetic_429")
+            .put("provider_http_status", 429)
+            .put("provider_error_code", "rate_limit_exceeded")
+            .put("retryable", true).put("retry_after_seconds", 7)
+            .put("private_detail", "secret prompt").toString())
+        val (session, worker) = session { _, _, _ -> throw failure }
+        assertTrue(session.send(ENDPOINT, "test-model", "Hız sınırı testi"))
+        flush(worker)
+        val state = session.state.value!!
+        assertEquals(502, state.providerHttpStatus)
+        assertEquals("req_synthetic_429", state.providerRequestId)
+        assertEquals("rate_limit_exceeded", state.providerErrorCode)
+        assertTrue(state.retryable)
+        assertEquals(7L, state.retryAfterSeconds)
+        assertEquals("PROVIDER_QUOTA_OR_RATE_LIMIT", state.errorCode)
+        assertFalse(session.history.value!!.any { it.text.contains("secret prompt") })
+    }
+
     @Test fun providerFailureIsDurableGenericTextAndNeverSuccessOrSpeech() {
         val (session, worker) = session { _, _, _ -> throw IOException("private provider detail") }
         assertTrue(session.send(ENDPOINT, "test-model", "Hata denemesi"))
