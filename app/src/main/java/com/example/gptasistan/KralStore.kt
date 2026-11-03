@@ -1,16 +1,39 @@
 package com.example.gptasistan
 
 import android.content.Context
-import android.database.sqlite.SQLiteDatabase
-import android.database.sqlite.SQLiteOpenHelper
+import net.zetetic.database.sqlcipher.SQLiteDatabase
+import net.zetetic.database.sqlcipher.SQLiteOpenHelper
 import java.time.Instant
 
 // The mem schema intentionally preserves the original Python assistant.py fields.
 // The old Termux mem.db is not silently imported; the Android app owns this new DB.
 data class ChatEntry(val id: Long, val ts: String, val role: String, val text: String)
 
-class KralStore(context: Context) : SQLiteOpenHelper(context, "kral_local.db", null, 2) {
-    init { setWriteAheadLoggingEnabled(true) }
+internal interface ChatStore {
+    fun saveMessage(role: String, text: String)
+    fun history(limit: Int = 200): List<ChatEntry>
+    fun close()
+}
+
+class KralStore private constructor(context: Context, private val databaseKey: ByteArray) :
+    SQLiteOpenHelper(
+        context.applicationContext, DATABASE_NAME, databaseKey, null, DATABASE_VERSION,
+        0, null, null, false,
+    ), ChatStore {
+
+    constructor(context: Context) : this(
+        context.applicationContext,
+        AndroidDatabaseKeyProvider.getKey(context.applicationContext),
+    )
+
+    internal constructor(context: Context, keyProvider: DatabaseKeyProvider) : this(
+        context.applicationContext,
+        keyProvider.getKey(context.applicationContext),
+    )
+
+    init {
+        EncryptedDatabaseMigration.migrateIfNeeded(context.applicationContext, databaseKey)
+    }
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("CREATE TABLE mem(id INTEGER PRIMARY KEY, ts TEXT NOT NULL, text TEXT NOT NULL)")
@@ -18,8 +41,10 @@ class KralStore(context: Context) : SQLiteOpenHelper(context, "kral_local.db", n
         createChatTable(db)
     }
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        require(oldVersion == 1 && newVersion == 2) { "Desteklenmeyen veritabanı geçişi" }
-        createChatTable(db)
+        require(oldVersion in 1..2 && newVersion == DATABASE_VERSION) {
+            "Desteklenmeyen veritabanı geçişi"
+        }
+        if (oldVersion == 1) createChatTable(db)
     }
 
     private fun createChatTable(db: SQLiteDatabase) {
@@ -27,7 +52,7 @@ class KralStore(context: Context) : SQLiteOpenHelper(context, "kral_local.db", n
             "role TEXT NOT NULL CHECK(role IN ('user','assistant','system')), text TEXT NOT NULL)")
     }
 
-    fun saveMessage(role: String, text: String) {
+    override fun saveMessage(role: String, text: String) {
         require(role in setOf("user", "assistant", "system")) { "Geçersiz mesaj rolü" }
         require(text.isNotBlank()) { "Boş mesaj kaydedilemez" }
         val values = android.content.ContentValues().apply {
@@ -38,7 +63,7 @@ class KralStore(context: Context) : SQLiteOpenHelper(context, "kral_local.db", n
         writableDatabase.insertOrThrow("chat_messages", null, values)
     }
 
-    fun history(limit: Int = 200): List<ChatEntry> {
+    override fun history(limit: Int): List<ChatEntry> {
         require(limit in 1..1000) { "Geçersiz geçmiş sınırı" }
         val entries = mutableListOf<ChatEntry>()
         readableDatabase.rawQuery(
@@ -51,6 +76,8 @@ class KralStore(context: Context) : SQLiteOpenHelper(context, "kral_local.db", n
         }
         return entries.asReversed()
     }
+
+    override fun close() = super.close()
 
     fun saveMemory(text: String) {
         val values = android.content.ContentValues().apply {
@@ -103,5 +130,10 @@ class KralStore(context: Context) : SQLiteOpenHelper(context, "kral_local.db", n
             }
         }
         return if (out.isEmpty()) "(görev yok)" else out.asReversed().joinToString("\n")
+    }
+
+    internal companion object {
+        const val DATABASE_NAME = "kral_local.db"
+        const val DATABASE_VERSION = 3
     }
 }

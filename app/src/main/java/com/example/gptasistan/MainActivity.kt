@@ -40,6 +40,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private var stopped = false
     private var appUnlocked = false
     private var uiReady = false
+    private var storageBlocked = false
     private var pendingUnlock: (() -> Unit)? = null
     private lateinit var contentRoot: LinearLayout
     private var initialState: Bundle? = null
@@ -102,15 +103,52 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         pendingUnlock = null
         if (resultCode == Activity.RESULT_OK) {
             appUnlocked = true
-            if (uiReady) { contentRoot.visibility = View.VISIBLE; setContentView(contentRoot) }
-            action?.invoke()
+            try {
+                if (uiReady) { contentRoot.visibility = View.VISIBLE; setContentView(contentRoot) }
+                action?.invoke()
+            } catch (_: Exception) {
+                // Do not create a new plaintext DB, reset the key, or discard the old data.
+                appUnlocked = false
+                uiReady = false
+                storageBlocked = true
+                if (::store.isInitialized) runCatching { store.close() }
+                showStorageBlocked()
+            }
         } else { appUnlocked = false; showLocked() }
+    }
+
+    /** After a failed encrypted DB preflight, never offer an unsafe reset/retry path. */
+    private fun showStorageBlocked() {
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(24, 48, 24, 24)
+        }
+        applySystemBarInsets(root, 24, 48, 24, 24)
+        root.addView(TextView(this).apply {
+            text = "KRAL — yerel veriler korunuyor"
+            textSize = 20f
+        })
+        root.addView(TextView(this).apply {
+            text = "Şifreli depolama doğrulanamadı. Veri kaybını önlemek için erişim durduruldu. " +
+                "Uygulamayı silmeyin, veritabanı veya WAL dosyalarını temizlemeyin. " +
+                "Sahip onaylı yedek ve kurtarma işlemi gereklidir."
+        })
+        root.addView(Button(this).apply {
+            text = "Uygulamayı kapat"
+            setOnClickListener { finish() }
+        })
+        setContentView(root)
     }
 
     private fun buildContent(savedInstanceState: Bundle?) {
         store = KralStore(this)
-        orchestrator = KralCoreOrchestrator(store)
-        session = ViewModelProvider(this)[ChatSession::class.java]
+        try {
+            orchestrator = KralCoreOrchestrator(store)
+            session = ViewModelProvider(this)[ChatSession::class.java]
+        } catch (error: Exception) {
+            store.close()
+            throw error
+        }
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(24, 24, 24, 24)
@@ -354,7 +392,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     override fun onResume() {
         super.onResume()
-        if (!appUnlocked && pendingUnlock == null) showLocked()
+        if (!appUnlocked && pendingUnlock == null && !storageBlocked) showLocked()
     }
 
     override fun onStop() {

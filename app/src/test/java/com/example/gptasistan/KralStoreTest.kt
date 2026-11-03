@@ -9,6 +9,7 @@ import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import org.junit.Ignore
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
@@ -17,6 +18,7 @@ import org.robolectric.annotation.Config
 /** Local JVM tests of the production SQLite helper; these are not phone tests. */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28])
+@Ignore("SQLCipher Android native/Keystore behavior verified in connectedDebugAndroidTest, not Robolectric")
 class KralStoreTest {
     private lateinit var context: Application
     private val openedStores = mutableListOf<KralStore>()

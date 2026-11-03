@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# Run prebuilt, SHA-bound Android instrumentation without Gradle inside emulator.
+# Tests may clear only synthetic debug-emulator databases (InstrumentationSafety).
+set -euo pipefail
+apk_dir=build/emulator/apk
+evidence_dir=build/emulator/evidence
+mkdir -p "$evidence_dir"
+
+(cd "$apk_dir" && sha256sum -c APK-SHA256SUMS && sha256sum -c TEST-APK-SHA256SUMS) |
+  tee "$evidence_dir/instrumentation-hashes.txt"
+
+python3 - <<'PY'
+import json, os
+from pathlib import Path
+p = Path("build/emulator/apk")
+m = json.loads((p / "apk-metadata.json").read_text())
+assert m["source_commit"] == os.environ["KRAL_EXPECTED_SOURCE_SHA"], "SOURCE_SHA_MISMATCH"
+assert m["package"] == "com.example.gptasistan.genesis", "PACKAGE_MISMATCH"
+assert m["signature_verified"] is True and m["debuggable"] is True, "DEBUG_APK_SIGNATURE_INVALID"
+PY
+
+timeout 20 adb -e get-state | tee "$evidence_dir/adb-state.txt"
+test "$(tr -d '\r\n' < "$evidence_dir/adb-state.txt")" = device
+test "$(timeout 20 adb -e shell getprop ro.kernel.qemu | tr -d '\r\n')" = 1
+test "$(timeout 20 adb -e shell getprop sys.boot_completed | tr -d '\r\n')" = 1
+api_level="$(timeout 20 adb -e shell getprop ro.build.version.sdk | tr -d '\r\n')"
+test "$api_level" = "$KRAL_EMULATOR_API" || { echo "EMULATOR_API_MISMATCH"; exit 1; }
+printf '%s\n' "$api_level" > "$evidence_dir/instrumentation-api-level.txt"
+
+timeout 90 adb -e install -t "$apk_dir/app-debug.apk" 2>&1 |
+  tee "$evidence_dir/instrumentation-install-app.txt"
+timeout 90 adb -e install -t "$apk_dir/app-debug-androidTest.apk" 2>&1 |
+  tee "$evidence_dir/instrumentation-install-test.txt"
+
+# Fail on nonzero adb status AND malformed/missing test-runner success summary.
+timeout 240 adb -e shell am instrument -w -r \
+  com.example.gptasistan.genesis.test/androidx.test.runner.AndroidJUnitRunner 2>&1 |
+  tee "$evidence_dir/instrumentation-result.txt"
+
+python3 - <<'PY'
+import json, os, re
+from pathlib import Path
+e = Path("build/emulator/evidence")
+data = (e / "instrumentation-result.txt").read_text(errors="replace").replace("\r", "")
+match = re.search(r"(?m)^\s*OK\s+\((\d+)\s+tests?\)\s*$", data)
+assert match is not None, "INSTRUMENTATION_SUCCESS_SUMMARY_MISSING"
+count = int(match.group(1))
+assert count >= 13, "INSTRUMENTATION_TEST_COUNT_REGRESSION"
+assert "FAILURES!!!" not in data and "INSTRUMENTATION_FAILED" not in data, "INSTRUMENTATION_FAILURE"
+assert re.search(r"(?m)^INSTRUMENTATION_CODE:\s*-1\s*$", data), "INSTRUMENTATION_RESULT_CODE_INVALID"
+payload = {
+    "source_commit": os.environ["KRAL_EXPECTED_SOURCE_SHA"],
+    "github_run_id": os.environ["GITHUB_RUN_ID"],
+    "api_level": int(os.environ["KRAL_EMULATOR_API"]),
+    "instrumentation_tests": count,
+    "instrumentation_passed": True,
+    "physical_phone_tested": False,
+    "live_model_tested": False,
+    "owner_authentication_attempted": False,
+}
+(e / "instrumentation-summary.json").write_text(json.dumps(payload, indent=2) + "\n")
+print(json.dumps(payload))
+PY
