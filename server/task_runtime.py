@@ -16,7 +16,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 
 MAX_ACTIVE_TASKS = 50
-MAX_TASK_WORKERS = 2
+MAX_TASK_WORKERS = 4
 TASK_ID = re.compile(r"[a-f0-9]{32}\Z")
 
 # These slugs correspond to the 12 preserved .github/agents/*.agent.md profiles.
