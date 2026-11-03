@@ -315,7 +315,7 @@ object OwnerGateway {
         httpStatus: Int, rawBody: String?, retryAfterHeader: String? = null,
     ): GatewayFailure {
         require(httpStatus in 100..599)
-        val payload = try { rawBody?.takeIf { it.length <= 16384 }?.let(::JSONObject) }
+        val payload = try { rawBody?.takeIf { it.length <= 16384 }?.let { JSONObject(it) } }
             catch (_: Exception) { null }
         fun safeText(key: String, pattern: Regex): String? {
             val value = payload?.opt(key)
@@ -349,9 +349,17 @@ object OwnerGateway {
                 while (true) {
                     val count = input.read(buffer, 0, minOf(buffer.size, 16385 - total))
                     if (count < 0) break
-                    total += count
-                    if (total > 16384) return null
-                    output.write(buffer, 0, count)
+                    if (count == 0) {
+                        val next = input.read()
+                        if (next < 0) break
+                        total++
+                        if (total > 16384) return null
+                        output.write(next)
+                    } else {
+                        total += count
+                        if (total > 16384) return null
+                        output.write(buffer, 0, count)
+                    }
                 }
                 output.toByteArray()
             }
