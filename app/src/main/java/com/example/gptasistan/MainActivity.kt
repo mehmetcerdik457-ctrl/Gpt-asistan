@@ -11,9 +11,12 @@ import kotlin.concurrent.thread
 import android.speech.tts.TextToSpeech
 import android.text.InputFilter
 import android.view.ViewGroup
+import android.widget.ArrayAdapter
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.Spinner
 import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
@@ -186,6 +189,10 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 "Model bağlantısı yapılandırılmadı" else "Model adresi kayıtlı; bağlantı doğrulanmadı"
         }
         root.addView(connectionStatus)
+        root.addView(Button(this).apply {
+            text = "Uzman AI görevi"
+            setOnClickListener { showExpertTaskDialog() }
+        })
         root.addView(SwitchCompat(this).apply {
             text = "Yanıtları Türkçe seslendir"
             isChecked = prefs.getBoolean("speak_replies", false)
@@ -330,6 +337,135 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             connectionStatus.text = "İşlem kaydedilemedi; yazdığın metin korundu. Depolama alanını kontrol et."
             false
         }
+    }
+
+    private fun showExpertTaskDialog() {
+        if (!appUnlocked || storageBlocked) {
+            connectionStatus.text = "Uzman görevi için cihaz kilidi ve şifreli depolama gerekli."
+            return
+        }
+        val base = prefs.getString("endpoint", "").orEmpty()
+        val owner = prefs.getString("owner_id", "").orEmpty()
+        val model = prefs.getString("model", "").orEmpty()
+        if (!OwnerGateway.validBase(base) ||
+            OwnerGateway.verifiedModels(base, owner).none { it.id == model }) {
+            connectionStatus.text = "Önce Model bölümünden canlı doğrulanmış bir model seç."
+            return
+        }
+        val experts = listOf(
+            "chief-engineer", "code-reviewer", "security-auditor", "test-engineer",
+            "ai-ml-engineer", "android-engineer", "apk-forensic", "ci-cd-engineer",
+            "cloud-engineer", "github-master-ai", "mcp-engineer", "release-engineer"
+        )
+        val fields = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(24, 12, 24, 0)
+        }
+        val expert = Spinner(this).apply {
+            adapter = ArrayAdapter(this@MainActivity,
+                android.R.layout.simple_spinner_dropdown_item, experts)
+        }
+        val prompt = EditText(this).apply {
+            hint = "Uzman görevinin açıklaması"
+            minLines = 3
+            maxLines = 6
+            filters = arrayOf(InputFilter.LengthFilter(8000))
+        }
+        val approval = CheckBox(this).apply {
+            text = "İnsan onayı iste (onay kaydı işlemi çalıştırmaz)"
+        }
+        fields.addView(expert)
+        fields.addView(prompt)
+        fields.addView(approval)
+        AlertDialog.Builder(this).setTitle("KRAL — uzman görevi")
+            .setMessage("Bu işlem seçilen modelde bir API isteği başlatır. Araçlar kapalıdır; uzman yalnız analiz/öneri üretir. Ücretli API kullanımı hesap kotana tabi olabilir.")
+            .setView(fields)
+            .setPositiveButton("Gönder") { _, _ ->
+                val taskText = prompt.text.toString().trim()
+                val role = expert.selectedItem as? String ?: "chief-engineer"
+                if (taskText.isBlank()) {
+                    connectionStatus.text = "Görev açıklaması boş olamaz."
+                } else unlock { submitExpertTask(base, model, role, taskText, approval.isChecked) }
+            }
+            .setNegativeButton("Vazgeç", null).show()
+    }
+
+    private fun submitExpertTask(base: String, model: String, expert: String,
+                                 prompt: String, requiresApproval: Boolean) {
+        connectionStatus.text = "Uzman görevi güvenli sunucuya gönderiliyor…"
+        thread {
+            val task = try {
+                OwnerGateway.submitTask(this@MainActivity, base, model, expert, prompt, requiresApproval)
+            } catch (_: Exception) { null }
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                if (task == null) {
+                    connectionStatus.text = "Görev gönderilemedi. Model doğrulamasını, sahip kaydını ve bağlantıyı kontrol et."
+                } else showExpertTask(task)
+            }
+        }
+    }
+
+    private fun showExpertTask(task: OwnerGateway.Task) {
+        val details = buildString {
+            append("Durum: ").append(task.status)
+            append("\\nGörev kimliği: ").append(task.taskId)
+            append("\\nYanıt: ").append(task.result ?: "Henüz sonuç yok")
+            task.responseId?.let { append("\\nResponses ID: ").append(it) }
+            task.providerRequestId?.let { append("\\nOpenAI request ID: ").append(it) }
+            task.providerHttpStatus?.let { append("\\nHTTP: ").append(it) }
+            task.providerErrorCode?.let { append("\\nSağlayıcı hata kodu: ").append(it) }
+            task.error?.let { append("\\nKRAL hata kodu: ").append(it) }
+            if (task.retryable) append("\\nGeçici hata: yeniden deneme uygun; otomatik tekrar yapılmadı.")
+            task.retryAfterSeconds?.let { append("\\nRetry-After: ").append(it).append(" sn") }
+            append("\\nAraç çalıştırma: 0 — harici işlem: 0")
+            if (task.status == "approved_not_executed")
+                append("\\nOnay yalnız kaydedildi; herhangi bir işlem çalıştırılmadı.")
+            if (task.status == "running")
+                append("\\nİptal, sağlayıcı isteğini uzaktan durdurmaz; geç gelen sonuç atılır.")
+        }
+        val positive = if (task.status == "awaiting_approval") "Onayı kaydet (çalıştırmaz)" else "Durumu yenile"
+        val builder = AlertDialog.Builder(this).setTitle("KRAL uzman görevi")
+            .setMessage(details)
+            .setPositiveButton(positive) { _, _ ->
+                unlock {
+                    thread {
+                        val updated = try {
+                            if (task.status == "awaiting_approval")
+                                OwnerGateway.approveTask(this@MainActivity,
+                                    prefs.getString("endpoint", "").orEmpty(), task.taskId)
+                            else OwnerGateway.taskStatus(this@MainActivity,
+                                prefs.getString("endpoint", "").orEmpty(), task.taskId)
+                        } catch (_: Exception) { null }
+                        runOnUiThread {
+                            if (!isFinishing && !isDestroyed) {
+                                if (updated == null) connectionStatus.text = "Görev durumu alınamadı."
+                                else showExpertTask(updated)
+                            }
+                        }
+                    }
+                }
+            }
+            .setNegativeButton("Kapat", null)
+        if (task.status in setOf("queued", "running", "awaiting_approval")) {
+            builder.setNeutralButton("İptal iste") { _, _ ->
+                unlock {
+                    thread {
+                        val updated = try {
+                            OwnerGateway.cancelTask(this@MainActivity,
+                                prefs.getString("endpoint", "").orEmpty(), task.taskId)
+                        } catch (_: Exception) { null }
+                        runOnUiThread {
+                            if (!isFinishing && !isDestroyed) {
+                                if (updated == null) connectionStatus.text = "İptal isteği kaydedilemedi."
+                                else showExpertTask(updated)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        builder.show()
     }
 
     private fun speakLatestReply() {
