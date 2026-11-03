@@ -92,6 +92,13 @@ class TaskLifecycleTests(unittest.TestCase):
         self.assertEqual(self.provider.calls, 0)
         self.assertEqual(approved["external_actions"], 0)
 
+    def test_awaiting_approval_task_can_be_cancelled(self):
+        task = self.manager.submit("model-fixture", "model-fixture", "security-auditor",
+                                   "Critical action", approval_required=True)
+        cancelled = self.manager.cancel(task["task_id"])
+        self.assertEqual(cancelled["status"], "cancelled")
+        self.assertEqual(self.provider.calls, 0)
+
     def test_unknown_expert_rejected(self):
         with self.assertRaisesRegex(ValueError, "TASK_EXPERT_NOT_FOUND"):
             self.manager.submit("m", "m", "unknown", "hello")

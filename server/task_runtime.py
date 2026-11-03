@@ -176,11 +176,14 @@ class TaskManager:
         now = int(time.time())
         with self.store.connect() as db:
             db.execute("BEGIN IMMEDIATE")
-            db.execute(
-                "UPDATE owner_tasks SET status=CASE WHEN status='queued' THEN 'cancelled' ELSE status END, "
-                "cancel_requested=1, updated_at=? WHERE task_id=? AND status IN ('queued','running')",
-                (now, task_id)
-            )
+            row = db.execute("SELECT status FROM owner_tasks WHERE task_id=?", (task_id,)).fetchone()
+            if row and row[0] in ("queued", "running", "awaiting_approval"):
+                status = "running" if row[0] == "running" else "cancelled"
+                db.execute(
+                    "UPDATE owner_tasks SET status=?, cancel_requested=1, updated_at=? WHERE task_id=?",
+                    (status, now, task_id)
+                )
+                self._event(db, task_id, "cancel_requested", "running_result_will_be_discarded" if status == "running" else "pending_task_stopped")
         return self.get(task_id)
 
     def approve(self, task_id):
