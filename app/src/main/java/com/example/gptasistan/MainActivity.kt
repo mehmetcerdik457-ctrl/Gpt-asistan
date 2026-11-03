@@ -68,7 +68,9 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun showLocked() {
-        val locked = layoutInflater.inflate(R.layout.activity_main, null) as LinearLayout
+        val locked = layoutInflater.inflate(
+            R.layout.activity_main, findViewById<ViewGroup>(android.R.id.content), false
+        ) as LinearLayout
         applySystemBarInsets(locked, 24, 48, 24, 24)
         locked.findViewById<Button>(R.id.unlock_button).setOnClickListener {
             unlock { if (!uiReady) buildContent(initialState) else setContentView(contentRoot) }
