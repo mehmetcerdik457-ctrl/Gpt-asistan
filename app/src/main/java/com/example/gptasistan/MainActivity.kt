@@ -243,6 +243,10 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     // Keep command changes and their conversation record in one transaction.
     private fun recordLocal(raw: String, action: () -> String): Boolean {
+        // Recheck immediately before any local write; a backgrounded UI may have been re-locked.
+        check(OwnerExecutionPolicy.decide(KralCore.parse(raw),
+            OwnerExecutionContext(appUnlocked, !storageBlocked)) ==
+            OwnerExecutionDecision.ALLOW_LOCAL_ROUTINE) { "OWNER_LOCAL_DENIED" }
         val operationId = "ui-" + UUID.randomUUID().toString()
         orchestrator.execute(operationId, "local-command", raw) {
             val reply = action()
@@ -257,7 +261,26 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private fun handle(raw: String): Boolean {
         if (session.state.value?.busy == true) return false
         return try {
-            when (val command = KralCore.parse(raw)) {
+            val command = KralCore.parse(raw)
+            val remoteVerified = if (command is KralCommand.Chat && appUnlocked && !storageBlocked) {
+                val endpoint = prefs.getString("endpoint", "").orEmpty()
+                val owner = prefs.getString("owner_id", "").orEmpty()
+                val model = prefs.getString("model", "").orEmpty()
+                OwnerGateway.validBase(endpoint) &&
+                    OwnerGateway.verifiedModels(endpoint, owner).any { it.id == model }
+            } else false
+            val decision = OwnerExecutionPolicy.decide(command,
+                OwnerExecutionContext(appUnlocked, !storageBlocked, remoteVerified))
+            if (decision != OwnerExecutionDecision.ALLOW_LOCAL_ROUTINE &&
+                decision != OwnerExecutionDecision.ALLOW_SIGNED_REMOTE_ATTEMPT) {
+                connectionStatus.text = when (decision) {
+                    OwnerExecutionDecision.DENY_OWNER_LOCKED -> "Sahip kilidi kapalı; önce doğrulama gerekiyor."
+                    OwnerExecutionDecision.DENY_STORAGE_UNAVAILABLE -> "Şifreli depolama kullanılamıyor; işlem reddedildi."
+                    OwnerExecutionDecision.DENY_REMOTE_NOT_VERIFIED -> "Doğrulanmış model yok; Model tuşuyla bağlantıyı yenile."
+                    else -> "İşlem bu sürümde yetkilendirilmemiş."
+                }
+                false
+            } else when (command) {
                 is KralCommand.Save -> recordLocal(raw) {
                     store.saveMemory(command.value); "✓ Hafızaya kaydedildi"
                 }
@@ -289,7 +312,11 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                         false
                     } else {
                         unlock {
-                            if (OwnerGateway.verifiedModels(endpoint, owner).none { it.id == model }) {
+                            if (OwnerExecutionPolicy.decide(command, OwnerExecutionContext(
+                                    appUnlocked, !storageBlocked,
+                                    OwnerGateway.validBase(endpoint) &&
+                                        OwnerGateway.verifiedModels(endpoint, owner).any { it.id == model }
+                                )) != OwnerExecutionDecision.ALLOW_SIGNED_REMOTE_ATTEMPT) {
                                 session.resetConnectionStatus("Model doğrulamasının süresi doldu; Model tuşuyla yenile.")
                             } else if (session.send(endpoint, model, command.value) && input.text.toString().trim() == raw)
                                 input.text.clear()
