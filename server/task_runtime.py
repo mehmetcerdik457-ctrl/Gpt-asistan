@@ -185,7 +185,6 @@ class TaskManager:
                     "UPDATE owner_tasks SET status=?, cancel_requested=1, updated_at=? WHERE task_id=?",
                     (status, now, task_id)
                 )
-                self._event(db, task_id, "cancel_requested", "running_result_will_be_discarded" if status == "running" else "pending_task_stopped")
         return self.get(task_id)
 
     def approve(self, task_id):
