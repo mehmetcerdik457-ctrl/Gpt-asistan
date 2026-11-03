@@ -130,16 +130,17 @@ class TaskManager:
             "Provide analysis or a proposed change only.\n\nUser task:\n" + prompt
         )
         try:
-            if hasattr(self.provider, "reply_with_metadata"):
-                answer, actual, _elapsed, provider_meta = self.provider.reply_with_metadata(
-                    candidate, role_prompt,
-                    request_metadata={"kral_task_id": task_id, "kral_expert": expert,
-                                      "kral_runtime": "v1"},
-                    client_request_id=task_id,
-                )
-            else:
-                answer, actual, _elapsed = self.provider.reply(candidate, role_prompt)
-                provider_meta = {}
+            with self.execution_slots:
+                if hasattr(self.provider, "reply_with_metadata"):
+                    answer, actual, _elapsed, provider_meta = self.provider.reply_with_metadata(
+                        candidate, role_prompt,
+                        request_metadata={"kral_task_id": task_id, "kral_expert": expert,
+                                          "kral_runtime": "v1"},
+                        client_request_id=task_id,
+                    )
+                else:
+                    answer, actual, _elapsed = self.provider.reply(candidate, role_prompt)
+                    provider_meta = {}
             if actual != model or not isinstance(answer, str) or not answer.strip():
                 raise RuntimeError("TASK_PROVIDER_RESPONSE_INVALID")
             digest = hashlib.sha256(answer.encode("utf-8")).hexdigest()
