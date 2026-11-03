@@ -1,0 +1,50 @@
+name: KRAL provider configuration presence (no credential access)
+
+on:
+  push:
+    branches:
+      - integration/kral-secret-readiness-20261028
+    paths:
+      - server/provider_readiness.py
+      - server/tests/test_provider_readiness.py
+      - .github/workflows/kral-provider-presence.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  metadata-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      OPENAI_KEY_PRESENT: ${{ secrets.OPENAI_API_KEY != '' }}
+      OPENAI_MODELS_PRESENT: ${{ vars.OPENAI_ALLOWED_MODELS != '' }}
+      CF_TOKEN_PRESENT: ${{ secrets.KRAL_CLOUDFLARE_API_TOKEN != '' }}
+      CF_ACCOUNT_PRESENT: ${{ vars.KRAL_CLOUDFLARE_ACCOUNT_ID != '' }}
+      CF_MODEL_PRESENT: ${{ vars.KRAL_CLOUDFLARE_MODEL != '' }}
+      OWNER_TOKEN_PRESENT: ${{ secrets.KRAL_OWNER_GATEWAY_TOKEN != '' }}
+      OWNER_URL_PRESENT: ${{ vars.KRAL_OWNER_GATEWAY_URL != '' }}
+      OWNER_HOST_PRESENT: ${{ vars.KRAL_OWNER_GATEWAY_HOST != '' }}
+      OWNER_MODEL_PRESENT: ${{ vars.KRAL_OWNER_GATEWAY_MODEL != '' }}
+    steps:
+      - name: Checkout without persisted credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run fail-closed metadata gate unit tests
+        run: python -m unittest server.tests.test_provider_readiness -v
+      - name: Check configuration flags (no secret values, no HTTP)
+        run: python -m server.provider_readiness --out "$RUNNER_TEMP/kral-provider-presence.json"
+      - name: Upload redacted readiness metadata
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kral-provider-presence-evidence
+          path: ${{ runner.temp }}/kral-provider-presence.json
+          retention-days: 2
+          if-no-files-found: warn
