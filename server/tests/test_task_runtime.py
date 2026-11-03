@@ -23,12 +23,26 @@ class FakeProvider:
         self.release = threading.Event()
         self.calls = 0
         self.block = block
+        self.last_request_metadata = None
+        self.last_client_request_id = None
     def reply(self, model, prompt):
         self.calls += 1
         self.started.set()
         if self.block:
             self.release.wait(3)
         return "synthetic answer", model, 1
+    def reply_with_metadata(self, model, prompt, *, request_metadata=None, client_request_id=None):
+        self.last_request_metadata = request_metadata
+        self.last_client_request_id = client_request_id
+        answer, actual, elapsed = self.reply(model, prompt)
+        return answer, actual, elapsed, {
+            "response_id": "resp_synthetic_123",
+            "request_id": "req_synthetic_123",
+            "http_status": 200,
+            "provider_error_code": None,
+            "retryable": False,
+            "retry_after_seconds": None,
+        }
 
 
 class TaskLifecycleTests(unittest.TestCase):
@@ -57,6 +71,15 @@ class TaskLifecycleTests(unittest.TestCase):
         self.assertEqual(completed["result"], "synthetic answer")
         self.assertEqual(completed["result_sha256"], hashlib.sha256(b"synthetic answer").hexdigest())
         self.assertEqual((completed["tools_executed"], completed["external_actions"]), (0, 0))
+        self.assertEqual(completed["response_id"], "resp_synthetic_123")
+        self.assertEqual(completed["provider_request_id"], "req_synthetic_123")
+        self.assertEqual(completed["provider_http_status"], 200)
+        self.assertFalse(completed["retryable"])
+        self.assertEqual(completed["client_request_id"], task["task_id"])
+        self.assertEqual(self.provider.last_client_request_id, task["task_id"])
+        self.assertEqual(self.provider.last_request_metadata, {
+            "kral_task_id": task["task_id"], "kral_expert": "ai-ml-engineer", "kral_runtime": "v1"
+        })
 
     def test_cancel_running_task_suppresses_late_result(self):
         provider = FakeProvider(block=True)
@@ -98,6 +121,34 @@ class TaskLifecycleTests(unittest.TestCase):
         cancelled = self.manager.cancel(task["task_id"])
         self.assertEqual(cancelled["status"], "cancelled")
         self.assertEqual(self.provider.calls, 0)
+
+    def test_retryable_provider_failure_is_recorded_without_automatic_replay(self):
+        class ProviderFailure(Exception):
+            code = "PROVIDER_QUOTA_OR_RATE_LIMIT"
+            provider_request_id = "req_rate_limit"
+            provider_http_status = 429
+            provider_error_code = "rate_limit_exceeded"
+            retryable = True
+            retry_after_seconds = 7
+        class FailingProvider:
+            calls = 0
+            def reply_with_metadata(self, model, prompt, *, request_metadata=None, client_request_id=None):
+                self.calls += 1
+                raise ProviderFailure("redacted")
+        provider = FailingProvider()
+        manager = TaskManager(self.store, provider)
+        try:
+            task = manager.submit("model-fixture", "model-fixture", "test-engineer", "Rate limited task")
+            failed = self.wait_for_with(manager, task["task_id"], {"failed"})
+            self.assertEqual(provider.calls, 1, "a POST must not be replayed automatically")
+            self.assertEqual(failed["provider_http_status"], 429)
+            self.assertEqual(failed["provider_error_code"], "rate_limit_exceeded")
+            self.assertEqual(failed["provider_request_id"], "req_rate_limit")
+            self.assertTrue(failed["retryable"])
+            self.assertEqual(failed["retry_after_seconds"], 7)
+            self.assertIsNone(failed["result"])
+        finally:
+            manager.close()
 
     def test_unknown_expert_rejected(self):
         with self.assertRaisesRegex(ValueError, "TASK_EXPERT_NOT_FOUND"):
