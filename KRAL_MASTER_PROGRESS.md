@@ -144,7 +144,7 @@ PR #79 remains a draft integration review. No main merge, production release, ph
 - Active repository: `mehmetcerdik457-ctrl/Gpt-asistan`.
 - Active PR: [#85 — KRAL bounded Responses task lifecycle and expert routing](https://github.com/mehmetcerdik457-ctrl/Gpt-asistan/pull/85), OPEN / DRAFT; no merge.
 - Active head branch: `integration/kral-genesis-task-runtime-20261103`.
-- Latest code commit at this progress update: `b7b4541060cdf54c79cd2d0ef223d50c37be6fd5` (verify full SHA from GitHub before reuse).
+- Latest code commit at this progress update: `b7b4541060cdf54f0918b2a10a8cff0214c689c9` (verify full SHA from GitHub before reuse).
 - PR #85 base is `audit/kral-agent-roles-recovery-20261103` at PR #84 head `74ff9ef3930b0bc3a0fbbccb4bfe3dd91a5a00f6`. PR #82/#83/#84 chain was preserved; no base/main branch mutation.
 - Preserved architecture: server-only OpenAI Responses API through the existing owner gateway; existing dual P-256 owner/device signatures and nonce checks; `store=false`; existing model allowlist and 4-slot shared execution semaphore; 12 expert profiles are prompt-routing profiles, not autonomous GitHub/Copilot tool permissions.
 - Implemented in this continuation:
