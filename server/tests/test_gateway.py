@@ -288,6 +288,7 @@ class ProviderTests(unittest.TestCase):
         from io import BytesIO
         response = BytesIO(g.json_bytes(data))
         response.status = status
+        response.headers = {}
         return response
 
     def invoke(self, response):
@@ -308,6 +309,72 @@ class ProviderTests(unittest.TestCase):
             del changed[missing]
             with self.assertRaises(g.Denied):
                 self.invoke(self.response(changed))
+
+    def test_responses_task_metadata_and_request_ids_are_captured_without_prompt_leakage(self):
+        payload = {"id": "resp_synthetic_123", "status": "completed", "model": "actual-snapshot",
+                   "output": [{"type": "message", "content": [
+                       {"type": "output_text", "text": "Merhaba"}]}]}
+        response = self.response(payload)
+        response.headers = {"x-request-id": "req_synthetic_123"}
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "synthetic-test-key"}), \\
+             patch("urllib.request.build_opener") as mock:
+            mock.return_value.open.return_value = response
+            result = g.OpenAIProvider().reply_with_metadata(
+                "requested", "private prompt text",
+                request_metadata={"kral_task_id": "a" * 32, "kral_expert": "code-reviewer"},
+                client_request_id="a" * 32,
+            )
+            request = mock.return_value.open.call_args.args[0]
+            sent = json.loads(request.data)
+            self.assertEqual(sent["store"], False)
+            self.assertEqual(sent["metadata"], {
+                "kral_task_id": "a" * 32, "kral_expert": "code-reviewer"
+            })
+            self.assertNotIn("private prompt text", json.dumps(sent["metadata"]))
+            self.assertEqual(request.get_header("X-client-request-id"), "a" * 32)
+        self.assertEqual(result[3]["response_id"], "resp_synthetic_123")
+        self.assertEqual(result[3]["request_id"], "req_synthetic_123")
+        self.assertEqual(result[3]["http_status"], 200)
+        self.assertFalse(result[3]["retryable"])
+
+    def test_retryability_distinguishes_transient_errors_from_billing_quota(self):
+        from io import BytesIO
+        cases = [
+            (429, "rate_limit_exceeded", True),
+            (429, "slow_down", True),
+            (429, "insufficient_quota", False),
+            (429, "project_spend_limit_exceeded", False),
+            (503, "server_is_overloaded", True),
+            (500, "server_error", True),
+        ]
+        for status, error_code, expected_retryable in cases:
+            headers = {"x-request-id": "req_" + error_code, "Retry-After": "3"}
+            body = g.json_bytes({"error": {"code": error_code, "type": "test"}})
+            with patch.dict(os.environ, {"OPENAI_API_KEY": "synthetic-test-key"}), \\
+                 patch("urllib.request.build_opener") as mock:
+                mock.return_value.open.side_effect = urllib.error.HTTPError(
+                    "https://api.openai.com/v1/responses", status, "private", headers, BytesIO(body))
+                with self.assertRaises(g.Denied) as context:
+                    g.OpenAIProvider().reply_with_metadata(
+                        "requested", "private prompt", client_request_id="client-test"
+                    )
+            error = context.exception
+            self.assertEqual(error.provider_http_status, status)
+            self.assertEqual(error.provider_request_id, "req_" + error_code)
+            self.assertEqual(error.provider_error_code, error_code)
+            self.assertEqual(error.retry_after_seconds, 3)
+            self.assertEqual(error.retryable, expected_retryable)
+            self.assertNotIn("private", str(error))
+
+    def test_invalid_request_metadata_is_rejected_before_network(self):
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "synthetic-test-key"}), \\
+             patch("urllib.request.build_opener") as mock:
+            with self.assertRaises(g.Denied) as context:
+                g.OpenAIProvider().reply_with_metadata(
+                    "requested", "private prompt", request_metadata={"bad key": "x"}
+                )
+            self.assertEqual(context.exception.code, "PROVIDER_METADATA_INVALID")
+            mock.assert_not_called()
 
     def test_http_200_incomplete_is_not_verified(self):
         with self.assertRaises(g.Denied):
