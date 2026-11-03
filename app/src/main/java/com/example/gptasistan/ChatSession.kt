@@ -96,6 +96,50 @@ class ChatSession internal constructor(
         mutableState.value = State(false, status)
     }
 
+    /** Owner-confirmed task/status calls share the chat queue and encrypted history.
+     * No automatic retries, polling, speech, or execution of returned text.
+     */
+    fun runOwnerOperation(label: String, operation: () -> String): Boolean {
+        requireMainThread()
+        if (cleared || pending || worker.isShutdown) return false
+        pending = true
+        mutableState.value = State(true, "$label bekleniyor…")
+        try {
+            worker.execute {
+                var status = "$label yanıtı alındı"
+                var failure: OwnerGateway.GatewayFailure? = null
+                val report = try {
+                    operation().also { require(it.isNotBlank() && it.length <= 40000) }
+                } catch (error: OwnerGateway.GatewayFailure) {
+                    failure = error
+                    status = "$label başarısız: ${error.errorCode}. Otomatik yeniden denenmedi."
+                    status
+                } catch (_: Exception) {
+                    status = "$label doğrulanamadı. İstek otomatik yeniden denenmedi; taslak korundu."
+                    status
+                }
+                try { store.saveMessage("assistant", report) }
+                catch (_: Exception) { status = "$label sonucu geçmişe kaydedilemedi." }
+                val finalStatus = status
+                val error = failure
+                main.post {
+                    if (!cleared) refreshHistory()
+                    pending = false
+                    mutableState.value = State(false, finalStatus,
+                        providerRequestId = error?.providerRequestId,
+                        providerHttpStatus = error?.httpStatus, providerErrorCode = error?.providerErrorCode,
+                        retryable = error?.retryable ?: false,
+                        retryAfterSeconds = error?.retryAfterSeconds, errorCode = error?.errorCode)
+                }
+            }
+        } catch (_: RejectedExecutionException) {
+            pending = false
+            mutableState.value = State(false, "$label başlatılamadı; taslak korundu.")
+            return false
+        }
+        return true
+    }
+
     // The ID is a session-scoped delivery token, not a database row ID. Retaining
     // this ViewModel through rotation also retains which reply was consumed.
     fun peekUnspokenReply(): Pair<Long, String>? = synchronized(speechLock) { unspokenReply }

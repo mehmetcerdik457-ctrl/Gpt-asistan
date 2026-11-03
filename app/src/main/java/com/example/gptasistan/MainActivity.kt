@@ -5,6 +5,8 @@ import android.os.Build
 import android.app.KeyguardManager
 import android.app.Activity
 import android.content.Intent
+import android.content.ActivityNotFoundException
+import android.speech.RecognizerIntent
 import android.view.View
 import android.view.WindowManager
 import kotlin.concurrent.thread
@@ -98,6 +100,28 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     @Deprecated("Activity result used for the platform device credential screen")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == 4702) {
+            if (resultCode == Activity.RESULT_OK) {
+                val hypotheses = data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.toList()
+                if (!hypotheses.isNullOrEmpty()) {
+                    // The external recognizer can stop our Activity. Never reveal or
+                    // modify an existing private draft without a fresh device unlock.
+                    unlock {
+                        if (appUnlocked && uiReady && !storageBlocked && !isFinishing && !isDestroyed &&
+                            session.state.value?.busy != true
+                        ) {
+                            val merged = SpeechDraft.merge(input.text.toString(), hypotheses)
+                            if (merged != null) {
+                                input.setText(merged)
+                                input.setSelection(input.text.length)
+                                connectionStatus.text = "Ses yalnız taslağa eklendi; gönderilmedi."
+                            } else connectionStatus.text = "Ses tanınmadı; taslak korundu."
+                        }
+                    }
+                }
+            }
+            return
+        }
         if (requestCode != 4701) return
         val action = pendingUnlock
         pendingUnlock = null
@@ -181,6 +205,14 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             text = "Owner / Bridge durumu (salt okunur)"
             setOnClickListener { showLocal { OwnerStatus.readOnlyReport(this@MainActivity) } }
         })
+        root.addView(Button(this).apply {
+            text = "Ses / CİHAT"
+            setOnClickListener { showHandoffMenu() }
+        })
+        root.addView(Button(this).apply {
+            text = "Uzman görevleri / İşçi durumu"
+            setOnClickListener { showExpertMenu() }
+        })
         connectionStatus = TextView(this).apply {
             text = if ((prefs.getString("endpoint", "") ?: "").isBlank())
                 "Model bağlantısı yapılandırılmadı" else "Model adresi kayıtlı; bağlantı doğrulanmadı"
@@ -232,7 +264,242 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         tts = TextToSpeech(this, this)
     }
 
+    private fun showHandoffMenu() {
+        if (!appUnlocked || !uiReady || storageBlocked || session.state.value?.busy == true) return
+        AlertDialog.Builder(this).setTitle("Ses / CİHAT")
+            .setItems(arrayOf("Sesle taslak yaz", "CİHAT kurulumunu doğrula", "CİHAT'ı aç", "Panodan taslak al")) { _, index ->
+                if (!appUnlocked || storageBlocked) return@setItems
+                when (index) {
+                    0 -> requestSpeechDraft()
+                    1 -> showCihatIdentity()
+                    2 -> openInstalledCihat()
+                    3 -> previewClipboardReply()
+                }
+            }.setNegativeButton("Vazgeç", null).show()
+    }
+
+    private fun showExpertMenu() {
+        if (!appUnlocked || !uiReady || storageBlocked || session.state.value?.busy == true) return
+        AlertDialog.Builder(this).setTitle("Uzman görevleri")
+            .setItems(arrayOf("Yeni uzman görevi", "Görev durumunu yenile", "Görevi iptal et", "Sunucu işçi durumunu oku")) { _, index ->
+                if (!appUnlocked || storageBlocked) return@setItems
+                when (index) {
+                    0 -> chooseExpert()
+                    1 -> taskActionDialog(false)
+                    2 -> taskActionDialog(true)
+                    3 -> runOwnerAction("İşçi durumu", false) { app, base, _ ->
+                        val result = OwnerGateway.localWorkers(app, base, ExpertTasks.statusBatch(), 2)
+                        "Sunucuda iki salt okunur iş:\n${result.toString(2)}\nCanlı model isteği yapılmadı."
+                    }
+                }
+            }.setNegativeButton("Vazgeç", null).show()
+    }
+
+    private fun chooseExpert() {
+        val experts = OwnerGateway.EXPERTS.toList()
+        AlertDialog.Builder(this).setTitle("Uzman rolü seç")
+            .setItems(experts.toTypedArray()) { _, index ->
+                if (!appUnlocked || storageBlocked || session.state.value?.busy == true) return@setItems
+                val draft = EditText(this).apply {
+                    hint = "Yalnız bu görev metni gönderilir"
+                    filters = arrayOf(InputFilter.LengthFilter(8000))
+                    if (input.text.length <= 8000) setText(input.text)
+                }
+                AlertDialog.Builder(this).setTitle("Uzman: ${experts[index]}")
+                    .setMessage("Seçili modele yalnız bu metin gönderilir; sağlayıcı ücretlendirebilir. " +
+                        "Uzman öneri üretir. Dosya, hesap veya dış sistemde işlem yapmaz.")
+                    .setView(draft)
+                    .setPositiveButton("Görevi gönder") { _, _ ->
+                        val text = draft.text.toString().trim()
+                        if (text.isBlank()) return@setPositiveButton
+                        runOwnerAction("Uzman görevi", true) { app, base, model ->
+                            ExpertTasks.report(OwnerGateway.submitTask(app, base, model, experts[index], text))
+                        }
+                    }.setNegativeButton("Vazgeç", null).show()
+            }.setNegativeButton("Vazgeç", null).show()
+    }
+
+    private fun taskActionDialog(cancel: Boolean) {
+        val idField = EditText(this).apply { hint = "Geçmişteki 32 karakterlik görev kimliği"; isSingleLine = true }
+        AlertDialog.Builder(this).setTitle(if (cancel) "Görevi iptal et" else "Görev durumunu yenile")
+            .setMessage(if (cancel) "Başlamış sağlayıcı isteği uzaktan durdurulamaz; dönen sonucu bastırılır."
+                else "Sunucudaki görev durumu ve varsa yanıt özeti okunur.")
+            .setView(idField).setPositiveButton(if (cancel) "İptal iste" else "Yenile") { _, _ ->
+                val id = idField.text.toString().trim()
+                if (!ExpertTasks.validTaskId(id)) {
+                    connectionStatus.text = "Geçerli görev kimliğini geçmişten kopyala."
+                    return@setPositiveButton
+                }
+                runOwnerAction(if (cancel) "Görev iptali" else "Görev durumu", false) { app, base, _ ->
+                    ExpertTasks.report(if (cancel) OwnerGateway.cancelTask(app, base, id)
+                        else OwnerGateway.taskStatus(app, base, id))
+                }
+            }.setNegativeButton("Vazgeç", null).show()
+    }
+
+    private fun runOwnerAction(
+        label: String, needsModel: Boolean,
+        operation: (android.content.Context, String, String) -> String,
+    ) {
+        if (!appUnlocked || !uiReady || storageBlocked || session.state.value?.busy == true) return
+        val base = prefs.getString("endpoint", "").orEmpty()
+        val owner = prefs.getString("owner_id", "").orEmpty()
+        val model = prefs.getString("model", "").orEmpty()
+        if (!OwnerGateway.validBase(base) || !OmegaEnvelope.validOwner(owner)) {
+            connectionStatus.text = "Önce Model tuşundan sahip sunucusunu yapılandır."
+            return
+        }
+        val app = applicationContext
+        unlock {
+            if (!appUnlocked || storageBlocked || session.state.value?.busy == true) return@unlock
+            if (needsModel && OwnerGateway.verifiedModels(base, owner).none { it.id == model }) {
+                connectionStatus.text = "Model doğrulaması gerekli; Model tuşundan bağlantıyı yenile."
+                return@unlock
+            }
+            session.runOwnerOperation(label) { operation(app, base, model) }
+        }
+    }
+
+    private fun showCihatIdentity() {
+        if (!appUnlocked || !uiReady || session.state.value?.busy == true) return
+        val verified = CihatIdentity.inspect(this)
+        AlertDialog.Builder(this)
+            .setTitle("CİHAT uygulama kimliği")
+            .setMessage(verified.report())
+            .setPositiveButton("Tamam", null)
+            .show()
+    }
+
+    // User-mediated handoff, not a privileged API or silent CİHAT automation.
+    private fun openInstalledCihat() {
+        if (!appUnlocked || session.state.value?.busy == true) {
+            connectionStatus.text = "Önce cihaz kilidini aç ve mevcut işlemin bitmesini bekle."
+            return
+        }
+        val installed = CihatIdentity.inspect(this)
+        if (!installed.verified) {
+            connectionStatus.text =
+                "CİHAT 3.2.1 kimliği doğrulanamadı. Kurulum doğrulama ekranını incele; eski APK'ları silme."
+            return
+        }
+        val launch = try {
+            packageManager.getLaunchIntentForPackage(CihatHandoff.PACKAGE_NAME)
+        } catch (_: RuntimeException) { null }
+        if (launch == null) {
+            connectionStatus.text = "Bu telefonda açılabilir CİHAT AI (3.2.1) bulunamadı. Mevcut uygulamanı kontrol et."
+            return
+        }
+        val draft = CihatHandoff.copyableDraft(input.text.toString())
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Mevcut CİHAT AI uygulaması")
+            .setMessage(
+                "KRAL CİHAT'ı açabilir ama CİHAT'ın sohbetine otomatik mesaj gönderemez veya yanıt okuyamaz. " +
+                "Metni kopyala seçeneği yalnızca bu mesaj kutusundaki metni Android panosuna koyar. " +
+                "Pano içeriği başka uygulamalarda görülebilir; şifre, anahtar ve özel bilgiler için kullanma. " +
+                "Sohbet geçmişi veya hafıza otomatik aktarılmaz."
+            )
+            .setPositiveButton("Yalnız aç") { _, _ ->
+                try {
+                    if (!appUnlocked || !uiReady || storageBlocked || !CihatIdentity.inspect(this).verified)
+                        return@setPositiveButton
+                    startActivity(launch)
+                }
+                catch (_: RuntimeException) {
+                    connectionStatus.text = "CİHAT uygulaması açılamadı; cihazdaki kurulumu kontrol et."
+                }
+            }
+            .setNegativeButton("Vazgeç", null)
+        if (draft != null) {
+            dialog.setNeutralButton("Metni kopyala ve aç") { _, _ ->
+                try {
+                    if (!appUnlocked || !uiReady || storageBlocked || !CihatIdentity.inspect(this).verified)
+                        return@setNeutralButton
+                    val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    val clip = android.content.ClipData.newPlainText("KRAL'dan CİHAT'a metin", draft)
+                    if (android.os.Build.VERSION.SDK_INT >= 33) {
+                        clip.description.extras = android.os.PersistableBundle().apply {
+                            putBoolean(android.content.ClipDescription.EXTRA_IS_SENSITIVE, true)
+                        }
+                    }
+                    clipboard.setPrimaryClip(clip)
+                    startActivity(launch)
+                } catch (_: RuntimeException) {
+                    connectionStatus.text = "CİHAT açılamadı veya Android panosuna metin kopyalanamadı."
+                }
+            }
+        }
+        dialog.show()
+    }
+
+    /** Manual reply return: user explicitly inspects untrusted clipboard. */
+    private fun previewClipboardReply() {
+        if (!appUnlocked || !uiReady || session.state.value?.busy == true) {
+            if (uiReady) connectionStatus.text = "Önce cihaz kilidini aç ve mevcut işlemin bitmesini bekle."
+            return
+        }
+        val reply = try {
+            val clipboard = getSystemService(CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+            val clip = clipboard?.primaryClip
+            if (clip != null && clip.itemCount == 1 &&
+                clip.description.hasMimeType(android.content.ClipDescription.MIMETYPE_TEXT_PLAIN)
+            ) CihatHandoff.importableReply(clip.getItemAt(0).text) else null
+        } catch (_: RuntimeException) { null }
+        if (reply == null) {
+            connectionStatus.text = "Panoda en fazla 2000 karakterlik düz metin yok; hiçbir kayıt değişmedi."
+            return
+        }
+        val overwrite = if (input.text.isNotBlank())
+            "Mevcut taslak bu metinle değiştirilecek.\n\n" else ""
+        AlertDialog.Builder(this)
+            .setTitle("Panodaki metni KRAL'a al")
+            .setMessage(
+                "Panodaki metnin CİHAT'tan geldiği doğrulanamaz. Önce kontrol et. " +
+                "Aktarım yalnızca taslağı doldurur, sohbeti/hafızayı kaydetmez ve mesaj göndermez.\n\n" +
+                overwrite + "PANODAKİ METİN:\n" + reply
+            )
+            .setPositiveButton("Taslağa aktar") { _, _ ->
+                if (appUnlocked && !isFinishing && !isDestroyed &&
+                    session.state.value?.busy != true
+                ) {
+                    input.setText(reply)
+                    input.setSelection(reply.length)
+                    connectionStatus.text = "Yalnız taslağa aktarıldı; gönderim veya kayıt yapılmadı."
+                }
+            }
+            .setNegativeButton("Vazgeç", null)
+            .show()
+    }
+
+    private fun requestSpeechDraft() {
+        if (!appUnlocked || !uiReady || session.state.value?.busy == true) return
+        AlertDialog.Builder(this).setTitle("Sesle yaz")
+            .setMessage(
+                "Telefonun konuşma tanıma hizmeti sesini işleyebilir. " +
+                "Yalnız senin onayınla başlatılır; tanınan metin yalnız taslağa eklenir, " +
+                "otomatik gönderilmez veya hafızaya kaydedilmez."
+            )
+            .setPositiveButton("Konuşmayı başlat") { _, _ ->
+                if (!appUnlocked || isFinishing || isDestroyed ||
+                    session.state.value?.busy == true
+                ) return@setPositiveButton
+                try {
+                    val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                        putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                            RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                        putExtra(RecognizerIntent.EXTRA_LANGUAGE, "tr-TR")
+                        putExtra(RecognizerIntent.EXTRA_PROMPT, "Türkçe konuş")
+                    }
+                    startActivityForResult(intent, 4702)
+                } catch (_: ActivityNotFoundException) {
+                    connectionStatus.text = "Telefonda konuşma tanıma hizmeti bulunamadı."
+                } catch (_: SecurityException) {
+                    connectionStatus.text = "Konuşma tanıma hizmetine erişime izin verilmedi."
+                }
+            }.setNegativeButton("Vazgeç", null).show()
+    }
+
     private fun showLocal(action: () -> String) {
+        if (!appUnlocked || !uiReady || storageBlocked) return
         try {
             store.saveMessage("assistant", action())
             session.refreshHistory()

@@ -7,6 +7,23 @@ import org.junit.Test
 /** Wire/parser tests only. Fixtures are not live provider or Keystore evidence. */
 class OwnerGatewayTest {
     private val now = 1792537200L
+
+    @Test fun taskActionsRejectAValidResultForAnotherTask() {
+        val result = taskJson()
+        assertEquals("a".repeat(32), OwnerGateway.parseTaskForId(result, "a".repeat(32)).taskId)
+        assertThrows(IllegalArgumentException::class.java) {
+            OwnerGateway.parseTaskForId(result, "c".repeat(32))
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            OwnerGateway.parseTask(taskJson("completed", null))
+        }
+    }
+
+    @Test fun taskRequestDigestMatchesPythonCanonicalUtf8AndBindsSelectedInput() {
+        val digest = OwnerGateway.taskRequestDigest("model-fixture", "test-engineer", "İncele \"KRAL\"\nTürkçe")
+        assertEquals("001ee9522a49d81dc82cf66aa23770632e6ad29b3c46d60e5af818e36a7f0439", digest)
+        assertNotEquals(digest, OwnerGateway.taskRequestDigest("another-model", "test-engineer", "İncele \"KRAL\"\nTürkçe"))
+    }
     private fun modelJson() = JSONObject().put("contract", OmegaEnvelope.CONTRACT)
         .put("models", org.json.JSONArray().put(JSONObject().put("id", "returned-model")
             .put("provider", "openai").put("verified_at", now).put("latency_ms", 23)))

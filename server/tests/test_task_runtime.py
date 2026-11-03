@@ -97,6 +97,27 @@ class TaskLifecycleTests(unittest.TestCase):
             provider.release.set()
             manager.close()
 
+    def test_cancel_while_waiting_for_shared_slot_never_calls_provider(self):
+        slots = threading.BoundedSemaphore(1)
+        slots.acquire()
+        slot_held = True
+        provider = FakeProvider()
+        manager = TaskManager(self.store, provider, slots)
+        try:
+            task = manager.submit("model-fixture", "model-fixture", "test-engineer", "Waiting task")
+            self.wait_for_with(manager, task["task_id"], {"running"})
+            manager.cancel(task["task_id"])
+            self.assertEqual(provider.calls, 0)
+            slots.release()
+            slot_held = False
+            result = self.wait_for_with(manager, task["task_id"], {"cancelled"})
+            self.assertEqual(provider.calls, 0)
+            self.assertIsNone(result["result"])
+        finally:
+            if slot_held:
+                slots.release()
+            manager.close()
+
     def wait_for_with(self, manager, task_id, statuses):
         deadline = time.time() + 3
         while time.time() < deadline:
