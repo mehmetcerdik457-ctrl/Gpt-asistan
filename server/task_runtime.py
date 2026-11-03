@@ -202,4 +202,4 @@ class TaskManager:
         return self.get(task_id)
 
     def close(self):
-        self.pool.shutdown(wait=False, cancel_futures=True)
+        self.pool.shutdown(wait=True, cancel_futures=True)

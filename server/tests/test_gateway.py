@@ -75,6 +75,7 @@ class GatewayHttpTests(unittest.TestCase):
         self.httpd.shutdown()
         self.httpd.server_close()
         self.thread.join(timeout=3)
+        self.gateway.tasks.close()
         self.env.stop()
         self.tmp.cleanup()
 
@@ -185,12 +186,20 @@ class GatewayHttpTests(unittest.TestCase):
 
     def test_expert_tasks_share_existing_ten_per_minute_provider_limit(self):
         actual = self.verify_model()
+        task_ids = []
         for _ in range(10):
             status, data = self.post("tasks", {
                 "input": "Kısa değerlendirme", "model": actual,
                 "expert": "code-reviewer", "tools": []
             })
             self.assertEqual(status, 200)
+            task_ids.append(data["task_id"])
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            if all(self.gateway.tasks.get(task_id)["status"] == "completed" for task_id in task_ids):
+                break
+            time.sleep(0.01)
+        self.assertTrue(all(self.gateway.tasks.get(task_id)["status"] == "completed" for task_id in task_ids))
         status, data = self.post("tasks", {
             "input": "On birinci görev", "model": actual,
             "expert": "code-reviewer", "tools": []
