@@ -84,12 +84,22 @@ approval and rollback after a handler inserts data and then fails. Provider
 calls are forbidden by the local-tool HTTP fixture.
 
 Current workspace verification: the focused suite passed all 15 tests; the full
-server suite passed all 121 tests with no failures or skips. `git diff --check`
-passed. No paid calls, real owner/device enrollment, deployment, or Android
-build/device checks were performed.
+server suite passed all 152 tests with no failures or skips. The four configured
+Android HTTPS acceptance tests passed, including exact local approval and
+duplicate rejection. Android unit/lint/app and test APK builds passed.
+`git diff --check` passed. No paid calls, real owner/device enrollment, deployment,
+or physical-device checks were performed.
 
-General function-calling/resume loops, additional tool capabilities, an Android
+The existing Android `OwnerGateway` now offers `readLocalStatus`,
+`proposeLocalMemory`, `localToolStatus`, `cancelLocalTool` and `approveLocalTool`.
+Its immutable proposal retains the gateway endpoint, recomputes the Python
+canonical digest and validates actor/policy/audit data. Approval uses the same
+enrolled Keystore signer and permits only the existing 30-second authentication
+clock skew; server expiry remains authoritative. No background path or model
+automatically calls the approval method.
+
+General function-calling/resume loops, additional tool capabilities, a new Android
 approval screen, external actions, deployment and real-device acceptance remain
-outside this local backend change. Adding a capability requires implementing
+outside this change. Adding a capability requires implementing
 its policy and transaction boundary in server code; an allowlist or approval
 field supplied by a model never enables one.

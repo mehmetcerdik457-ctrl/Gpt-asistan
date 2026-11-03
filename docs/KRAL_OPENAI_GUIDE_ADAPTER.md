@@ -7,7 +7,7 @@ local tool proposal/status/approval/cancellation routes.
 
 ## Existing service boundary
 
-`MainActivity.submitExpertTask()` → `OwnerGateway.submitTask()` → signed
+Existing Android service `OwnerGateway.submitTask()` → signed
 `POST /api/v1/owner/tasks` → `TaskManager` →
 `OpenAIProvider.reply_with_metadata()` → OpenAI Responses API.
 
@@ -58,10 +58,13 @@ Working branch: `codex/kral-openai-guide-adapter`.
 | --- | --- |
 | Focused gateway and task runtime suites | 50 tests passed |
 | Focused local tool-policy suite | 15 tests passed |
-| `.venv/bin/python -m unittest discover -s server/tests -v` | 121 tests passed; no failures or skips |
+| `.venv/bin/python -m unittest discover -s server/tests -v` | 152 tests passed; no failures or skips |
+| Android JVM suite | 63 passed, 6 existing native/Keystore cases ignored on JVM and exercised on the emulator |
+| Android lint and app/test APK builds | Passed; lint has 0 errors and 31 warnings |
+| Configured HTTPS gateway emulator acceptance | 4 passed, no failures/skips, no external provider calls |
 | `git diff --check` | Passed |
 | Configured API key, model allowlist/preference and owner/device identity variables | Not set in this workspace; synthetic fixtures used |
-| Billable OpenAI calls, Android build/device checks and deployment | Not run |
+| Billable OpenAI calls, physical-device checks and deployment | Not run |
 
 Changed files:
 
@@ -75,9 +78,12 @@ Changed files:
 - `docs/KRAL_OPENAI_GUIDE_ADAPTER.md`: acceptance map and verification record.
 - `docs/KRAL_TOOL_TASKS.md`: capability policy and signed API usage.
 
-Dependency declarations, `owner_auth_v1.py` signature verification and Android
-sources are unchanged. The gateway passes verified actor context to tool policy.
-The patch is local and uncommitted; it has not been pushed or deployed.
+Dependency declarations and `owner_auth_v1.py` signature verification are
+unchanged. The Android owner signer now accepts the four local tool routes;
+the existing gateway client validates immutable proposals and signs explicit
+approvals. UI and default TLS/Keystore signing remain unchanged. Current source,
+delivery status and the complete acceptance record are in
+[KRAL_OCT26_ACCEPTANCE.md](KRAL_OCT26_ACCEPTANCE.md).
 
 ## Remaining scope
 
@@ -90,6 +96,6 @@ The separate signed local worker endpoint retains its existing read-only
 allowlist. Its access to local memory does not authorize sending that memory to
 OpenAI.
 
-Live API readiness, physical-device acceptance, Android builds, deployment and
-publication remain separate checks. In particular, the signed `models` route
+Live API readiness, physical-device acceptance, deployment and publication
+remain separate checks. In particular, the signed `models` route
 can issue billable Responses probes; do not use it as a free readiness check.
