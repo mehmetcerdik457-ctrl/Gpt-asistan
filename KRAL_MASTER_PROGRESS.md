@@ -136,3 +136,16 @@ Not verified / still open:
 ## 9. Current stage decision
 **Stage result: BUILD EVIDENCE VERIFIED; PRODUCT / ORIGINAL ACCEPTANCE NOT COMPLETE.**
 PR #79 remains a draft integration review. No main merge, production release, physical device test, live model test, or original T01–T26 acceptance is claimed.
+
+
+## 10. Follow-up recovery investigation — 2026-11-03 11:58 Türkiye time
+- Re-read the current branch's `KRAL_MASTER_PROGRESS.md` and confirmed the continuation state above; no conflicting update was found.
+- Re-searched this repository's issues for `KRAL GENESIS`, `28 bölüm`, and `T01/T26`. No exact 28-section roadmap or original T01–T26 definitions were returned.
+- Located and fetched [Issue #61 — KRAL/JUPYTER HANDOFF](https://github.com/mehmetcerdik457-ctrl/Gpt-asistan/issues/61), created 2026-10-27. It is a real handoff record for the earlier `integration/kral-50-worker-supervisor-20261025` branch at `92284d7a15f6d8482d0a27153e319247757327b1`, not the requested acceptance matrix.
+- Issue #61 explicitly says the Mission Control planner creates an offline plan only; worker slots/profile files are not live AI workers. It requires separate owner approval and live execution evidence for each worker. It also says no Codespaces/Jupyter session was connected or verified at that time.
+- Confirmed the referenced old branch still exists. Retrieved `docs/KRAL_MISSION_CONTROL.md`: it documents 1–100 task records, up to 50 logical worker slots, max 4 planned simultaneous assignments, 12 allowlisted specialist profiles, and local Ollama inference only when explicitly run against localhost. This is worker architecture guidance, NOT the 28-section product roadmap or T01–T26 acceptance definitions.
+- Tried the likely filenames `docs/KRAL_MASTER_ROADMAP.md` and `docs/KRAL_ACCEPTANCE_MATRIX.md` on that historical branch; both returned 404. No file was created or renamed to pretend the source existed.
+- Reconfirmed PR #79 changed-file list is the existing 18-file SQLCipher/API36 integration set; no unrelated feature code was modified in this follow-up.
+- **Decision:** original acceptance remains BLOCKED / NOT RECOVERED; T01–T26 remains NOT VERIFIED (0/26 against the missing source, not 26 failures). Issue #61 and Mission Control docs may guide the separate worker verification track, but cannot be substituted for the user's original 28-section roadmap.
+- No code, secrets, OAuth, owner keys, main branch, release signing, APK installation, paid API, or deployment were changed in this follow-up.
+- Next safe action: continue tracing earlier KRAL Genesis PRs/branches and their linked issue/PR descriptions for a pointer to the exact owner-authored roadmap or acceptance file; if no authoritative source is found, keep the acceptance gate blocked and do not fabricate a replacement.
