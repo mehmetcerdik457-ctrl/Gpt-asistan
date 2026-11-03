@@ -429,21 +429,30 @@ class Gateway:
         if path == PREFIX + "tasks/status":
             if set(data) != {"task_id"} or not isinstance(data["task_id"], str):
                 raise Denied("TASK_ID_INVALID")
-            result = self.tasks.get(data["task_id"])
+            try:
+                result = self.tasks.get(data["task_id"])
+            except ValueError as exc:
+                raise Denied(str(exc), 400) from None
             if result is None:
                 raise Denied("TASK_NOT_FOUND", 404)
             return result
         if path == PREFIX + "tasks/cancel":
             if set(data) != {"task_id"} or not isinstance(data["task_id"], str):
                 raise Denied("TASK_ID_INVALID")
-            result = self.tasks.cancel(data["task_id"])
+            try:
+                result = self.tasks.cancel(data["task_id"])
+            except ValueError as exc:
+                raise Denied(str(exc), 400) from None
             if result is None:
                 raise Denied("TASK_NOT_FOUND", 404)
             return result
         if path == PREFIX + "tasks/approve":
             if set(data) != {"task_id"} or not isinstance(data["task_id"], str):
                 raise Denied("TASK_ID_INVALID")
-            result = self.tasks.approve(data["task_id"])
+            try:
+                result = self.tasks.approve(data["task_id"])
+            except ValueError as exc:
+                raise Denied(str(exc), 400) from None
             if result is None:
                 raise Denied("TASK_NOT_FOUND", 404)
             return result
