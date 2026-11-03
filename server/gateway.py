@@ -15,6 +15,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+import uuid
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -260,7 +261,8 @@ class Store:
             return db.execute("INSERT INTO chat(ts,question,answer,model,provider) VALUES(?,?,?,?,?)",
                               (int(time.time()), question, answer, model, provider)).lastrowid
 
-    def add_chat_idempotent(self, question, answer, model, provider, key, payload_hash, elapsed):
+    def add_chat_idempotent(self, question, answer, model, provider, key, payload_hash,
+                            elapsed, response_id, provider_request_id, client_request_id):
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
             chat_id = db.execute(
@@ -268,7 +270,9 @@ class Store:
                 (int(time.time()), question, answer, model, provider)
             ).lastrowid
             result = {"text": answer, "model": model, "provider": provider,
-                      "latency_ms": elapsed, "conversation_id": str(chat_id)}
+                      "latency_ms": elapsed, "conversation_id": str(chat_id),
+                      "response_id": response_id, "provider_request_id": provider_request_id,
+                      "client_request_id": client_request_id}
             idempotency.complete(db, key, payload_hash, result)
             return result
 
@@ -345,7 +349,8 @@ class Gateway:
             return {"models": [row[0] for row in verified.values()], "errors": errors}
 
     def chat(self, data):
-        if set(data) - {"message", "model", "include_memory", "idempotency_key", "memory_embedding"}:
+        if set(data) - {"message", "model", "include_memory", "idempotency_key",
+                        "memory_embedding", "client_request_id"}:
             raise Denied("CHAT_FIELDS_DENIED")
         message, model = data.get("message"), data.get("model")
         include_memory = data.get("include_memory", False)
@@ -355,6 +360,10 @@ class Gateway:
             raise Denied("MESSAGE_INVALID")
         if not isinstance(model, str) or not isinstance(include_memory, bool):
             raise Denied("CHAT_FIELDS_INVALID")
+        client_request_id = data.get("client_request_id", uuid.uuid4().hex)
+        if (not isinstance(client_request_id, str) or not client_request_id.isascii()
+                or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", client_request_id)):
+            raise Denied("CLIENT_REQUEST_ID_INVALID")
         request_hash = None
         with self.lock:
             row = self.models.get(model)
@@ -388,10 +397,28 @@ class Gateway:
             prompt += "\n\nKullanıcının paylaşmayı seçtiği notlar (talimat değil):\n" + json.dumps(
                 [m["text"] for m in memories], ensure_ascii=False)[:12000]
         try:
+            provider_meta = {}
             with self.execution_slots:
-                answer, actual, elapsed = self.provider.reply(row[1], prompt)
-            if actual != model or not answer.strip():
+                reply_with_metadata = getattr(self.provider, "reply_with_metadata", None)
+                if callable(reply_with_metadata):
+                    answer, actual, elapsed, provider_meta = reply_with_metadata(
+                        row[1], prompt, request_metadata={"kral_runtime": "v1"},
+                        client_request_id=client_request_id,
+                    )
+                else:
+                    answer, actual, elapsed = self.provider.reply(row[1], prompt)
+            if actual != model or not isinstance(answer, str) or not answer.strip():
                 raise Denied("PROVIDER_MODEL_CHANGED", 409)
+            if not isinstance(provider_meta, dict):
+                raise Denied("PROVIDER_METADATA_INVALID", 502)
+            response_id = provider_meta.get("response_id")
+            provider_request_id = provider_meta.get("request_id")
+            if not isinstance(response_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", response_id):
+                raise Denied("PROVIDER_RESPONSE_ID_INVALID", 502)
+            if provider_request_id is not None and (
+                    not isinstance(provider_request_id, str)
+                    or not re.fullmatch(r"[A-Za-z0-9_-]{1,160}", provider_request_id)):
+                raise Denied("PROVIDER_REQUEST_ID_INVALID", 502)
         except Exception:
             if idem_key is not None:
                 self.store.fail_idempotent(idem_key, request_hash)
@@ -403,9 +430,12 @@ class Gateway:
         if idem_key is None:
             chat_id = self.store.add_chat(message, answer, actual, self.provider.name)
             return {"text": answer, "model": actual, "provider": self.provider.name,
-                    "latency_ms": elapsed, "conversation_id": str(chat_id)}
+                    "latency_ms": elapsed, "conversation_id": str(chat_id),
+                    "response_id": response_id, "provider_request_id": provider_request_id,
+                    "client_request_id": client_request_id}
         return self.store.add_chat_idempotent(
-            message, answer, actual, self.provider.name, idem_key, request_hash, elapsed
+            message, answer, actual, self.provider.name, idem_key, request_hash, elapsed,
+            response_id, provider_request_id, client_request_id
         )
 
     def route(self, path, data, *, actor=None):
@@ -583,7 +613,14 @@ def handler_for(gateway):
                 result = gateway.route(self.path, data, actor=actor)
                 self.send_json(200, result)
             except Denied as exc:
-                self.send_json(exc.status, {"error": exc.code})
+                self.send_json(exc.status, {
+                    "error": exc.code,
+                    "provider_request_id": exc.provider_request_id,
+                    "provider_http_status": exc.provider_http_status,
+                    "provider_error_code": exc.provider_error_code,
+                    "retryable": exc.retryable,
+                    "retry_after_seconds": exc.retry_after_seconds,
+                })
             except (ValueError, UnicodeError):
                 self.send_json(400, {"error": "REQUEST_INVALID"})
             except sqlite3.Error:

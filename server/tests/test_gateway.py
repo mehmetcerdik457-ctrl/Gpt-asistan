@@ -38,6 +38,8 @@ class SyntheticProvider:
 
     def __init__(self):
         self.calls = []
+        self.last_request_metadata = None
+        self.last_client_request_id = None
 
     def configured(self):
         return self.available
@@ -48,6 +50,21 @@ class SyntheticProvider:
     def reply(self, model, message, *, probe=False):
         self.calls.append((model, message, probe))
         return self.answer, self.actual, 2
+
+    def reply_with_metadata(self, model, message, *, probe=False,
+                            request_metadata=None, client_request_id=None,
+                            system_instructions=None):
+        self.last_request_metadata = request_metadata
+        self.last_client_request_id = client_request_id
+        answer, actual, elapsed = self.reply(model, message, probe=probe)
+        return answer, actual, elapsed, {
+            "response_id": "resp_gateway_synthetic_001",
+            "request_id": "req_gateway_synthetic_001",
+            "http_status": 200,
+            "provider_error_code": None,
+            "retryable": False,
+            "retry_after_seconds": None,
+        }
 
 
 class GatewayHttpTests(unittest.TestCase):
@@ -113,10 +130,28 @@ class GatewayHttpTests(unittest.TestCase):
         actual = self.verify_model()
         self.assertNotEqual(actual, self.provider.candidates()[0])
         self.assertTrue(self.provider.calls[0][2])
-        status, data = self.post("chat", {"message": "Merhaba", "model": actual, "include_memory": False})
+        client_request_id = "a" * 32
+        status, data = self.post("chat", {
+            "message": "Merhaba", "model": actual, "include_memory": False,
+            "client_request_id": client_request_id
+        })
         self.assertEqual(status, 200)
         self.assertEqual(data["text"], self.provider.answer)
         self.assertEqual(data["model"], actual)
+        self.assertEqual(data["response_id"], "resp_gateway_synthetic_001")
+        self.assertEqual(data["provider_request_id"], "req_gateway_synthetic_001")
+        self.assertEqual(data["client_request_id"], client_request_id)
+        self.assertEqual(self.provider.last_client_request_id, client_request_id)
+        self.assertEqual(self.provider.last_request_metadata, {"kral_runtime": "v1"})
+
+    def test_chat_rejects_invalid_client_request_id_before_provider_call(self):
+        actual = self.verify_model()
+        calls_before = len(self.provider.calls)
+        status, data = self.post("chat", {
+            "message": "Merhaba", "model": actual, "client_request_id": "bad id"
+        })
+        self.assertEqual((status, data["error"]), (400, "CLIENT_REQUEST_ID_INVALID"))
+        self.assertEqual(len(self.provider.calls), calls_before)
 
     def test_no_provider_calls_without_auth(self):
         status, _ = self.post("models", {}, headers={"Content-Type": "application/json"})
@@ -430,7 +465,7 @@ class ProviderTests(unittest.TestCase):
         payload = {"id": "resp_synthetic_123", "status": "completed", "model": "actual-snapshot", "output": [
             {"type": "message", "content": [{"type": "output_text", "text": "Merhaba"}]}]}
         self.assertEqual(self.invoke(self.response(payload))[:2], ("Merhaba", "actual-snapshot"))
-        for missing in ("model", "output", "status"):
+        for missing in ("id", "model", "output", "status"):
             changed = dict(payload)
             del changed[missing]
             with self.assertRaises(g.Denied):

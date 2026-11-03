@@ -15,16 +15,23 @@ class ChatSession internal constructor(
     application: Application,
     private val store: ChatStore,
     private val worker: ExecutorService,
-    private val responder: (String, String, String) -> String
+    private val responder: (String, String, String) -> OwnerGateway.Reply
 ) : AndroidViewModel(application) {
     constructor(application: Application) : this(
         application,
         KralStore(application.applicationContext),
         Executors.newSingleThreadExecutor(),
-        { endpoint, model, question -> OwnerGateway.reply(application, endpoint, model, question) }
+        { endpoint, model, question -> OwnerGateway.replyWithMetadata(application, endpoint, model, question) }
     )
 
-    data class State(val busy: Boolean, val status: String)
+    data class State(
+        val busy: Boolean, val status: String,
+        val responseId: String? = null, val providerRequestId: String? = null,
+        val clientRequestId: String? = null,
+        val providerHttpStatus: Int? = null, val providerErrorCode: String? = null,
+        val retryable: Boolean = false, val retryAfterSeconds: Long? = null,
+        val errorCode: String? = null,
+    )
 
     private val main = Handler(Looper.getMainLooper())
     private val mutableHistory = MutableLiveData<List<ChatEntry>>(emptyList())
@@ -98,9 +105,14 @@ class ChatSession internal constructor(
     }
 
     private fun completeRequest(endpoint: String, model: String, question: String) {
-        val answer = try {
-            responder(endpoint, model, question).takeIf { it.isNotBlank() }
+        var gatewayFailure: OwnerGateway.GatewayFailure? = null
+        val reply = try {
+            responder(endpoint, model, question).takeIf { it.text.isNotBlank() }
+        } catch (failure: OwnerGateway.GatewayFailure) {
+            gatewayFailure = failure
+            null
         } catch (_: Exception) { null }
+        val answer = reply?.text
         var status: String
         if (answer != null) {
             try {
@@ -131,7 +143,13 @@ class ChatSession internal constructor(
                 refreshHistory()
             }
             pending = false
-            mutableState.value = State(false, finalStatus)
+            mutableState.value = State(
+                false, finalStatus, reply?.responseId,
+                reply?.providerRequestId ?: gatewayFailure?.providerRequestId,
+                reply?.clientRequestId, gatewayFailure?.httpStatus,
+                gatewayFailure?.providerErrorCode, gatewayFailure?.retryable ?: false,
+                gatewayFailure?.retryAfterSeconds, gatewayFailure?.errorCode
+            )
         }
     }
 
