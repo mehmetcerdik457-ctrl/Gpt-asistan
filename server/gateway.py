@@ -217,7 +217,8 @@ class Gateway:
             verified, errors = {}, []
             def verify(candidate):
                 try:
-                    text, actual, elapsed = self.provider.reply(candidate, "Yalnızca Merhaba yaz.", probe=True)
+                    with self.execution_slots:
+                        text, actual, elapsed = self.provider.reply(candidate, "Yalnızca Merhaba yaz.", probe=True)
                     if not text.strip() or not MODEL_ID.fullmatch(actual):
                         raise Denied("PROVIDER_RESPONSE_INVALID", 502)
                     row = {"id": actual, "provider": self.provider.name,
