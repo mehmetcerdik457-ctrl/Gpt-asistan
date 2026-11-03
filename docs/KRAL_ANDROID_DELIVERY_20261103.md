@@ -131,3 +131,15 @@ Başlangıçtaki 1.0.4 adayı ve kanıtları korunur. Devam değişikliği:
 
 Bu devamın yeni APK hash'i ve tam kaynak commit'i, başarılı Actions koşusu ve
 PR #86 açıklamasında yayımlanır; önceki hash yeni sürüme aitmiş gibi kullanılmaz.
+
+## Ses sonucu ve yeniden oluşturulan etkinlik
+
+Harici konuşma tanıyıcı açıkken Android etkinliği yeniden oluşturursa, tanınan
+metin yalnız başarılı cihaz doğrulamasından sonra kaydedilmiş taslakla birleştirilir.
+İptal edilen doğrulama taslağı açmaz; sonuç otomatik gönderilmez veya hafızaya
+kaydedilmez. Android testi kimlik doğrulama sonucunu simüle eder; gerçek mikrofonu
+veya cihaz kilidi ekranını doğrulamaz. Tanıma harici bir hizmet tarafından işlenir.
+
+CİHAT sınırı değişmez: imza ve sürüm kontrolü sonrası kullanıcı uygulamayı açabilir,
+taslağı elle panoya kopyalayabilir ve panodaki kaynağı doğrulanamayan metni
+önizleyerek alabilir. Otomatik mesajlaşma, yanıt okuma veya iki yönlü API yoktur.

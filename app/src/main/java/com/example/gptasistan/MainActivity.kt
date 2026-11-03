@@ -102,18 +102,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 if (!hypotheses.isNullOrEmpty()) {
                     // The external recognizer can stop our Activity. Never reveal or
                     // modify an existing private draft without a fresh device unlock.
-                    unlock {
-                        if (appUnlocked && uiReady && !storageBlocked && !isFinishing && !isDestroyed &&
-                            session.state.value?.busy != true
-                        ) {
-                            val merged = SpeechDraft.merge(input.text.toString(), hypotheses)
-                            if (merged != null) {
-                                input.setText(merged)
-                                input.setSelection(input.text.length)
-                                connectionStatus.text = getString(R.string.status_speech_draft_added)
-                            } else connectionStatus.text = getString(R.string.status_speech_not_recognized)
-                        }
-                    }
+                    unlock { applySpeechDraft(hypotheses) }
                 }
             }
             return
@@ -490,6 +479,18 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                     connectionStatus.text = getString(R.string.status_recognizer_denied)
                 }
             }.setNegativeButton("Vazgeç", null).show()
+    }
+
+    private fun applySpeechDraft(hypotheses: List<String>) {
+        if (!appUnlocked || storageBlocked || isFinishing || isDestroyed) return
+        if (!uiReady) buildContent(initialState)
+        if (session.state.value?.busy == true) return
+        val merged = SpeechDraft.merge(input.text.toString(), hypotheses)
+        if (merged != null) {
+            input.setText(merged)
+            input.setSelection(input.text.length)
+            connectionStatus.text = getString(R.string.status_speech_draft_added)
+        } else connectionStatus.text = getString(R.string.status_speech_not_recognized)
     }
 
     private fun showLocal(action: () -> String) {
