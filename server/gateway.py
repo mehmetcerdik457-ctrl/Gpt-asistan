@@ -98,8 +98,10 @@ class OpenAIProvider:
         except urllib.error.HTTPError as exc:
             # Error bodies may contain upstream request information. Never relay them.
             exc.close()
-            code = "PROVIDER_AUTH_DENIED" if exc.code in (401, 403) else (
-                "PROVIDER_QUOTA_OR_RATE_LIMIT" if exc.code == 429 else "PROVIDER_HTTP_FAILURE")
+            code = ("PROVIDER_AUTH_DENIED" if exc.code == 401 else
+                    "PROVIDER_MODEL_OR_PERMISSION_DENIED" if exc.code == 403 else
+                    "PROVIDER_MODEL_NOT_AVAILABLE" if exc.code == 404 else
+                    "PROVIDER_QUOTA_OR_RATE_LIMIT" if exc.code == 429 else "PROVIDER_HTTP_FAILURE")
             raise Denied(code, 502) from None
         except (urllib.error.URLError, TimeoutError, OSError):
             raise Denied("PROVIDER_CONNECTION_FAILED", 502) from None
