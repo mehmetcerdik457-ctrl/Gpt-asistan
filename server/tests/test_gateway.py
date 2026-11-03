@@ -206,6 +206,62 @@ class GatewayHttpTests(unittest.TestCase):
         })
         self.assertEqual((status, data["error"]), (429, "OWNER_RATE_LIMIT"))
 
+    def test_signed_task_status_cancel_and_approval_routes_are_owner_bound(self):
+        actual = self.verify_model()
+        status, created = self.post("tasks", {
+            "input": "Sentetik uzman görevi", "model": actual,
+            "expert": "security-auditor", "tools": [], "requires_approval": True
+        })
+        self.assertEqual(status, 200)
+        self.assertEqual(created["status"], "awaiting_approval")
+        task_id = created["task_id"]
+        self.assertEqual(len(self.provider.calls), 1, "approval-only task must not call the model")
+
+        raw = g.json_bytes({"task_id": task_id})
+        unsigned = self.post("tasks/status", raw, headers={"Content-Type": "application/json"})
+        self.assertEqual(unsigned[0], 403)
+        self.assertEqual(self.gateway.tasks.get(task_id)["status"], "awaiting_approval")
+
+        status, current = self.post("tasks/status", {"task_id": task_id})
+        self.assertEqual(status, 200)
+        self.assertEqual(current["task_id"], task_id)
+        self.assertEqual(current["tools_executed"], 0)
+
+        status, approved = self.post("tasks/approve", {"task_id": task_id})
+        self.assertEqual(status, 200)
+        self.assertEqual(approved["status"], "approved_not_executed")
+        self.assertEqual(approved["external_actions"], 0)
+        self.assertEqual(len(self.provider.calls), 1, "approval is recorded but never executes")
+
+        status, final = self.post("tasks/status", {"task_id": task_id})
+        self.assertEqual(status, 200)
+        self.assertEqual(final["status"], "approved_not_executed")
+
+    def test_signed_cancel_route_cancels_approval_waiting_task(self):
+        actual = self.verify_model()
+        status, created = self.post("tasks", {
+            "input": "İptal edilebilir onay bekleyen görev", "model": actual,
+            "expert": "test-engineer", "tools": [], "requires_approval": True
+        })
+        self.assertEqual(status, 200)
+        self.assertEqual(created["status"], "awaiting_approval")
+        status, cancelled = self.post("tasks/cancel", {"task_id": created["task_id"]})
+        self.assertEqual(status, 200)
+        self.assertEqual(cancelled["status"], "cancelled")
+        self.assertTrue(cancelled["cancel_requested"])
+        self.assertEqual(len(self.provider.calls), 1)
+
+    def test_task_routes_reject_unknown_tools_and_malformed_task_ids(self):
+        actual = self.verify_model()
+        status, denied = self.post("tasks", {
+            "input": "Do not run shell", "model": actual,
+            "expert": "code-reviewer", "tools": ["shell"]
+        })
+        self.assertEqual((status, denied["error"]), (403, "TASK_TOOL_CAPABILITY_DENIED"))
+        status, denied = self.post("tasks/status", {"task_id": "not-a-task-id"})
+        self.assertEqual((status, denied["error"]), (400, "TASK_ID_INVALID"))
+        self.assertEqual(len(self.provider.calls), 1, "only the explicit model probe ran")
+
     def test_model_change_invalidates_selection(self):
         actual = self.verify_model()
         self.provider.actual = "different-snapshot"
