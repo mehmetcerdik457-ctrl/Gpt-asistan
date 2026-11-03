@@ -59,9 +59,26 @@ class TaskManager:
                     error_code TEXT,
                     cancel_requested INTEGER NOT NULL DEFAULT 0,
                     approval_required INTEGER NOT NULL DEFAULT 0,
-                    approved_at INTEGER
+                    approved_at INTEGER,
+                    client_request_id TEXT,
+                    response_id TEXT,
+                    provider_request_id TEXT,
+                    provider_http_status INTEGER,
+                    provider_error_code TEXT,
+                    retryable INTEGER NOT NULL DEFAULT 0,
+                    retry_after_seconds INTEGER
                 )
             """)
+            # Additive migration for an existing task table.
+            columns = {row[1] for row in db.execute("PRAGMA table_info(owner_tasks)")}
+            for name, kind in (
+                ("client_request_id", "TEXT"), ("response_id", "TEXT"),
+                ("provider_request_id", "TEXT"), ("provider_http_status", "INTEGER"),
+                ("provider_error_code", "TEXT"), ("retryable", "INTEGER NOT NULL DEFAULT 0"),
+                ("retry_after_seconds", "INTEGER"),
+            ):
+                if name not in columns:
+                    db.execute("ALTER TABLE owner_tasks ADD COLUMN " + name + " " + kind)
             # A process restart cannot safely resume in-memory synchronous work.
             db.execute(
                 "UPDATE owner_tasks SET status='failed', error_code='PROCESS_RESTARTED', updated_at=? "
@@ -89,8 +106,8 @@ class TaskManager:
                 raise RuntimeError("TASK_CAPACITY_REACHED")
             db.execute(
                 "INSERT INTO owner_tasks(task_id,status,created_at,updated_at,model,expert,request_sha256,"
-                "approval_required) VALUES(?,?,?,?,?,?,?,?)",
-                (task_id, status, now, now, model, expert, digest, int(approval_required))
+                "approval_required,client_request_id) VALUES(?,?,?,?,?,?,?,?,?)",
+                (task_id, status, now, now, model, expert, digest, int(approval_required), task_id)
             )
         if not approval_required:
             self.pool.submit(self._run, task_id, model, candidate, expert, prompt)
@@ -113,8 +130,16 @@ class TaskManager:
             "Provide analysis or a proposed change only.\n\nUser task:\n" + prompt
         )
         try:
-            with self.execution_slots:
+            if hasattr(self.provider, "reply_with_metadata"):
+                answer, actual, _elapsed, provider_meta = self.provider.reply_with_metadata(
+                    candidate, role_prompt,
+                    request_metadata={"kral_task_id": task_id, "kral_expert": expert,
+                                      "kral_runtime": "v1"},
+                    client_request_id=task_id,
+                )
+            else:
                 answer, actual, _elapsed = self.provider.reply(candidate, role_prompt)
+                provider_meta = {}
             if actual != model or not isinstance(answer, str) or not answer.strip():
                 raise RuntimeError("TASK_PROVIDER_RESPONSE_INVALID")
             digest = hashlib.sha256(answer.encode("utf-8")).hexdigest()
@@ -131,9 +156,13 @@ class TaskManager:
                     )
                 else:
                     db.execute(
-                        "UPDATE owner_tasks SET status='completed', result=?, result_sha256=?, updated_at=? "
-                        "WHERE task_id=?",
-                        (answer, digest, int(time.time()), task_id)
+                        "UPDATE owner_tasks SET status='completed', result=?, result_sha256=?, "
+                        "response_id=?, provider_request_id=?, provider_http_status=?, provider_error_code=?, "
+                        "retryable=?, retry_after_seconds=?, updated_at=? WHERE task_id=?",
+                        (answer, digest, provider_meta.get("response_id"), provider_meta.get("request_id"),
+                         provider_meta.get("http_status"), provider_meta.get("provider_error_code"),
+                         int(bool(provider_meta.get("retryable", False))),
+                         provider_meta.get("retry_after_seconds"), int(time.time()), task_id)
                     )
         except Exception as exc:
             code = getattr(exc, "code", None)
@@ -146,8 +175,15 @@ class TaskManager:
                     return
                 status = "cancelled" if row[0] else "failed"
                 db.execute(
-                    "UPDATE owner_tasks SET status=?, error_code=?, updated_at=? WHERE task_id=?",
-                    (status, "TASK_CANCELLED" if row[0] else code, int(time.time()), task_id)
+                    "UPDATE owner_tasks SET status=?, error_code=?, provider_request_id=?, "
+                    "provider_http_status=?, provider_error_code=?, retryable=?, retry_after_seconds=?, "
+                    "updated_at=? WHERE task_id=?",
+                    (status, "TASK_CANCELLED" if row[0] else code,
+                     getattr(exc, "provider_request_id", None),
+                     getattr(exc, "provider_http_status", None),
+                     getattr(exc, "provider_error_code", None),
+                     int(bool(getattr(exc, "retryable", False))),
+                     getattr(exc, "retry_after_seconds", None), int(time.time()), task_id)
                 )
 
     def get(self, task_id):
@@ -156,7 +192,9 @@ class TaskManager:
         with self.store.connect() as db:
             row = db.execute(
                 "SELECT task_id,status,created_at,updated_at,model,expert,request_sha256,"
-                "result,result_sha256,error_code,cancel_requested,approval_required,approved_at "
+                "result,result_sha256,error_code,cancel_requested,approval_required,approved_at,"
+                "client_request_id,response_id,provider_request_id,provider_http_status,"
+                "provider_error_code,retryable,retry_after_seconds "
                 "FROM owner_tasks WHERE task_id=?", (task_id,)
             ).fetchone()
         if row is None:
@@ -168,6 +206,10 @@ class TaskManager:
             "result_sha256": row[8] if row[1] == "completed" else None,
             "error": row[9], "cancel_requested": bool(row[10]),
             "approval_required": bool(row[11]), "approved_at": row[12],
+            "client_request_id": row[13], "response_id": row[14],
+            "provider_request_id": row[15], "provider_http_status": row[16],
+            "provider_error_code": row[17], "retryable": bool(row[18]),
+            "retry_after_seconds": row[19],
             "tools_executed": 0, "external_actions": 0,
         }
 
