@@ -92,6 +92,29 @@ class OwnerGatewayTest {
             .put("retryable", false).put("retry_after_seconds", JSONObject.NULL)
             .put("error", JSONObject.NULL).put("tools_executed", 0).put("external_actions", 0)
 
+    @Test fun providerFailureParserKeepsOnlyTypedRetryMetadataAndRedactsBody() {
+        val failure = OwnerGateway.parseGatewayFailure(502, JSONObject()
+            .put("error", "PROVIDER_QUOTA_OR_RATE_LIMIT")
+            .put("provider_request_id", "req_synthetic_429")
+            .put("provider_http_status", 429)
+            .put("provider_error_code", "rate_limit_exceeded")
+            .put("retryable", true).put("retry_after_seconds", 7)
+            .put("private_detail", "secret prompt and key").toString())
+        assertEquals(502, failure.httpStatus)
+        assertEquals("PROVIDER_QUOTA_OR_RATE_LIMIT", failure.errorCode)
+        assertEquals("req_synthetic_429", failure.providerRequestId)
+        assertEquals(429, failure.providerHttpStatus)
+        assertEquals("rate_limit_exceeded", failure.providerErrorCode)
+        assertTrue(failure.retryable)
+        assertEquals(7L, failure.retryAfterSeconds)
+        assertFalse(failure.message!!.contains("secret"))
+
+        val malformed = OwnerGateway.parseGatewayFailure(502, "private upstream response")
+        assertEquals("OWNER_REQUEST_DENIED", malformed.errorCode)
+        assertNull(malformed.providerRequestId)
+        assertFalse(malformed.retryable)
+    }
+
     @Test fun taskResponseParserChecksLifecycleHashesAndNoToolExecution() {
         val completed = OwnerGateway.parseTask(taskJson())
         assertEquals("a".repeat(32), completed.taskId)
