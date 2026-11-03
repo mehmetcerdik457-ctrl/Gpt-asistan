@@ -26,6 +26,19 @@ The 26 October guide's `runKralAiTask()` JavaScript snippet illustrates
 an interface; it does not override this existing Python backend or authorize
 a second Android-side API integration.
 
+The adapter now represents trusted policy and user content as separate Responses
+`system` and `user` messages. Expert tasks supply their server-owned specialist
+instructions separately from the raw task input. Task metadata includes
+`request_id` alongside the existing `kral_task_id`, and the same task ID is sent
+as `X-Client-Request-Id`. Successful provider responses must include a valid
+response ID; a missing or malformed ID is a typed `PROVIDER_RESPONSE_ID_INVALID`
+failure instead of a successful task with missing evidence.
+
+The established Android contract remains `result`, `model`, and `response_id`;
+it carries the guide's `text`, `model`, and `responseId` semantics without adding
+a JavaScript service. See [the adapter acceptance map](KRAL_OPENAI_GUIDE_ADAPTER.md)
+for test commands and the remaining tool-execution boundary.
+
 ## Model states are not interchangeable
 
 1. `DOCUMENTED`: A model ID is present in official public API docs.
