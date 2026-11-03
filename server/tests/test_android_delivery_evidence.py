@@ -19,11 +19,14 @@ class DeliveryEvidenceTests(unittest.TestCase):
             root = Path(tmp)
             tests = root / "TEST-example.xml"
             lint = root / "lint.xml"
-            tests.write_text('<testsuite tests="5" failures="0" errors="0" skipped="2"/>')
+            tests.write_text('<testsuite tests="5" failures="0" errors="0" skipped="2">'
+                             '<testcase classname="Store" name="a"><skipped/></testcase>'
+                             '<testcase classname="Store" name="b"><skipped/></testcase></testsuite>')
             lint.write_text('<issues><issue severity="Warning"/></issues>')
             result = evidence.summarize(root, lint)
             self.assertEqual(result["unit_tests_passed"], 3)
             self.assertEqual(result["unit_tests"]["skipped"], 2)
+            self.assertEqual([case["name"] for case in result["skipped_tests"]], ["a", "b"])
             self.assertEqual(result["lint"]["severities"], {"Warning": 1})
             tests.write_text('<testsuite tests="5" failures="1"/>')
             with self.assertRaisesRegex(ValueError, "UNIT_TESTS_NOT_PASSED"):

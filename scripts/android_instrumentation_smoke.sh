@@ -37,27 +37,6 @@ timeout 240 adb -e shell am instrument -w -r \
   com.example.gptasistan.genesis.test/androidx.test.runner.AndroidJUnitRunner 2>&1 |
   tee "$evidence_dir/instrumentation-result.txt"
 
-python3 - <<'PY'
-import json, os, re
-from pathlib import Path
-e = Path("build/emulator/evidence")
-data = (e / "instrumentation-result.txt").read_text(errors="replace").replace("\r", "")
-match = re.search(r"(?m)^\s*OK\s+\((\d+)\s+tests?\)\s*$", data)
-assert match is not None, "INSTRUMENTATION_SUCCESS_SUMMARY_MISSING"
-count = int(match.group(1))
-assert count >= 13, "INSTRUMENTATION_TEST_COUNT_REGRESSION"
-assert "FAILURES!!!" not in data and "INSTRUMENTATION_FAILED" not in data, "INSTRUMENTATION_FAILURE"
-assert re.search(r"(?m)^INSTRUMENTATION_CODE:\s*-1\s*$", data), "INSTRUMENTATION_RESULT_CODE_INVALID"
-payload = {
-    "source_commit": os.environ["KRAL_EXPECTED_SOURCE_SHA"],
-    "github_run_id": os.environ["GITHUB_RUN_ID"],
-    "api_level": int(os.environ["KRAL_EMULATOR_API"]),
-    "instrumentation_tests": count,
-    "instrumentation_passed": True,
-    "physical_phone_tested": False,
-    "live_model_tested": False,
-    "owner_authentication_attempted": False,
-}
-(e / "instrumentation-summary.json").write_text(json.dumps(payload, indent=2) + "\n")
-print(json.dumps(payload))
-PY
+python3 scripts/android_instrumentation_evidence.py \
+  "$evidence_dir/instrumentation-result.txt" "$apk_dir" \
+  "$evidence_dir/instrumentation-summary.json"

@@ -107,3 +107,27 @@ her ayrık dalın bu teslimde birleştirildiğini göstermez. Eski dal kaynaklar
   Release AAB imzasızdır, Play Store'a hazır sayılmaz.
 - Fiziksel telefon, gerçek biyometri, mikrofon/hoparlör, yüklü üçüncü taraf CİHAT
   ve canlı model hesabı bu CI koşusuyla test edilmiş sayılmaz.
+
+## Devam teslimi — 1.0.5 / versionCode 6
+
+Başlangıçtaki 1.0.4 adayı ve kanıtları korunur. Devam değişikliği:
+
+- Sabit arayüz durum metinleri Android string kaynaklarına taşınır. Kilit ekranı,
+  korunan `activity_main.xml` düzenini kullanır; erişim kapısı ve FLAG_SECURE korunur.
+- Uygulama etiketi `KRAL Genesis`, adaptif başlatıcı simgesi eklenir.
+- Model/konuşma tercihleri aynı asenkron davranışla KTX üzerinden yazılır.
+  Veritabanı anahtarı yazımındaki kontrol edilen senkron `commit()` korunur:
+  diske yazma başarısızken veritabanını yeni anahtarla açmak kabul edilemez.
+- Eski 6 Robolectric testi silinmez veya başarılı sayılmaz. Aynı sınıf/metot
+  kimlikleriyle Android instrumentation altında çalışan karşılıkları vardır.
+  `test-summary.json` atlanan testleri isimleriyle listeler. Her API koşusu
+  bu testlerin tek tek başarılı durum kodunu doğrular ve aynı APK/commit ile
+  eşleşmesini zorunlu tutar. Yalnız `OK (16 tests)` metni yeterli sayılmaz.
+- Ham test olayları, başarısız/atlanan Android testleri, eksik veya tekrar eden
+  test kimlikleri ve başka derlemeye ait özetler kanıt doğrulamasını başarısız yapar.
+- Güncel SDK/bağımlılık sürümü önerileri gizlenmez. Güvenlik ve uyumluluk testi
+  gerektiren toplu sürüm yükseltmeleri bu arayüz/kanıt düzeltmesine eklenmez.
+  Gerçek kalan Lint sayısı yeni commit'in `test-summary.json` dosyasındadır.
+
+Bu devamın yeni APK hash'i ve tam kaynak commit'i, başarılı Actions koşusu ve
+PR #86 açıklamasında yayımlanır; önceki hash yeni sürüme aitmiş gibi kullanılmaz.

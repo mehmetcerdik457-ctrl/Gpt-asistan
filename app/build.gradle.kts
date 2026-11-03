@@ -8,8 +8,8 @@ android {
         minSdk = 26
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         targetSdk = 36
-        versionCode = 5
-        versionName = "1.0.4-genesis-candidate"
+        versionCode = 6
+        versionName = "1.0.5-genesis-candidate"
     }
     buildTypes {
         release {

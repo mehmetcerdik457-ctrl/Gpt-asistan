@@ -13,25 +13,39 @@ def summarize(tests: Path, lint: Path) -> dict:
     if not files:
         raise ValueError("UNIT_TEST_RESULTS_MISSING")
     counts = dict(tests=0, failures=0, errors=0, skipped=0)
+    skipped_tests = []
     for path in files:
         suite = ET.parse(path).getroot()
         if suite.tag != "testsuite":
             raise ValueError("UNIT_TEST_XML_INVALID")
         for key in counts:
             counts[key] += int(suite.get(key, "0"))
+        for case in suite.findall("testcase"):
+            skipped = case.find("skipped")
+            if skipped is not None:
+                skipped_tests.append({"classname": case.get("classname"), "name": case.get("name"),
+                                      "reason": skipped.get("message") or skipped.text or "JUnit skipped; not counted as passed"})
     if counts["tests"] <= counts["skipped"] or counts["failures"] or counts["errors"]:
         raise ValueError("UNIT_TESTS_NOT_PASSED")
+    if len(skipped_tests) != counts["skipped"] or any(
+        not case["classname"] or not case["name"] for case in skipped_tests
+    ):
+        raise ValueError("SKIPPED_TEST_IDENTITIES_MISSING")
     issues = ET.parse(lint).getroot()
     if issues.tag != "issues":
         raise ValueError("LINT_XML_INVALID")
     severities: dict[str, int] = {}
+    issue_counts: dict[str, int] = {}
     for issue in issues.findall("issue"):
         level = issue.get("severity", "Unknown")
         severities[level] = severities.get(level, 0) + 1
+        issue_id = issue.get("id", "Unknown")
+        issue_counts[issue_id] = issue_counts.get(issue_id, 0) + 1
     if severities.get("Error", 0) or severities.get("Fatal", 0):
         raise ValueError("LINT_ERRORS_PRESENT")
     return {"unit_tests": counts, "unit_tests_passed": counts["tests"] - counts["skipped"],
-            "lint": {"passed": True, "severities": severities}}
+            "skipped_tests": skipped_tests,
+            "lint": {"passed": True, "severities": severities, "issue_counts": issue_counts}}
 
 
 def main():
