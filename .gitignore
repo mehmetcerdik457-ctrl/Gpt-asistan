@@ -4,3 +4,17 @@
 /.idea/
 *.iml
 .gradle/
+
+# Local SDK paths and signing material must never enter source archives.
+local.properties
+*.keystore
+*.jks
+
+# Runtime memory, environments, and test bytecode are never delivery sources.
+__pycache__/
+*.py[cod]
+.venv/
+*.sqlite3
+*.sqlite3-*
+*.db
+*.db-*

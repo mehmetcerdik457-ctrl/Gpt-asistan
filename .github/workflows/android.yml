@@ -1,29 +1,200 @@
-name: Build APK
-on: [push]
+name: Kral Android Candidate Build
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          # PR default refs are synthetic merges. APK source MUST be exact head SHA.
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify source commit, not synthetic PR merge
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA" || { echo "SOURCE_SHA_MISMATCH"; exit 1; }
+          test -z "$(git status --porcelain)" || { echo "SOURCE_TREE_DIRTY"; exit 1; }
+          echo "SOURCE_SHA_VERIFIED=$EXPECTED_SHA"
       - uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
+          distribution: temurin
           java-version: '17'
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v3
-      - name: Generate Gradle Wrapper (if missing)
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - name: Install the declared Android SDK and record the toolchain
+        shell: bash
         run: |
-          if [ ! -f gradlew ]; then
-            curl -sL https://services.gradle.org/distributions/gradle-8.7-bin.zip -o gradle.zip
-            unzip -q gradle.zip -d gradle-8.7
-            echo '#!/usr/bin/env sh' > gradlew
-            echo 'exec "$(pwd)/gradle-8.7/gradle-8.7/bin/gradle" "$@"' >> gradlew
-            chmod +x gradlew
-          fi
-      - name: Build Debug APK
-        run: ./gradlew :app:assembleDebug
-      - name: Upload APK
+          set -euo pipefail
+          mkdir -p build/delivery
+          sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+          {
+            java -version
+            ./gradlew --version
+            sdkmanager --version
+            cat "$ANDROID_HOME/platforms/android-36/source.properties"
+            cat "$ANDROID_HOME/build-tools/36.0.0/source.properties"
+          } > build/delivery/toolchain.txt 2>&1
+      - name: Check tracked sources for credential patterns
+        run: python3 scripts/check_delivery_secrets.py
+      - name: Run unit tests, lint, APK and unsigned release AAB builds
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/delivery
+          ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest :app:bundleRelease --no-daemon --stacktrace 2>&1 | tee build/delivery/gradle.log
+      - name: Verify APK signature and record source and SHA-256
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp app/build/outputs/apk/debug/app-debug.apk build/delivery/app-debug.apk
+          mapfile -t test_apks < <(find app/build/outputs/apk/androidTest -type f -name '*androidTest.apk')
+          test "${#test_apks[@]}" -eq 1 || { echo "TEST_APK_OUTPUT_AMBIGUOUS"; exit 1; }
+          cp "${test_apks[0]}" build/delivery/app-debug-androidTest.apk
+          (cd build/delivery && sha256sum app-debug-androidTest.apk > TEST-APK-SHA256SUMS)
+          python3 scripts/android_artifact.py build/delivery/app-debug.apk build/delivery --build-tools 36.0.0 --expected-sha "${{ github.event.pull_request.head.sha || github.sha }}"
+          python3 scripts/check_delivery_secrets.py --apk build/delivery/app-debug.apk | tee build/delivery/secret-scan.txt
+          python3 scripts/android_delivery_evidence.py build/delivery
+          git archive --format=tar.gz --output=build/delivery/source.tar.gz HEAD
+          cd build/delivery
+          sha256sum source.tar.gz > SOURCE-SHA256SUMS
+      - name: Upload candidate APK and provenance
+        if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: app-debug
-          path: app/build/outputs/apk/debug/*.apk
+          name: kral-asistan-candidate-apk
+          path: |
+            build/delivery/app-debug.apk
+            build/delivery/app-debug-androidTest.apk
+            build/delivery/TEST-APK-SHA256SUMS
+            build/delivery/apk-metadata.json
+            build/delivery/APK-SHA256SUMS
+            build/delivery/test-summary.json
+            build/delivery/toolchain.txt
+            build/delivery/secret-scan.txt
+          if-no-files-found: error
+      - name: Publish exact-source delivery summary
+        if: success()
+        shell: bash
+        run: |
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          from pathlib import Path
+          p = Path('build/delivery')
+          m = json.loads((p / 'apk-metadata.json').read_text())
+          e = json.loads((p / 'test-summary.json').read_text())
+          print(f"Source commit: `{m['source_commit']}`\n")
+          print(f"APK SHA-256: `{m['sha256']}`\n")
+          print(f"Unit tests: {e['unit_tests_passed']} passed, {e['unit_tests']['skipped']} skipped; Lint passed.\n")
+          print('Download the kral-asistan-candidate-apk artifact from this run. API 30/36 emulator results are recorded by their own jobs. Physical phone and live model calls are not tested.')
+          PY
+      - name: Verify and record unsigned release AAB (NOT Play-ready)
+        if: success()
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          python3 scripts/android_bundle_artifact.py \
+            app/build/outputs/bundle/release/app-release.aab \
+            build/delivery \
+            --expected-sha "$EXPECTED_SHA"
+      - name: Upload unsigned release AAB and provenance
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kral-asistan-unsigned-aab
+          path: |
+            build/delivery/app-release-unsigned.aab
+            build/delivery/aab-metadata.json
+            build/delivery/AAB-SHA256SUMS
+          if-no-files-found: error
+      - name: Upload build and test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kral-asistan-build-evidence
+          path: |
+            build/delivery/
+            !build/delivery/app-debug.apk
+            !build/delivery/app-release-unsigned.aab
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+          if-no-files-found: error
+  emulator:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        sdk: [30, 36]
+    runs-on: ubuntu-24.04
+    env:
+      KRAL_EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      KRAL_EMULATOR_API: ${{ matrix.sdk }}
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # PR default refs are synthetic merges. APK source MUST be exact head SHA.
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify source commit, not synthetic PR merge
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA" || { echo "SOURCE_SHA_MISMATCH"; exit 1; }
+          test -z "$(git status --porcelain)" || { echo "SOURCE_TREE_DIRTY"; exit 1; }
+          echo "SOURCE_SHA_VERIFIED=$EXPECTED_SHA"
+      - uses: actions/download-artifact@v4
+        with:
+          name: kral-asistan-candidate-apk
+          path: build/emulator/apk
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Enable KVM for the fresh emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Install canonical APK and check owner lock screen
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.sdk }}
+          arch: x86_64
+          target: google_apis
+          profile: pixel_2
+          emulator-boot-timeout: 240
+          cores: 2
+          ram-size: 2048M
+          heap-size: 256M
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: bash scripts/android_instrumentation_smoke.sh && bash scripts/android_emulator_smoke.sh
+      - name: Upload emulator installation and launch evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kral-asistan-emulator-evidence-api${{ matrix.sdk }}
+          path: |
+            build/emulator/evidence/
+            app/build/outputs/androidTest-results/
+            app/build/reports/androidTests/connected/
+          if-no-files-found: warn
