@@ -25,10 +25,17 @@ Example:
 python3 scripts/check_android_upgrade.py \
   --previous-apk /trusted/previous.apk \
   --candidate-apk /trusted/candidate.apk \
+  --expected-candidate-sha256 "<expected-64-hex-build-evidence>" \
   --aapt "$ANDROID_HOME/build-tools/<installed-version>/aapt" \
   --apksigner "$ANDROID_HOME/build-tools/<installed-version>/apksigner" \
   --require-release
 ```
+
+The `--expected-candidate-sha256` value is **mandatory**. Copy it from trusted,
+independently verified APK build evidence. The optional
+`--expected-previous-sha256` checks a previously trusted local APK copy.
+The tool re-hashes both files after SDK inspection to reject local file changes
+during the check.
 
 The gate fails (exit code 2) when the package ID differs, the verified signing
 certificate SHA-256 differs, the proposed `versionCode` is not strictly

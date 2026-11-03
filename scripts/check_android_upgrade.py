@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 import hashlib
+import hmac
 import json
 from pathlib import Path
 import re
@@ -103,6 +104,28 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def verify_expected_sha256(path: Path, expected: str) -> str:
+    """Require a SHA-256 pinned by independently recorded build evidence."""
+    if not re.fullmatch(r"[0-9a-fA-F]{64}", expected):
+        raise UpgradeRejected("APK_EXPECTED_SHA256_INVALID")
+    try:
+        observed = sha256_file(path)
+    except OSError as exc:
+        raise UpgradeRejected("APK_HASH_READ_FAILED") from exc
+    if not hmac.compare_digest(observed, expected.lower()):
+        raise UpgradeRejected("APK_SHA256_MISMATCH")
+    return observed
+
+
+def require_file_unchanged(path: Path, original_sha256: str) -> None:
+    try:
+        observed = sha256_file(path)
+    except OSError as exc:
+        raise UpgradeRejected("APK_HASH_READ_FAILED") from exc
+    if not hmac.compare_digest(original_sha256, observed):
+        raise UpgradeRejected("APK_CHANGED_DURING_INSPECTION")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--previous-apk", type=Path, required=True)
@@ -110,14 +133,37 @@ def main() -> int:
     parser.add_argument("--aapt", default="aapt", help="Path to Android SDK aapt")
     parser.add_argument("--apksigner", default="apksigner", help="Path to SDK apksigner")
     parser.add_argument(
+        "--expected-candidate-sha256", required=True,
+        help="Exact SHA-256 recorded by independently trusted candidate build evidence",
+    )
+    parser.add_argument(
+        "--expected-previous-sha256",
+        help="Optional expected SHA-256 of verified currently installed APK copy",
+    )
+    parser.add_argument(
         "--require-release", action="store_true",
         help="Reject a debuggable candidate; does not establish Play readiness",
     )
     args = parser.parse_args()
     try:
+        candidate_digest = verify_expected_sha256(
+            args.candidate_apk, args.expected_candidate_sha256
+        )
+        if args.expected_previous_sha256:
+            previous_digest = verify_expected_sha256(
+                args.previous_apk, args.expected_previous_sha256
+            )
+        else:
+            previous_digest = sha256_file(args.previous_apk)
         old = inspect_apk(args.previous_apk, aapt=args.aapt, apksigner=args.apksigner)
         new = inspect_apk(args.candidate_apk, aapt=args.aapt, apksigner=args.apksigner)
+        # Reject files that changed while external Android SDK tools inspected them.
+        require_file_unchanged(args.previous_apk, previous_digest)
+        require_file_unchanged(args.candidate_apk, candidate_digest)
         verify_upgrade(old, new, require_release=args.require_release)
+    except OSError:
+        print(json.dumps({"status": "BLOCKED", "reason": "APK_HASH_READ_FAILED"}, sort_keys=True))
+        return 2
     except UpgradeRejected as exc:
         print(json.dumps({"status": "BLOCKED", "reason": str(exc)}, sort_keys=True))
         return 2
@@ -128,8 +174,10 @@ def main() -> int:
         "previous_version_code": old.version_code,
         "candidate_version_code": new.version_code,
         "signer_cert_sha256": new.signing_cert_sha256,
-        "previous_apk_sha256": sha256_file(args.previous_apk),
-        "candidate_apk_sha256": sha256_file(args.candidate_apk),
+        "previous_apk_sha256": previous_digest,
+        "candidate_apk_sha256": candidate_digest,
+        "expected_candidate_sha256_verified": True,
+        "expected_previous_sha256_verified": bool(args.expected_previous_sha256),
         "require_release": args.require_release,
         "device_installation_verified": False,
         "owner_authentication_verified": False,

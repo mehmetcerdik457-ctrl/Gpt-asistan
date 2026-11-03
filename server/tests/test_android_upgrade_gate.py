@@ -1,5 +1,8 @@
 """Regression tests: mismatched APK identity never passes upgrade acceptance."""
 import subprocess
+import hashlib
+from pathlib import Path
+from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
@@ -10,6 +13,8 @@ from scripts.check_android_upgrade import (
     parse_badging,
     parse_signing_certificates,
     verify_upgrade,
+    verify_expected_sha256,
+    require_file_unchanged,
 )
 
 FINGERPRINT_A = "a" * 64
@@ -109,6 +114,45 @@ class AndroidUpgradeGateTests(unittest.TestCase):
         ):
             with self.assertRaisesRegex(UpgradeRejected, "ANDROID_SDK_TOOL_FAILED"):
                 _tool_output(["apksigner", "verify", "something.apk"])
+
+
+    def test_matching_candidate_artifact_hash_is_accepted(self):
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "candidate.apk"
+            path.write_bytes(b"test fixture, not a genuine APK")
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            self.assertEqual(digest, verify_expected_sha256(path, digest.upper()))
+
+    def test_tampered_candidate_hash_is_blocked(self):
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "candidate.apk"
+            path.write_bytes(b"tampered file")
+            with self.assertRaisesRegex(UpgradeRejected, "APK_SHA256_MISMATCH"):
+                verify_expected_sha256(path, "f" * 64)
+
+    def test_malformed_expected_artifact_hash_is_blocked(self):
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "candidate.apk"
+            path.write_bytes(b"file")
+            for supplied in ("", "1234", "../foo", "g" * 64):
+                with self.subTest(supplied=supplied):
+                    with self.assertRaisesRegex(UpgradeRejected, "APK_EXPECTED_SHA256_INVALID"):
+                        verify_expected_sha256(path, supplied)
+
+    def test_missing_candidate_hash_input_file_is_blocked(self):
+        with TemporaryDirectory() as tmp:
+            with self.assertRaisesRegex(UpgradeRejected, "APK_HASH_READ_FAILED"):
+                verify_expected_sha256(Path(tmp) / "missing.apk", "a" * 64)
+
+    def test_modified_file_during_sdk_inspection_is_blocked(self):
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "previous.apk"
+            path.write_bytes(b"original")
+            before = hashlib.sha256(path.read_bytes()).hexdigest()
+            require_file_unchanged(path, before)
+            path.write_bytes(b"modified")
+            with self.assertRaisesRegex(UpgradeRejected, "APK_CHANGED_DURING_INSPECTION"):
+                require_file_unchanged(path, before)
 
 
 if __name__ == "__main__":
