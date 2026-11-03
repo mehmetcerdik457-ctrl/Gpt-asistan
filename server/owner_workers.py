@@ -80,8 +80,15 @@ def run_batch(gateway, payload):
     canonical = json.dumps(tasks, sort_keys=True, ensure_ascii=False,
                            separators=(",", ":"), allow_nan=False).encode("utf-8")
     digest = hashlib.sha256(canonical).hexdigest()
+    def bounded_execute(job):
+        slots = getattr(gateway, "execution_slots", None)
+        if slots is None:
+            return _execute(gateway, job)
+        with slots:
+            return _execute(gateway, job)
+
     with ThreadPoolExecutor(max_workers=min(parallel, len(tasks))) as pool:
-        results = list(pool.map(lambda job: _execute(gateway, job), tasks))
+        results = list(pool.map(bounded_execute, tasks))
     return {
         "mode": "SIGNED_OWNER_READ_ONLY_LOCAL",
         "task_sha256": digest,

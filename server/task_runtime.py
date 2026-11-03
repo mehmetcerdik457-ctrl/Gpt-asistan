@@ -38,9 +38,10 @@ EXPERTS = {
 
 
 class TaskManager:
-    def __init__(self, store, provider):
+    def __init__(self, store, provider, execution_slots=None):
         self.store = store
         self.provider = provider
+        self.execution_slots = execution_slots or threading.BoundedSemaphore(4)
         self.lock = threading.RLock()
         self.pool = ThreadPoolExecutor(max_workers=MAX_TASK_WORKERS, thread_name_prefix="kral-task")
         with self.store.connect() as db:
@@ -112,7 +113,8 @@ class TaskManager:
             "Provide analysis or a proposed change only.\n\nUser task:\n" + prompt
         )
         try:
-            answer, actual, _elapsed = self.provider.reply(candidate, role_prompt)
+            with self.execution_slots:
+                answer, actual, _elapsed = self.provider.reply(candidate, role_prompt)
             if actual != model or not isinstance(answer, str) or not answer.strip():
                 raise RuntimeError("TASK_PROVIDER_RESPONSE_INVALID")
             digest = hashlib.sha256(answer.encode("utf-8")).hexdigest()

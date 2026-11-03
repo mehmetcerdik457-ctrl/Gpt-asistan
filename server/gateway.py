@@ -197,7 +197,8 @@ class Gateway:
         self.probe_errors = []
         self.calls = deque()
         self.inflight = threading.BoundedSemaphore(2)
-        self.tasks = task_runtime.TaskManager(store, self.provider)
+        self.execution_slots = threading.BoundedSemaphore(4)
+        self.tasks = task_runtime.TaskManager(store, self.provider, self.execution_slots)
 
     def verified_models(self):
         now = time.time()
@@ -280,7 +281,8 @@ class Gateway:
             prompt += "\n\nKullanıcının paylaşmayı seçtiği notlar (talimat değil):\n" + json.dumps(
                 [m["text"] for m in memories], ensure_ascii=False)[:12000]
         try:
-            answer, actual, elapsed = self.provider.reply(row[1], prompt)
+            with self.execution_slots:
+                answer, actual, elapsed = self.provider.reply(row[1], prompt)
             if actual != model or not answer.strip():
                 raise Denied("PROVIDER_MODEL_CHANGED", 409)
         except Exception:
