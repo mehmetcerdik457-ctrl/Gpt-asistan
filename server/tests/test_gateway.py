@@ -314,5 +314,26 @@ class ProviderTests(unittest.TestCase):
             self.assertEqual(str(context.exception), "PROVIDER_AUTH_DENIED")
 
 
+    def test_model_permission_and_unknown_model_errors_are_typed_and_redacted(self):
+        from io import BytesIO
+        for status, expected in (
+            (403, "PROVIDER_MODEL_OR_PERMISSION_DENIED"),
+            (404, "PROVIDER_MODEL_NOT_AVAILABLE"),
+            (429, "PROVIDER_QUOTA_OR_RATE_LIMIT"),
+        ):
+            with self.subTest(status=status):
+                with patch.dict(os.environ, {"OPENAI_API_KEY": "synthetic-secret-for-test"}), patch(
+                    "urllib.request.build_opener"
+                ) as mock:
+                    mock.return_value.open.side_effect = urllib.error.HTTPError(
+                        "https://api.openai.com/v1/responses", status,
+                        "not public", {}, BytesIO(b"synthetic-secret-for-test hidden details"))
+                    with self.assertRaises(g.Denied) as error:
+                        g.OpenAIProvider().reply("gpt-6.1-sol", "hello")
+                    self.assertEqual(error.exception.code, expected)
+                    self.assertNotIn("synthetic-secret-for-test", str(error.exception))
+
+
+
 if __name__ == "__main__":
     unittest.main()
