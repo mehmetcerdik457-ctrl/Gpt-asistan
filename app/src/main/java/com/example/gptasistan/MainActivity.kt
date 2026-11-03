@@ -409,20 +409,20 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private fun showExpertTask(task: OwnerGateway.Task) {
         val details = buildString {
             append("Durum: ").append(task.status)
-            append("\\nGörev kimliği: ").append(task.taskId)
-            append("\\nYanıt: ").append(task.result ?: "Henüz sonuç yok")
-            task.responseId?.let { append("\\nResponses ID: ").append(it) }
-            task.providerRequestId?.let { append("\\nOpenAI request ID: ").append(it) }
-            task.providerHttpStatus?.let { append("\\nHTTP: ").append(it) }
-            task.providerErrorCode?.let { append("\\nSağlayıcı hata kodu: ").append(it) }
-            task.error?.let { append("\\nKRAL hata kodu: ").append(it) }
-            if (task.retryable) append("\\nGeçici hata: yeniden deneme uygun; otomatik tekrar yapılmadı.")
-            task.retryAfterSeconds?.let { append("\\nRetry-After: ").append(it).append(" sn") }
-            append("\\nAraç çalıştırma: 0 — harici işlem: 0")
+            append("\nGörev kimliği: ").append(task.taskId)
+            append("\nYanıt: ").append(task.result ?: "Henüz sonuç yok")
+            task.responseId?.let { append("\nResponses ID: ").append(it) }
+            task.providerRequestId?.let { append("\nOpenAI request ID: ").append(it) }
+            task.providerHttpStatus?.let { append("\nHTTP: ").append(it) }
+            task.providerErrorCode?.let { append("\nSağlayıcı hata kodu: ").append(it) }
+            task.error?.let { append("\nKRAL hata kodu: ").append(it) }
+            if (task.retryable) append("\nGeçici hata: yeniden deneme uygun; otomatik tekrar yapılmadı.")
+            task.retryAfterSeconds?.let { append("\nRetry-After: ").append(it).append(" sn") }
+            append("\nAraç çalıştırma: 0 — harici işlem: 0")
             if (task.status == "approved_not_executed")
-                append("\\nOnay yalnız kaydedildi; herhangi bir işlem çalıştırılmadı.")
+                append("\nOnay yalnız kaydedildi; herhangi bir işlem çalıştırılmadı.")
             if (task.status == "running")
-                append("\\nİptal, sağlayıcı isteğini uzaktan durdurmaz; geç gelen sonuç atılır.")
+                append("\nİptal, sağlayıcı isteğini uzaktan durdurmaz; geç gelen sonuç atılır.")
         }
         val positive = if (task.status == "awaiting_approval") "Onayı kaydet (çalıştırmaz)" else "Durumu yenile"
         val builder = AlertDialog.Builder(this).setTitle("KRAL uzman görevi")
