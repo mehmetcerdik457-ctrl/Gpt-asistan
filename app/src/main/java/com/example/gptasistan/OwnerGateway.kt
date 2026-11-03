@@ -9,6 +9,13 @@ import java.net.URL
 /** No provider key, redirect, implicit memory upload, or unverified model is accepted here. */
 object OwnerGateway {
     data class Model(val id: String, val provider: String, val verifiedAt: Long, val latencyMs: Long)
+    data class Task(
+        val taskId: String, val status: String, val requestSha256: String,
+        val result: String?, val resultSha256: String?, val responseId: String?,
+        val providerRequestId: String?, val providerHttpStatus: Int?,
+        val providerErrorCode: String?, val retryable: Boolean,
+        val retryAfterSeconds: Long?, val error: String?,
+    )
     private data class Registry(val base: String, val owner: String, val models: List<Model>)
     @Volatile private var registry: Registry? = null
 
@@ -58,6 +65,95 @@ object OwnerGateway {
         val result = request(base, OmegaEnvelope.CHAT, owner, body)
         return parseReply(result, chosen)
     }
+
+    /** Submit a bounded expert task through the existing dual-P256 owner gateway. */
+    fun submitTask(
+        context: Context, base: String, model: String, expert: String,
+        input: String, requiresApproval: Boolean = false,
+    ): Task {
+        require(input.isNotBlank() && input.length <= 8000)
+        require(expert in EXPERTS)
+        val owner = context.getSharedPreferences("kral_model", Context.MODE_PRIVATE)
+            .getString("owner_id", "").orEmpty()
+        val selected = verifiedModels(base, owner).singleOrNull { it.id == model }
+            ?: throw SecurityException("MODEL_NOT_VERIFIED")
+        val body = JSONObject().put("input", input).put("model", selected.id)
+            .put("expert", expert).put("tools", org.json.JSONArray())
+            .put("requires_approval", requiresApproval)
+        return parseTask(request(base, OmegaEnvelope.TASKS, owner, body))
+    }
+
+    fun taskStatus(context: Context, base: String, taskId: String): Task =
+        taskAction(context, base, OmegaEnvelope.TASK_STATUS, taskId)
+
+    fun cancelTask(context: Context, base: String, taskId: String): Task =
+        taskAction(context, base, OmegaEnvelope.TASK_CANCEL, taskId)
+
+    fun approveTask(context: Context, base: String, taskId: String): Task =
+        taskAction(context, base, OmegaEnvelope.TASK_APPROVE, taskId)
+
+    private fun taskAction(context: Context, base: String, path: String, taskId: String): Task {
+        require(taskId.matches(Regex("[a-f0-9]{32}")))
+        val owner = context.getSharedPreferences("kral_model", Context.MODE_PRIVATE)
+            .getString("owner_id", "").orEmpty()
+        val body = JSONObject().put("task_id", taskId)
+        return parseTask(request(base, path, owner, body))
+    }
+
+    internal fun parseTask(result: JSONObject): Task {
+        require(result.getString("contract") == OmegaEnvelope.CONTRACT)
+        val taskId = result.get("task_id")
+        val status = result.get("status")
+        val requestHash = result.get("request_sha256")
+        require(taskId is String && taskId.matches(Regex("[a-f0-9]{32}")))
+        require(status is String && status in setOf(
+            "queued", "running", "completed", "failed", "cancelled",
+            "awaiting_approval", "approved_not_executed"
+        ))
+        require(requestHash is String && requestHash.matches(Regex("[a-f0-9]{64}")))
+        val answer = result.opt("result")
+        val answerText = if (answer == null || answer == JSONObject.NULL) null else answer as? String
+            ?: throw IllegalArgumentException("TASK_RESULT_INVALID")
+        val answerHash = result.opt("result_sha256")
+        val answerDigest = if (answerHash == null || answerHash == JSONObject.NULL) null else answerHash as? String
+            ?: throw IllegalArgumentException("TASK_RESULT_HASH_INVALID")
+        if (answerText != null) {
+            require(status == "completed" && answerText.isNotBlank() && answerText.length <= 32000)
+            require(answerDigest != null && answerDigest == KralAndroidCore.sha256Hex(answerText))
+        } else require(answerDigest == null)
+        fun optionalText(key: String, pattern: Regex? = null): String? {
+            val value = result.opt(key)
+            if (value == null || value == JSONObject.NULL) return null
+            require(value is String && value.length <= 160 && !value.any { it.isISOControl() })
+            if (pattern != null) require(value.matches(pattern))
+            return value
+        }
+        val responseId = optionalText("response_id", Regex("[A-Za-z0-9_-]{1,128}"))
+        val providerRequestId = optionalText("provider_request_id", Regex("[A-Za-z0-9_-]{1,160}"))
+        val providerErrorCode = optionalText("provider_error_code", Regex("[A-Za-z0-9_.-]{1,80}"))
+        val error = optionalText("error", Regex("[A-Z0-9_]{1,64}"))
+        val httpValue = result.opt("provider_http_status")
+        val httpStatus = if (httpValue == null || httpValue == JSONObject.NULL) null else {
+            require(httpValue is Int || httpValue is Long)
+            (httpValue as Number).toInt().also { require(it in 100..599) }
+        }
+        val retryValue = result.opt("retry_after_seconds")
+        val retryAfter = if (retryValue == null || retryValue == JSONObject.NULL) null else {
+            require(retryValue is Int || retryValue is Long)
+            (retryValue as Number).toLong().also { require(it in 0..86400) }
+        }
+        val retryable = result.get("retryable")
+        require(retryable is Boolean)
+        require(integer(result, "tools_executed") == 0L && integer(result, "external_actions") == 0L)
+        return Task(taskId, status, requestHash, answerText, answerDigest, responseId,
+            providerRequestId, httpStatus, providerErrorCode, retryable, retryAfter, error)
+    }
+
+    private val EXPERTS = setOf(
+        "ai-ml-engineer", "android-engineer", "apk-forensic", "chief-engineer",
+        "ci-cd-engineer", "cloud-engineer", "code-reviewer", "github-master-ai",
+        "mcp-engineer", "release-engineer", "security-auditor", "test-engineer",
+    )
 
     /** Explicit owner-signed read-only local batch. No model or external writes. */
     fun localWorkers(context: Context, base: String, tasks: JSONArray, maxParallel: Int = 4): JSONArray {
