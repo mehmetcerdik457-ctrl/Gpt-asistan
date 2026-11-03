@@ -21,7 +21,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from . import owner_auth_v1 as auth
-from . import kral_memory, idempotency, owner_workers
+from . import kral_memory, idempotency, owner_workers, task_runtime
 
 CONTRACT = "OMEGA-OWNER-API-V1"
 PREFIX = "/api/v1/owner/"
@@ -197,6 +197,7 @@ class Gateway:
         self.probe_errors = []
         self.calls = deque()
         self.inflight = threading.BoundedSemaphore(2)
+        self.tasks = task_runtime.TaskManager(store, self.provider)
 
     def verified_models(self):
         now = time.time()
@@ -299,6 +300,52 @@ class Gateway:
         )
 
     def route(self, path, data):
+        if path == PREFIX + "tasks":
+            if set(data) - {"input", "model", "expert", "tools", "requires_approval"}:
+                raise Denied("TASK_FIELDS_DENIED")
+            prompt, model = data.get("input"), data.get("model")
+            expert, tools = data.get("expert"), data.get("tools", [])
+            approval = data.get("requires_approval", False)
+            if not isinstance(prompt, str) or not prompt.strip() or len(prompt) > 8000:
+                raise Denied("TASK_INPUT_INVALID")
+            if not isinstance(model, str) or not isinstance(expert, str) or not isinstance(tools, list):
+                raise Denied("TASK_FIELDS_INVALID")
+            if tools:
+                raise Denied("TASK_TOOL_CAPABILITY_DENIED", 403)
+            if not isinstance(approval, bool):
+                raise Denied("TASK_APPROVAL_FLAG_INVALID")
+            with self.lock:
+                row = self.models.get(model)
+                now = time.time()
+                if row is None or not 0 <= now - row[0]["verified_at"] < MODEL_TTL:
+                    raise Denied("MODEL_NOT_VERIFIED", 409)
+            try:
+                return self.tasks.submit(model, row[1], expert, prompt, approval_required=approval)
+            except ValueError as exc:
+                raise Denied(str(exc), 400) from None
+            except RuntimeError as exc:
+                raise Denied(str(exc), 429) from None
+        if path == PREFIX + "tasks/status":
+            if set(data) != {"task_id"} or not isinstance(data["task_id"], str):
+                raise Denied("TASK_ID_INVALID")
+            result = self.tasks.get(data["task_id"])
+            if result is None:
+                raise Denied("TASK_NOT_FOUND", 404)
+            return result
+        if path == PREFIX + "tasks/cancel":
+            if set(data) != {"task_id"} or not isinstance(data["task_id"], str):
+                raise Denied("TASK_ID_INVALID")
+            result = self.tasks.cancel(data["task_id"])
+            if result is None:
+                raise Denied("TASK_NOT_FOUND", 404)
+            return result
+        if path == PREFIX + "tasks/approve":
+            if set(data) != {"task_id"} or not isinstance(data["task_id"], str):
+                raise Denied("TASK_ID_INVALID")
+            result = self.tasks.approve(data["task_id"])
+            if result is None:
+                raise Denied("TASK_NOT_FOUND", 404)
+            return result
         if path == PREFIX + "workers":
             try:
                 return owner_workers.run_batch(self, data)
@@ -362,7 +409,7 @@ def handler_for(gateway):
         def do_POST(self):
             acquired = False
             try:
-                if self.path not in {PREFIX + p for p in ("chat", "models", "history", "memory", "workers")}:
+                if self.path not in {PREFIX + p for p in ("chat", "models", "history", "memory", "workers", "tasks", "tasks/status", "tasks/cancel", "tasks/approve")}:
                     raise Denied("ROUTE_NOT_FOUND", 404)
                 if self.headers.get("Transfer-Encoding") or len(self.headers.get_all("Content-Length", [])) != 1:
                     raise Denied("BODY_LENGTH_REQUIRED", 411)
