@@ -513,13 +513,22 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 val identity = owner.text.toString().trim()
                 if (!OwnerGateway.validBase(base) || !OmegaEnvelope.validOwner(identity)) {
                     connectionStatus.text = "Geçerli HTTPS sunucu kökü ve sahip kimliği gerekli."
-                } else unlock { refreshModels(base, identity) }
+                } else confirmModelProbe(base, identity)
             }
             .setNeutralButton("Bağlantıyı kaldır") { _, _ ->
                 OwnerGateway.clear()
                 prefs.edit().remove("endpoint").remove("model").remove("owner_id").apply()
                 session.resetConnectionStatus("Model bağlantısı yapılandırılmadı")
             }.setNegativeButton("Vazgeç", null).show()
+    }
+
+    private fun confirmModelProbe(base: String, identity: String) {
+        AlertDialog.Builder(this).setTitle("Canlı OpenAI model erişim testi")
+            .setMessage("Bu işlem mevcut sunucu allowlist'indeki en fazla dört model için kısa Responses API istekleri gönderir. OpenAI proje kotası veya ücret kullanabilir. Devam etmeden önce kendi proje harcama limitini kontrol et. Bu uygulama yeni anahtar oluşturmaz ve otomatik tekrar yapmaz.")
+            .setPositiveButton("Onaylıyorum — canlı testi başlat") { _, _ ->
+                unlock { refreshModels(base, identity) }
+            }
+            .setNegativeButton("Vazgeç", null).show()
     }
 
     private fun refreshModels(base: String, identity: String) {
