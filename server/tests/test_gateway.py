@@ -316,7 +316,7 @@ class ProviderTests(unittest.TestCase):
                        {"type": "output_text", "text": "Merhaba"}]}]}
         response = self.response(payload)
         response.headers = {"x-request-id": "req_synthetic_123"}
-        with patch.dict(os.environ, {"OPENAI_API_KEY": "synthetic-test-key"}), \\
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "synthetic-test-key"}), \
              patch("urllib.request.build_opener") as mock:
             mock.return_value.open.return_value = response
             result = g.OpenAIProvider().reply_with_metadata(
@@ -350,7 +350,7 @@ class ProviderTests(unittest.TestCase):
         for status, error_code, expected_retryable in cases:
             headers = {"x-request-id": "req_" + error_code, "Retry-After": "3"}
             body = g.json_bytes({"error": {"code": error_code, "type": "test"}})
-            with patch.dict(os.environ, {"OPENAI_API_KEY": "synthetic-test-key"}), \\
+            with patch.dict(os.environ, {"OPENAI_API_KEY": "synthetic-test-key"}), \
                  patch("urllib.request.build_opener") as mock:
                 mock.return_value.open.side_effect = urllib.error.HTTPError(
                     "https://api.openai.com/v1/responses", status, "private", headers, BytesIO(body))
@@ -367,7 +367,7 @@ class ProviderTests(unittest.TestCase):
             self.assertNotIn("private", str(error))
 
     def test_invalid_request_metadata_is_rejected_before_network(self):
-        with patch.dict(os.environ, {"OPENAI_API_KEY": "synthetic-test-key"}), \\
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "synthetic-test-key"}), \
              patch("urllib.request.build_opener") as mock:
             with self.assertRaises(g.Denied) as context:
                 g.OpenAIProvider().reply_with_metadata(
