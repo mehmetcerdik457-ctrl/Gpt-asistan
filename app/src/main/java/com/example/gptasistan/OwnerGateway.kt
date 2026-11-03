@@ -8,6 +8,7 @@ import java.net.URL
 import java.util.UUID
 import java.io.ByteArrayOutputStream
 import java.io.IOException
+import java.util.Collections
 
 /** No provider key, redirect, implicit memory upload, or unverified model is accepted here. */
 object OwnerGateway {
@@ -30,6 +31,16 @@ object OwnerGateway {
         val providerErrorCode: String?, val retryable: Boolean,
         val retryAfterSeconds: Long?, val error: String?,
         val clientRequestId: String?,
+    )
+    data class ToolActor(val ownerId: String, val deviceId: String, val ownerKeySha256: String)
+    data class ToolAudit(val event: String, val at: Long, val actor: ToolActor, val requestSha256: String)
+    class ToolTask internal constructor(
+        val toolTaskId: String, val tool: String, val scope: String, val approvalClass: String,
+        val memoryText: String?, val actor: ToolActor, val requestSha256: String,
+        val status: String, val createdAt: Long, val expiresAt: Long,
+        val approvedAt: Long?, val approvedBy: ToolActor?, val memoryId: Long?,
+        val toolsExecuted: Long, val audit: List<ToolAudit>,
+        internal val gatewayBase: String?,
     )
     private data class Registry(val base: String, val owner: String, val models: List<Model>)
     @Volatile private var registry: Registry? = null
@@ -119,6 +130,162 @@ object OwnerGateway {
             .getString("owner_id", "").orEmpty()
         val body = JSONObject().put("task_id", taskId)
         return parseTask(request(base, path, owner, body))
+    }
+
+    /** This explicit local read does not ask a model or grant approval. */
+    fun readLocalStatus(context: Context, base: String): ToolTask {
+        val owner = localToolOwner(context)
+        val body = JSONObject().put("tool", "status").put("arguments", JSONObject()).put("scope", "local.status")
+        return parseToolTask(request(base, OmegaEnvelope.TOOL_TASKS, owner, body), owner, base)
+    }
+
+    /** Propose a local write; callers must separately review and approve it. */
+    fun proposeLocalMemory(context: Context, base: String, text: String): ToolTask {
+        val owner = localToolOwner(context)
+        return parseToolTask(request(base, OmegaEnvelope.TOOL_TASKS, owner, localMemoryProposal(text)), owner, base)
+    }
+
+    fun localToolStatus(context: Context, base: String, reviewed: ToolTask): ToolTask =
+        localToolAction(context, base, OmegaEnvelope.TOOL_STATUS, reviewed, localToolReference(reviewed))
+
+    fun cancelLocalTool(context: Context, base: String, reviewed: ToolTask): ToolTask =
+        localToolAction(context, base, OmegaEnvelope.TOOL_CANCEL, reviewed, localToolReference(reviewed))
+
+    /** No model or background path calls this method; it signs the exact reviewed action. */
+    fun approveLocalTool(context: Context, base: String, reviewed: ToolTask): ToolTask =
+        localToolAction(context, base, OmegaEnvelope.TOOL_APPROVE, reviewed, localToolApproval(reviewed))
+
+    private fun localToolOwner(context: Context): String = context
+        .getSharedPreferences("kral_model", Context.MODE_PRIVATE).getString("owner_id", "").orEmpty()
+
+    private fun localToolAction(context: Context, base: String, path: String, reviewed: ToolTask, body: JSONObject): ToolTask {
+        val owner = localToolOwner(context)
+        require(reviewed.actor.ownerId == owner)
+        require(reviewed.gatewayBase == base.trimEnd('/'))
+        val result = parseToolTask(request(base, path, owner, body), owner, base)
+        require(result.toolTaskId == reviewed.toolTaskId && result.requestSha256 == reviewed.requestSha256)
+        require(result.actor == reviewed.actor)
+        return result
+    }
+
+    internal fun localMemoryProposal(text: String): JSONObject {
+        require(text.isNotBlank() && text.length <= 8000)
+        return JSONObject().put("tool", "memory.save").put("arguments", JSONObject().put("text", text))
+            .put("scope", "local.memory")
+    }
+
+    internal fun localToolReference(reviewed: ToolTask): JSONObject = JSONObject()
+        .put("tool_task_id", reviewed.toolTaskId).put("request_sha256", reviewed.requestSha256)
+
+    internal fun localToolApproval(reviewed: ToolTask, now: Long = System.currentTimeMillis() / 1000): JSONObject {
+        require(reviewed.tool == "memory.save" && reviewed.scope == "local.memory")
+        require(reviewed.status == "awaiting_approval" && reviewed.approvalClass == "owner_approval")
+        // Match the existing signed-request authentication skew allowance. The
+        // server remains authoritative for expiry; never extend the upper bound.
+        require(now >= 0 && now >= reviewed.createdAt - 30 && now < reviewed.expiresAt)
+        return localToolReference(reviewed).put("tool", reviewed.tool)
+            .put("arguments", JSONObject().put("text", requireNotNull(reviewed.memoryText)))
+            .put("scope", reviewed.scope)
+    }
+
+    internal fun parseToolTask(value: JSONObject, expectedOwner: String? = null, base: String? = null): ToolTask {
+        if (base != null) require(validBase(base))
+        fun keys(json: JSONObject, expected: Set<String>) {
+            require(json.keys().asSequence().toSet() == expected)
+        }
+        fun text(json: JSONObject, key: String, pattern: Regex? = null): String {
+            val raw = json.get(key)
+            require(raw is String)
+            if (pattern != null) require(raw.matches(pattern))
+            return raw
+        }
+        val sha = Regex("[a-f0-9]{64}")
+        fun actor(json: JSONObject): ToolActor {
+            keys(json, setOf("owner_id", "device_id", "owner_key_sha256"))
+            val owner = text(json, "owner_id", Regex("[A-Za-z0-9_-]{1,64}"))
+            return ToolActor(owner, text(json, "device_id", sha), text(json, "owner_key_sha256", sha))
+        }
+        keys(value, setOf("contract", "tool_task_id", "tool", "arguments", "scope", "actor", "approval_class",
+            "created_at", "expires_at", "request_sha256", "status", "result", "approved_at", "approved_by",
+            "tools_executed", "external_actions", "audit"))
+        require(value.get("contract") == OmegaEnvelope.CONTRACT)
+        val id = text(value, "tool_task_id", Regex("[a-f0-9]{32}"))
+        val digest = text(value, "request_sha256", sha)
+        val tool = text(value, "tool")
+        val scope = text(value, "scope")
+        val policy = text(value, "approval_class")
+        val identity = actor(value.getJSONObject("actor"))
+        if (expectedOwner != null) require(identity.ownerId == expectedOwner)
+        val created = integer(value, "created_at")
+        val expires = integer(value, "expires_at")
+        require(created >= 0 && created <= Long.MAX_VALUE - 300 && expires == created + 300)
+        val arguments = value.getJSONObject("arguments")
+        val memoryText = when (tool) {
+            "status" -> {
+                require(scope == "local.status" && policy == "read_only")
+                keys(arguments, emptySet())
+                null
+            }
+            "memory.save" -> {
+                require(scope == "local.memory" && policy == "owner_approval")
+                keys(arguments, setOf("text"))
+                text(arguments, "text").also { require(it.isNotBlank() && it.length <= 8000) }
+            }
+            else -> throw IllegalArgumentException("TOOL_CAPABILITY_DENIED")
+        }
+        val actorJson = """{"device_id":${quoteTaskString(identity.deviceId)},"owner_id":${quoteTaskString(identity.ownerId)},"owner_key_sha256":${quoteTaskString(identity.ownerKeySha256)}}"""
+        val argsJson = if (memoryText == null) "{}" else """{"text":${quoteTaskString(memoryText)}}"""
+        val proposal = """{"actor":$actorJson,"approval_class":${quoteTaskString(policy)},"arguments":$argsJson,"created_at":$created,"expires_at":$expires,"scope":${quoteTaskString(scope)},"tool":${quoteTaskString(tool)},"tool_task_id":${quoteTaskString(id)}}"""
+        require(KralAndroidCore.sha256Hex(proposal) == digest)
+        val status = text(value, "status")
+        require(status in setOf("awaiting_approval", "completed", "cancelled", "expired"))
+        val executed = integer(value, "tools_executed")
+        require(integer(value, "external_actions") == 0L)
+        val approvedAt = if (value.isNull("approved_at")) null else integer(value, "approved_at")
+        val approvedBy = if (value.isNull("approved_by")) null else actor(value.getJSONObject("approved_by"))
+        var memoryId: Long? = null
+        val expectedEvents = if (tool == "status") {
+            require(status == "completed" && executed == 1L && approvedAt == null && approvedBy == null)
+            val result = value.getJSONObject("result")
+            keys(result, setOf("scope", "external_execution"))
+            require(result.get("scope") == "local-status" && result.get("external_execution") == false)
+            listOf("proposed", "completed")
+        } else if (status == "completed") {
+            require(executed == 1L && approvedBy == identity && approvedAt != null)
+            require(approvedAt >= created && approvedAt < expires)
+            val result = value.getJSONObject("result")
+            keys(result, setOf("id"))
+            memoryId = integer(result, "id").also { require(it > 0) }
+            listOf("proposed", "approved", "completed")
+        } else {
+            require(executed == 0L && value.isNull("result") && approvedAt == null && approvedBy == null)
+            when (status) {
+                "awaiting_approval" -> listOf("proposed")
+                "cancelled" -> listOf("proposed", "cancelled")
+                else -> listOf("proposed", "expired")
+            }
+        }
+        val events = value.getJSONArray("audit")
+        require(events.length() == expectedEvents.size)
+        val audit = (0 until events.length()).map { index ->
+            val event = events.getJSONObject(index)
+            keys(event, setOf("event", "at", "actor", "request_sha256"))
+            val name = text(event, "event")
+            val at = integer(event, "at")
+            require(name == expectedEvents[index] && actor(event.getJSONObject("actor")) == identity)
+            require(text(event, "request_sha256", sha) == digest)
+            require(at >= created)
+            when (name) {
+                "proposed" -> require(at == created)
+                "approved" -> require(at == approvedAt)
+                "completed" -> require(at == (approvedAt ?: created))
+                "cancelled" -> require(at < expires)
+                "expired" -> require(at >= expires)
+            }
+            ToolAudit(name, at, identity, digest)
+        }
+        return ToolTask(id, tool, scope, policy, memoryText, identity, digest, status, created, expires,
+            approvedAt, approvedBy, memoryId, executed, Collections.unmodifiableList(audit), base?.trimEnd('/'))
     }
 
     internal fun parseTask(result: JSONObject): Task {
@@ -373,11 +540,23 @@ object OwnerGateway {
         return (number as Number).toLong()
     }
 
-    private fun request(base: String, path: String, owner: String, json: JSONObject): JSONObject {
+    private fun request(base: String, path: String, owner: String, json: JSONObject): JSONObject =
+        requestUsingTransport(base, path, owner, json, OwnerIdentity::sign) {
+            it.openConnection() as HttpURLConnection
+        }
+
+    // The production wrapper always uses enrolled Keystore signatures and platform TLS.
+    // Per-call dependencies let disposable instrumentation use synthetic identities and
+    // a specific fixture CA without adding a global bypass or changing app policy.
+    internal fun requestUsingTransport(
+        base: String, path: String, owner: String, json: JSONObject,
+        signer: (String, ByteArray, String) -> Map<String, String>,
+        connectionFactory: (URL) -> HttpURLConnection,
+    ): JSONObject {
         require(validBase(base) && OmegaEnvelope.validOwner(owner))
         val body = json.toString().toByteArray(Charsets.UTF_8)
-        val headers = OwnerIdentity.sign(path, body, owner)
-        val connection = URL(base.trimEnd('/') + path).openConnection() as HttpURLConnection
+        val headers = signer(path, body, owner)
+        val connection = connectionFactory(URL(base.trimEnd('/') + path))
         return try {
             connection.requestMethod = "POST"
             connection.instanceFollowRedirects = false

@@ -4,6 +4,7 @@
 /.idea/
 *.iml
 .gradle/
+.kotlin/
 
 # Local SDK paths and signing material must never enter source archives.
 local.properties

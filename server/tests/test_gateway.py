@@ -142,7 +142,8 @@ class GatewayHttpTests(unittest.TestCase):
         self.assertEqual(data["provider_request_id"], "req_gateway_synthetic_001")
         self.assertEqual(data["client_request_id"], client_request_id)
         self.assertEqual(self.provider.last_client_request_id, client_request_id)
-        self.assertEqual(self.provider.last_request_metadata, {"kral_runtime": "v1"})
+        self.assertEqual(self.provider.last_request_metadata,
+                         {"request_id": client_request_id, "kral_runtime": "v1"})
 
     def test_chat_rejects_invalid_client_request_id_before_provider_call(self):
         actual = self.verify_model()
@@ -535,7 +536,7 @@ class ProviderTests(unittest.TestCase):
                 self.assertEqual(context.exception.status, 502)
 
     def test_missing_key_is_rejected_before_network(self):
-        with patch.dict(os.environ, {"OPENAI_API_KEY": ""}), \
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "", "KRAL_OPENAI_API_KEY": ""}), \
              patch("urllib.request.build_opener") as mock:
             with self.assertRaises(g.Denied) as context:
                 g.OpenAIProvider().reply("requested", "private prompt")
