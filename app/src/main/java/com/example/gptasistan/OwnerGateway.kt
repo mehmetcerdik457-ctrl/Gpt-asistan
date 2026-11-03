@@ -5,16 +5,23 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.UUID
 
 /** No provider key, redirect, implicit memory upload, or unverified model is accepted here. */
 object OwnerGateway {
     data class Model(val id: String, val provider: String, val verifiedAt: Long, val latencyMs: Long)
+    data class Reply(
+        val text: String, val model: String, val provider: String,
+        val responseId: String, val providerRequestId: String?,
+        val clientRequestId: String, val latencyMs: Long,
+    )
     data class Task(
         val taskId: String, val status: String, val requestSha256: String,
         val result: String?, val resultSha256: String?, val responseId: String?,
         val providerRequestId: String?, val providerHttpStatus: Int?,
         val providerErrorCode: String?, val retryable: Boolean,
         val retryAfterSeconds: Long?, val error: String?,
+        val clientRequestId: String?,
     )
     private data class Registry(val base: String, val owner: String, val models: List<Model>)
     @Volatile private var registry: Registry? = null
@@ -57,13 +64,19 @@ object OwnerGateway {
         return models
     }
 
-    fun reply(context: Context, base: String, model: String, question: String): String {
-        val owner = context.getSharedPreferences("kral_model", Context.MODE_PRIVATE).getString("owner_id", "").orEmpty()
+    fun reply(context: Context, base: String, model: String, question: String): String =
+        replyWithMetadata(context, base, model, question).text
+
+    fun replyWithMetadata(context: Context, base: String, model: String, question: String): Reply {
+        val owner = context.getSharedPreferences("kral_model", Context.MODE_PRIVATE)
+            .getString("owner_id", "").orEmpty()
         val chosen = verifiedModels(base, owner).singleOrNull { it.id == model }
             ?: throw SecurityException("MODEL_NOT_VERIFIED")
-        val body = JSONObject().put("message", question).put("model", chosen.id).put("include_memory", false)
+        val clientRequestId = UUID.randomUUID().toString().replace("-", "")
+        val body = JSONObject().put("message", question).put("model", chosen.id)
+            .put("include_memory", false).put("client_request_id", clientRequestId)
         val result = request(base, OmegaEnvelope.CHAT, owner, body)
-        return parseReply(result, chosen)
+        return parseReplyWithMetadata(result, chosen, clientRequestId)
     }
 
     /** Submit a bounded expert task through the existing dual-P256 owner gateway. */
@@ -132,6 +145,8 @@ object OwnerGateway {
         val providerRequestId = optionalText("provider_request_id", Regex("[A-Za-z0-9_-]{1,160}"))
         val providerErrorCode = optionalText("provider_error_code", Regex("[A-Za-z0-9_.-]{1,80}"))
         val error = optionalText("error", Regex("[A-Z0-9_]{1,64}"))
+        val clientRequestId = optionalText("client_request_id", Regex("[A-Za-z0-9_-]{1,128}"))
+        if (clientRequestId != null) require(clientRequestId == taskId)
         val httpValue = result.opt("provider_http_status")
         val httpStatus = if (httpValue == null || httpValue == JSONObject.NULL) null else {
             require(httpValue is Int || httpValue is Long)
@@ -146,7 +161,8 @@ object OwnerGateway {
         require(retryable is Boolean)
         require(integer(result, "tools_executed") == 0L && integer(result, "external_actions") == 0L)
         return Task(taskId, status, requestHash, answerText, answerDigest, responseId,
-            providerRequestId, httpStatus, providerErrorCode, retryable, retryAfter, error)
+            providerRequestId, httpStatus, providerErrorCode, retryable, retryAfter, error,
+            clientRequestId)
     }
 
     private val EXPERTS = setOf(
@@ -257,13 +273,34 @@ object OwnerGateway {
         return entries
     }
 
-    internal fun parseReply(result: JSONObject, selected: Model): String {
+    internal fun parseReply(result: JSONObject, selected: Model): String =
+        parseReplyWithMetadata(result, selected).text
+
+    internal fun parseReplyWithMetadata(
+        result: JSONObject, selected: Model, expectedClientRequestId: String? = null,
+    ): Reply {
         require(result.getString("contract") == OmegaEnvelope.CONTRACT)
         require(result.getString("model") == selected.id && result.getString("provider") == selected.provider)
-        require(integer(result, "latency_ms") >= 0)
+        val latency = integer(result, "latency_ms")
+        require(latency >= 0)
         val answer = result.get("text")
         require(answer is String && answer.isNotBlank() && answer.length <= 32000)
-        return answer
+        val responseId = result.get("response_id") as? String
+            ?: throw IllegalArgumentException("RESPONSE_ID_MISSING")
+        require(responseId.matches(Regex("[A-Za-z0-9_-]{1,128}")))
+        val providerRequestValue = result.opt("provider_request_id")
+        val providerRequestId = if (providerRequestValue == null || providerRequestValue == JSONObject.NULL) {
+            null
+        } else {
+            require(providerRequestValue is String && providerRequestValue.matches(Regex("[A-Za-z0-9_-]{1,160}")))
+            providerRequestValue
+        }
+        val clientRequestId = result.get("client_request_id") as? String
+            ?: throw IllegalArgumentException("CLIENT_REQUEST_ID_MISSING")
+        require(clientRequestId.matches(Regex("[A-Za-z0-9_-]{1,128}")))
+        if (expectedClientRequestId != null) require(clientRequestId == expectedClientRequestId)
+        return Reply(answer, selected.id, selected.provider, responseId, providerRequestId,
+            clientRequestId, latency)
     }
 
     private fun integer(value: JSONObject, key: String): Long {

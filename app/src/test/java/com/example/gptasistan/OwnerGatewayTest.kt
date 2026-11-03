@@ -39,12 +39,24 @@ class OwnerGatewayTest {
 
     @Test fun replyMustReportSelectedProviderAndModelWithNonemptyText() {
         val model = OwnerGateway.Model("returned-model", "openai", now, 23)
+        val clientRequestId = "a".repeat(32)
         fun response() = JSONObject().put("contract", OmegaEnvelope.CONTRACT).put("model", model.id)
             .put("provider", model.provider).put("latency_ms", 50).put("text", "Merhaba Mehmet")
+            .put("response_id", "resp_synthetic_123").put("provider_request_id", "req_synthetic_123")
+            .put("client_request_id", clientRequestId)
+        val parsed = OwnerGateway.parseReplyWithMetadata(response(), model, clientRequestId)
+        assertEquals("Merhaba Mehmet", parsed.text)
+        assertEquals("resp_synthetic_123", parsed.responseId)
+        assertEquals("req_synthetic_123", parsed.providerRequestId)
+        assertEquals(clientRequestId, parsed.clientRequestId)
         assertEquals("Merhaba Mehmet", OwnerGateway.parseReply(response(), model))
         listOf(response().put("model", "requested-alias"), response().put("provider", "different-provider"),
-            response().put("text", " "), response().put("text", 42), response().put("latency_ms", -1)).forEach {
-            assertThrows(IllegalArgumentException::class.java) { OwnerGateway.parseReply(it, model) }
+            response().put("text", " "), response().put("text", 42), response().put("latency_ms", -1),
+            response().put("response_id", JSONObject.NULL),
+            response().put("client_request_id", "different-client-id")).forEach {
+            assertThrows(IllegalArgumentException::class.java) {
+                OwnerGateway.parseReplyWithMetadata(it, model, clientRequestId)
+            }
         }
     }
 
@@ -74,6 +86,7 @@ class OwnerGatewayTest {
             .put("result_sha256", resultText?.let { KralAndroidCore.sha256Hex(it) } ?: JSONObject.NULL)
             .put("response_id", "resp_synthetic_123")
             .put("provider_request_id", "req_synthetic_123")
+            .put("client_request_id", "a".repeat(32))
             .put("provider_http_status", 200)
             .put("provider_error_code", JSONObject.NULL)
             .put("retryable", false).put("retry_after_seconds", JSONObject.NULL)
@@ -86,6 +99,7 @@ class OwnerGatewayTest {
         assertEquals("Uzman incelemesi tamamlandı", completed.result)
         assertEquals("resp_synthetic_123", completed.responseId)
         assertEquals("req_synthetic_123", completed.providerRequestId)
+        assertEquals("a".repeat(32), completed.clientRequestId)
         assertEquals(200, completed.providerHttpStatus)
         assertFalse(completed.retryable)
 
@@ -106,6 +120,7 @@ class OwnerGatewayTest {
             taskJson().put("retryable", "true"),
             taskJson().put("provider_http_status", 700),
             taskJson().put("response_id", "bad response id"),
+            taskJson().put("client_request_id", "not-the-task-id"),
         )
         invalid.forEach { payload ->
             assertThrows(IllegalArgumentException::class.java) { OwnerGateway.parseTask(payload) }

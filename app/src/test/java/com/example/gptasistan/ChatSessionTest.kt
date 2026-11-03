@@ -47,7 +47,7 @@ class ChatSessionTest {
 
     private fun session(
         store: ChatStore = InMemoryChatStore(),
-        responder: (String, String, String) -> String
+        responder: (String, String, String) -> OwnerGateway.Reply
     ): Pair<ChatSession, ExecutorService> {
         val worker = Executors.newSingleThreadExecutor().also { workers.add(it) }
         val session = ChatSession(application, store, worker, responder)
@@ -69,7 +69,7 @@ class ChatSessionTest {
             calls.incrementAndGet()
             entered.countDown()
             check(release.await(5, TimeUnit.SECONDS))
-            "Birinci yanıt"
+            testReply("Birinci yanıt")
         }
         assertTrue(session.send(ENDPOINT, "test-model", "İlk mesaj"))
         assertTrue(entered.await(5, TimeUnit.SECONDS))
@@ -81,6 +81,9 @@ class ChatSessionTest {
         assertEquals(1, calls.get())
         assertFalse(session.state.value!!.busy)
         assertEquals(listOf("Sen: İlk mesaj", "Model: Birinci yanıt"), session.history.value!!.map { it.text })
+        assertEquals("resp_synthetic_123", session.state.value!!.responseId)
+        assertEquals("req_synthetic_123", session.state.value!!.providerRequestId)
+        assertEquals("a".repeat(32), session.state.value!!.clientRequestId)
     }
 
     @Test fun clearingViewModelDuringRequestDoesNotInterruptOrLoseDurableReply() {
@@ -89,7 +92,7 @@ class ChatSessionTest {
         val (session, worker) = session { _, _, _ ->
             entered.countDown()
             check(release.await(5, TimeUnit.SECONDS))
-            "Activity olmasa da korunmalı"
+            testReply("Activity olmasa da korunmalı")
         }
         assertTrue(session.send(ENDPOINT, "test-model", "Pencere kapanacak"))
         assertTrue(entered.await(5, TimeUnit.SECONDS))
@@ -109,7 +112,7 @@ class ChatSessionTest {
     @Test fun databaseWriteFailureReturnsFalseAndNeverCallsProvider() {
         val store = InMemoryChatStore(failWrites = true)
         val calls = AtomicInteger()
-        val (session, worker) = session(store) { _, _, _ -> calls.incrementAndGet(); "Çağrılmamalı" }
+        val (session, worker) = session(store) { _, _, _ -> calls.incrementAndGet(); testReply("Çağrılmamalı") }
         assertFalse(session.send(ENDPOINT, "test-model", "UI bu taslağı korumalı"))
         flush(worker)
         assertEquals(0, calls.get())
@@ -130,7 +133,7 @@ class ChatSessionTest {
     }
 
     @Test fun retainedViewModelKeepsConsumedSpeechAndStaleTokenCannotConsumeNewReply() {
-        val (session, worker) = session { _, _, question -> "Yanıt: $question" }
+        val (session, worker) = session { _, _, question -> testReply("Yanıt: $question") }
         val retained = ViewModelStore().also { owners.add(it) }
         val factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
@@ -182,7 +185,7 @@ class ChatSessionTest {
         val (session, worker) = session { _, _, _ ->
             entered.countDown()
             check(release.await(5, TimeUnit.SECONDS))
-            "Gerçek başarı durumu"
+            testReply("Gerçek başarı durumu")
         }
         assertTrue(session.send(ENDPOINT, "test-model", "Bağlantı denemesi"))
         assertTrue(entered.await(5, TimeUnit.SECONDS))
@@ -203,6 +206,10 @@ class ChatSessionTest {
 
     private companion object { const val ENDPOINT = "https://example.invalid/v1/chat/completions" }
 }
+
+private fun testReply(text: String) = OwnerGateway.Reply(
+    text, "test-model", "openai", "resp_synthetic_123", "req_synthetic_123", "a".repeat(32), 1L
+)
 
 private class InMemoryChatStore(private val failWrites: Boolean = false) : ChatStore {
     override fun saveMessage(role: String, text: String) {
