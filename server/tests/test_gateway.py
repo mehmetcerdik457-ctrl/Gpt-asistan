@@ -183,6 +183,20 @@ class GatewayHttpTests(unittest.TestCase):
         self.assertEqual((status, data["error"]), (409, "MODEL_NOT_VERIFIED"))
         self.assertEqual(len(self.provider.calls), 1)
 
+    def test_expert_tasks_share_existing_ten_per_minute_provider_limit(self):
+        actual = self.verify_model()
+        for _ in range(10):
+            status, data = self.post("tasks", {
+                "input": "Kısa değerlendirme", "model": actual,
+                "expert": "code-reviewer", "tools": []
+            })
+            self.assertEqual(status, 200)
+        status, data = self.post("tasks", {
+            "input": "On birinci görev", "model": actual,
+            "expert": "code-reviewer", "tools": []
+        })
+        self.assertEqual((status, data["error"]), (429, "OWNER_RATE_LIMIT"))
+
     def test_model_change_invalidates_selection(self):
         actual = self.verify_model()
         self.provider.actual = "different-snapshot"

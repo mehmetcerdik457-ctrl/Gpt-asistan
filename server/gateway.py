@@ -321,6 +321,12 @@ class Gateway:
                 now = time.time()
                 if row is None or not 0 <= now - row[0]["verified_at"] < MODEL_TTL:
                     raise Denied("MODEL_NOT_VERIFIED", 409)
+                if not approval:
+                    while self.calls and now - self.calls[0] >= 60:
+                        self.calls.popleft()
+                    if len(self.calls) >= 10:
+                        raise Denied("OWNER_RATE_LIMIT", 429)
+                    self.calls.append(now)
             try:
                 return self.tasks.submit(model, row[1], expert, prompt, approval_required=approval)
             except ValueError as exc:
