@@ -150,6 +150,55 @@ class TaskLifecycleTests(unittest.TestCase):
         finally:
             manager.close()
 
+    def test_four_model_tasks_can_run_but_fifth_waits_for_a_slot(self):
+        class BlockingProvider:
+            def __init__(self):
+                self.lock = threading.Lock()
+                self.active = 0
+                self.max_active = 0
+                self.started_count = 0
+                self.four_started = threading.Event()
+                self.release = threading.Event()
+            def reply_with_metadata(self, model, prompt, *, request_metadata=None, client_request_id=None):
+                with self.lock:
+                    self.active += 1
+                    self.started_count += 1
+                    self.max_active = max(self.max_active, self.active)
+                    if self.active == 4:
+                        self.four_started.set()
+                self.release.wait(3)
+                with self.lock:
+                    self.active -= 1
+                return "synthetic answer", model, 1, {
+                    "response_id": "resp_concurrency", "request_id": "req_concurrency",
+                    "http_status": 200, "retryable": False,
+                }
+        provider = BlockingProvider()
+        manager = TaskManager(self.store, provider)
+        try:
+            tasks = [manager.submit("model-fixture", "model-fixture", "test-engineer", f"Task {i}")
+                     for i in range(5)]
+            self.assertTrue(provider.four_started.wait(2))
+            with provider.lock:
+                self.assertEqual(provider.started_count, 4)
+                self.assertEqual(provider.max_active, 4)
+            provider.release.set()
+            completed = [self.wait_for_with(manager, task["task_id"], {"completed"}) for task in tasks]
+            self.assertTrue(all(row["status"] == "completed" for row in completed))
+            self.assertEqual(provider.max_active, 4)
+        finally:
+            provider.release.set()
+            manager.close()
+
+    def test_fifty_logical_task_slots_reject_the_fifty_first(self):
+        tasks = [self.manager.submit("m", "m", "test-engineer", f"Await approval {i}",
+                                     approval_required=True) for i in range(50)]
+        self.assertEqual(len(tasks), 50)
+        self.assertTrue(all(task["status"] == "awaiting_approval" for task in tasks))
+        with self.assertRaisesRegex(RuntimeError, "TASK_CAPACITY_REACHED"):
+            self.manager.submit("m", "m", "test-engineer", "Overflow", approval_required=True)
+        self.assertEqual(self.provider.calls, 0)
+
     def test_unknown_expert_rejected(self):
         with self.assertRaisesRegex(ValueError, "TASK_EXPERT_NOT_FOUND"):
             self.manager.submit("m", "m", "unknown", "hello")
