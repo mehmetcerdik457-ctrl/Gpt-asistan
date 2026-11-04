@@ -101,8 +101,15 @@ object OwnerGateway {
         val body = JSONObject().put("input", input).put("model", selected.id)
             .put("expert", expert).put("tools", org.json.JSONArray())
             .put("requires_approval", requiresApproval)
-        return parseTask(request(base, OmegaEnvelope.TASKS, owner, body))
+        return parseTask(request(base, OmegaEnvelope.TASKS, owner, body)).also {
+            require(it.requestSha256 == taskRequestDigest(selected.id, expert, input)) {
+                "TASK_RESPONSE_REQUEST_MISMATCH"
+            }
+        }
     }
+
+    internal fun taskRequestDigest(model: String, expert: String, input: String): String =
+        KralAndroidCore.sha256Hex("""{"expert":${quoteTaskString(expert)},"input":${quoteTaskString(input)},"model":${quoteTaskString(model)}}""")
 
     fun taskStatus(context: Context, base: String, taskId: String): Task =
         taskAction(context, base, OmegaEnvelope.TASK_STATUS, taskId)
@@ -118,8 +125,11 @@ object OwnerGateway {
         val owner = context.getSharedPreferences("kral_model", Context.MODE_PRIVATE)
             .getString("owner_id", "").orEmpty()
         val body = JSONObject().put("task_id", taskId)
-        return parseTask(request(base, path, owner, body))
+        return parseTaskForId(request(base, path, owner, body), taskId)
     }
+
+    internal fun parseTaskForId(result: JSONObject, expectedTaskId: String): Task =
+        parseTask(result).also { require(it.taskId == expectedTaskId) { "TASK_RESPONSE_ID_MISMATCH" } }
 
     internal fun parseTask(result: JSONObject): Task {
         require(result.getString("contract") == OmegaEnvelope.CONTRACT)
@@ -135,6 +145,7 @@ object OwnerGateway {
         val answer = result.opt("result")
         val answerText = if (answer == null || answer == JSONObject.NULL) null else answer as? String
             ?: throw IllegalArgumentException("TASK_RESULT_INVALID")
+        require(status != "completed" || answerText != null) { "TASK_COMPLETED_RESULT_MISSING" }
         val answerHash = result.opt("result_sha256")
         val answerDigest = if (answerHash == null || answerHash == JSONObject.NULL) null else answerHash as? String
             ?: throw IllegalArgumentException("TASK_RESULT_HASH_INVALID")
@@ -173,7 +184,7 @@ object OwnerGateway {
             clientRequestId)
     }
 
-    private val EXPERTS = setOf(
+    internal val EXPERTS = setOf(
         "ai-ml-engineer", "android-engineer", "apk-forensic", "chief-engineer",
         "ci-cd-engineer", "cloud-engineer", "code-reviewer", "github-master-ai",
         "mcp-engineer", "release-engineer", "security-auditor", "test-engineer",

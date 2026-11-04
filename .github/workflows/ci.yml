@@ -7,6 +7,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify the exact source commit
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          git rev-parse HEAD > python-source-commit.txt
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -20,5 +29,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: kral-python-tests
-          path: python-tests.log
+          path: |
+            python-tests.log
+            python-source-commit.txt
           if-no-files-found: error

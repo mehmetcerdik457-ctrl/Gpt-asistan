@@ -5,7 +5,8 @@ on:
   workflow_dispatch:
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     permissions:
       contents: read
     steps:
@@ -28,21 +29,69 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - name: Install the declared Android SDK and record the toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/delivery
+          sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+          {
+            java -version
+            ./gradlew --version
+            sdkmanager --version
+            cat "$ANDROID_HOME/platforms/android-36/source.properties"
+            cat "$ANDROID_HOME/build-tools/36.0.0/source.properties"
+          } > build/delivery/toolchain.txt 2>&1
+      - name: Check tracked sources for credential patterns
+        run: python3 scripts/check_delivery_secrets.py
       - name: Run unit tests, lint, APK and unsigned release AAB builds
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p build/delivery
           ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest :app:bundleRelease --no-daemon --stacktrace 2>&1 | tee build/delivery/gradle.log
-      - name: Verify APK signature and record source and SHA-256
+      - name: Stage application and instrumentation APKs
         if: success()
+        shell: bash
         run: |
+          set -euo pipefail
           cp app/build/outputs/apk/debug/app-debug.apk build/delivery/app-debug.apk
           mapfile -t test_apks < <(find app/build/outputs/apk/androidTest -type f -name '*androidTest.apk')
           test "${#test_apks[@]}" -eq 1 || { echo "TEST_APK_OUTPUT_AMBIGUOUS"; exit 1; }
           cp "${test_apks[0]}" build/delivery/app-debug-androidTest.apk
+          python3 scripts/android_owner_signing.py --public-only --output build/delivery/signing-status.json
+      - name: Use existing pinned owner signer on the authorized push only
+        if: >-
+          success() && github.event_name == 'push' &&
+          github.repository == 'mehmetcerdik457-ctrl/Gpt-asistan' &&
+          github.ref == 'refs/heads/fix/kral-owner-signing-20261103' &&
+          github.actor == 'mehmetcerdik457-ctrl'
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/android_owner_signing.py \
+            --apk build/delivery/app-debug.apk \
+            --apk build/delivery/app-debug-androidTest.apk \
+            --apksigner "$ANDROID_HOME/build-tools/36.0.0/apksigner" \
+            --output build/delivery/signing-status.json
+      - name: Verify APK signature and record source and SHA-256
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
           (cd build/delivery && sha256sum app-debug-androidTest.apk > TEST-APK-SHA256SUMS)
-          python3 scripts/android_artifact.py build/delivery/app-debug.apk build/delivery --expected-sha "${{ github.event.pull_request.head.sha || github.sha }}"
+          python3 scripts/android_artifact.py build/delivery/app-debug.apk build/delivery --build-tools 36.0.0 --expected-sha "${{ github.event.pull_request.head.sha || github.sha }}" --signing-report build/delivery/signing-status.json
+          python3 scripts/check_delivery_secrets.py --apk build/delivery/app-debug.apk | tee build/delivery/secret-scan.txt
+          python3 scripts/android_delivery_evidence.py build/delivery
           git archive --format=tar.gz --output=build/delivery/source.tar.gz HEAD
           cd build/delivery
           sha256sum source.tar.gz > SOURCE-SHA256SUMS
@@ -57,7 +106,28 @@ jobs:
             build/delivery/TEST-APK-SHA256SUMS
             build/delivery/apk-metadata.json
             build/delivery/APK-SHA256SUMS
+            build/delivery/test-summary.json
+            build/delivery/toolchain.txt
+            build/delivery/secret-scan.txt
+            build/delivery/signing-status.json
           if-no-files-found: error
+      - name: Publish exact-source delivery summary
+        if: success()
+        shell: bash
+        run: |
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          from pathlib import Path
+          p = Path('build/delivery')
+          m = json.loads((p / 'apk-metadata.json').read_text())
+          e = json.loads((p / 'test-summary.json').read_text())
+          s = json.loads((p / 'signing-status.json').read_text())
+          print(f"Source commit: `{m['source_commit']}`\n")
+          print(f"APK SHA-256: `{m['sha256']}`\n")
+          print(f"Unit tests: {e['unit_tests_passed']} passed, {e['unit_tests']['skipped']} skipped; Lint passed.\n")
+          print(f"Owner signing: `{s['status']}`. Previous-install upgrade verified: `false`.\n")
+          print('Download the kral-asistan-candidate-apk artifact from this run. API 30/36 emulator results are recorded by their own jobs. Physical phone and live model calls are not tested.')
+          PY
       - name: Verify and record unsigned release AAB (NOT Play-ready)
         if: success()
         shell: bash
@@ -97,7 +167,7 @@ jobs:
       fail-fast: false
       matrix:
         sdk: [30, 36]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       KRAL_EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
       KRAL_EMULATOR_API: ${{ matrix.sdk }}

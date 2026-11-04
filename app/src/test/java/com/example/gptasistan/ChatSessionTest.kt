@@ -61,6 +61,39 @@ class ChatSessionTest {
         shadowOf(Looper.getMainLooper()).idle()
     }
 
+    @Test fun ownerOperationIsSerializedWithChatAndStoredWithoutSpeechOrExecution() {
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1).also { releaseOnCleanup.add(it) }
+        val (session, worker) = session { _, _, _ -> testReply("unused") }
+        assertTrue(session.runOwnerOperation("Uzman görevi") {
+            entered.countDown()
+            check(release.await(5, TimeUnit.SECONDS))
+            "Görev kimliği: " + "a".repeat(32)
+        })
+        assertTrue(entered.await(5, TimeUnit.SECONDS))
+        assertFalse(session.send(ENDPOINT, "test-model", "korunacak taslak"))
+        assertFalse(session.runOwnerOperation("duplicate") { error("must not run") })
+        release.countDown()
+        flush(worker)
+        assertEquals(listOf("Görev kimliği: " + "a".repeat(32)), session.history.value!!.map { it.text })
+        assertNull(session.peekUnspokenReply())
+        assertFalse(session.state.value!!.busy)
+    }
+
+    @Test fun ownerOperationDoesNotEchoRawProviderErrorOrAutomaticallyRetry() {
+        val (session, worker) = session { _, _, _ -> testReply("unused") }
+        val calls = AtomicInteger()
+        assertTrue(session.runOwnerOperation("Görev") {
+            calls.incrementAndGet()
+            throw IOException("SENSITIVE_ERROR_SENTINEL")
+        })
+        flush(worker)
+        assertEquals(1, calls.get())
+        assertFalse(session.history.value!!.single().text.contains("SENSITIVE_ERROR_SENTINEL"))
+        assertTrue(session.history.value!!.single().text.contains("otomatik yeniden denenmedi"))
+        assertFalse(session.state.value!!.busy)
+    }
+
     @Test fun onePendingRequestRejectsSecondSendWithoutPersistingSecondDraft() {
         val entered = CountDownLatch(1)
         val release = CountDownLatch(1).also { releaseOnCleanup.add(it) }

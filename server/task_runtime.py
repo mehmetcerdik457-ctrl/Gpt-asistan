@@ -131,6 +131,20 @@ class TaskManager:
         )
         try:
             with self.execution_slots:
+                # A task may wait here behind chat/probe work. Recheck after
+                # obtaining the slot so a cancelled waiter never calls a provider.
+                with self.store.connect() as db:
+                    db.execute("BEGIN IMMEDIATE")
+                    row = db.execute(
+                        "SELECT status,cancel_requested FROM owner_tasks WHERE task_id=?", (task_id,)
+                    ).fetchone()
+                    if row is None or row[0] != "running" or row[1]:
+                        db.execute(
+                            "UPDATE owner_tasks SET status='cancelled', error_code='TASK_CANCELLED', "
+                            "updated_at=? WHERE task_id=? AND status='running'",
+                            (int(time.time()), task_id)
+                        )
+                        return
                 if hasattr(self.provider, "reply_with_metadata"):
                     answer, actual, _elapsed, provider_meta = self.provider.reply_with_metadata(
                         candidate, role_prompt,

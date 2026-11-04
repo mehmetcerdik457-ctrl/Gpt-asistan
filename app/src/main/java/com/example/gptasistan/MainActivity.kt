@@ -5,6 +5,8 @@ import android.os.Build
 import android.app.KeyguardManager
 import android.app.Activity
 import android.content.Intent
+import android.content.ActivityNotFoundException
+import android.speech.RecognizerIntent
 import android.view.View
 import android.view.WindowManager
 import kotlin.concurrent.thread
@@ -19,6 +21,7 @@ import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.SwitchCompat
+import androidx.core.content.edit
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.ViewModelProvider
@@ -65,18 +68,13 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun showLocked() {
-        val locked = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(24, 48, 24, 24)
-        }
+        val locked = layoutInflater.inflate(
+            R.layout.activity_main, findViewById<ViewGroup>(android.R.id.content), false
+        ) as LinearLayout
         applySystemBarInsets(locked, 24, 48, 24, 24)
-        locked.addView(TextView(this).apply { text = "KRAL ASİSTAN — cihaz kilidiyle aç"; textSize = 20f })
-        locked.addView(Button(this).apply {
-            text = "Kilidi aç"
-            setOnClickListener { unlock {
-                if (!uiReady) buildContent(initialState) else setContentView(contentRoot)
-            } }
-        })
+        locked.findViewById<Button>(R.id.unlock_button).setOnClickListener {
+            unlock { if (!uiReady) buildContent(initialState) else setContentView(contentRoot) }
+        }
         setContentView(locked)
     }
 
@@ -98,6 +96,28 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     @Deprecated("Activity result used for the platform device credential screen")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == 4702) {
+            if (resultCode == Activity.RESULT_OK) {
+                val hypotheses = data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.toList()
+                if (!hypotheses.isNullOrEmpty()) {
+                    // The external recognizer can stop our Activity. Never reveal or
+                    // modify an existing private draft without a fresh device unlock.
+                    unlock {
+                        if (appUnlocked && uiReady && !storageBlocked && !isFinishing && !isDestroyed &&
+                            session.state.value?.busy != true
+                        ) {
+                            val merged = SpeechDraft.merge(input.text.toString(), hypotheses)
+                            if (merged != null) {
+                                input.setText(merged)
+                                input.setSelection(input.text.length)
+                                connectionStatus.text = getString(R.string.status_speech_draft_added)
+                            } else connectionStatus.text = getString(R.string.status_speech_not_recognized)
+                        }
+                    }
+                }
+            }
+            return
+        }
         if (requestCode != 4701) return
         val action = pendingUnlock
         pendingUnlock = null
@@ -125,16 +145,14 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         }
         applySystemBarInsets(root, 24, 48, 24, 24)
         root.addView(TextView(this).apply {
-            text = "KRAL — yerel veriler korunuyor"
+            text = getString(R.string.storage_preserved_title)
             textSize = 20f
         })
         root.addView(TextView(this).apply {
-            text = "Şifreli depolama doğrulanamadı. Veri kaybını önlemek için erişim durduruldu. " +
-                "Uygulamayı silmeyin, veritabanı veya WAL dosyalarını temizlemeyin. " +
-                "Sahip onaylı yedek ve kurtarma işlemi gereklidir."
+            text = getString(R.string.storage_preserved_message)
         })
         root.addView(Button(this).apply {
-            text = "Uygulamayı kapat"
+            text = getString(R.string.action_close_app)
             setOnClickListener { finish() }
         })
         setContentView(root)
@@ -157,11 +175,11 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         contentRoot = root
         uiReady = true
         root.addView(TextView(this).apply {
-            text = "KRAL ASİSTAN — aday sürüm"
+            text = getString(R.string.candidate_title)
             textSize = 19f
         })
         root.addView(TextView(this).apply {
-            text = "Cihaz kilidi açık. Sunucu erişimi kayıtlı sahip ve cihaz imzasıyla doğrulanır."
+            text = getString(R.string.owner_unlocked_notice)
         })
         val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         fun button(label: String, action: () -> Unit): Button {
@@ -169,30 +187,38 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             actions.addView(b, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             return b
         }
-        button("Hafıza") { showLocal { store.memory() } }
-        button("Görevler") { showLocal { store.tasks() } }
-        modelButton = button("Model") { configureModel() }
+        button(getString(R.string.action_memory)) { showLocal { store.memory() } }
+        button(getString(R.string.action_tasks)) { showLocal { store.tasks() } }
+        modelButton = button(getString(R.string.action_model)) { configureModel() }
         root.addView(actions)
         root.addView(Button(this).apply {
-            text = "Sunucuya kayıt bilgisi"
+            text = getString(R.string.action_server_registration)
             setOnClickListener { unlock { showRegistration() } }
         })
         root.addView(Button(this).apply {
-            text = "Owner / Bridge durumu (salt okunur)"
+            text = getString(R.string.action_owner_bridge_status)
             setOnClickListener { showLocal { OwnerStatus.readOnlyReport(this@MainActivity) } }
+        })
+        root.addView(Button(this).apply {
+            text = getString(R.string.action_voice_cihat)
+            setOnClickListener { showHandoffMenu() }
+        })
+        root.addView(Button(this).apply {
+            text = getString(R.string.action_expert_worker_tasks)
+            setOnClickListener { showExpertMenu() }
         })
         connectionStatus = TextView(this).apply {
             text = if ((prefs.getString("endpoint", "") ?: "").isBlank())
-                "Model bağlantısı yapılandırılmadı" else "Model adresi kayıtlı; bağlantı doğrulanmadı"
+                getString(R.string.status_model_not_configured) else getString(R.string.status_model_unverified)
         }
         root.addView(connectionStatus)
         root.addView(SwitchCompat(this).apply {
-            text = "Yanıtları Türkçe seslendir"
+            text = getString(R.string.action_speak_replies)
             isChecked = prefs.getBoolean("speak_replies", false)
             setOnCheckedChangeListener { _, enabled ->
-                prefs.edit().putBoolean("speak_replies", enabled).apply()
+                prefs.edit { putBoolean("speak_replies", enabled) }
                 if (!enabled) tts?.stop()
-                else if (!ttsReady) connectionStatus.text = "Telefonda Türkçe seslendirme hazır değil"
+                else if (!ttsReady) connectionStatus.text = getString(R.string.status_tts_unavailable)
                 else speakLatestReply()
             }
         })
@@ -202,14 +228,14 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         root.addView(scroller, LinearLayout.LayoutParams(-1, 0, 1f))
         val bottom = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         input = EditText(this).apply {
-            hint = "Bir şey yaz veya /yardim"
+            hint = getString(R.string.hint_message)
             isSingleLine = true
             filters = arrayOf(InputFilter.LengthFilter(16000))
             setText(savedInstanceState?.getString("draft").orEmpty())
         }
         bottom.addView(input, LinearLayout.LayoutParams(0, -2, 1f))
         sendButton = Button(this).apply {
-            text = "Gönder"
+            text = getString(R.string.action_send)
             setOnClickListener {
                 val line = input.text.toString().trim()
                 if (line.isNotEmpty() && handle(line)) input.text.clear()
@@ -219,7 +245,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         root.addView(bottom)
         setContentView(root)
         session.history.observe(this) { history ->
-            transcript.text = if (history.isEmpty()) "Merhaba! " + KralCore.help() + "\n"
+            transcript.text = if (history.isEmpty()) getString(R.string.greeting_help, KralCore.help())
                 else history.joinToString("\n\n") { it.text } + "\n"
             scroller.post { scroller.fullScroll(ScrollView.FOCUS_DOWN) }
         }
@@ -232,12 +258,247 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         tts = TextToSpeech(this, this)
     }
 
+    private fun showHandoffMenu() {
+        if (!appUnlocked || !uiReady || storageBlocked || session.state.value?.busy == true) return
+        AlertDialog.Builder(this).setTitle(getString(R.string.action_voice_cihat))
+            .setItems(arrayOf("Sesle taslak yaz", "CİHAT kurulumunu doğrula", "CİHAT'ı aç", "Panodan taslak al")) { _, index ->
+                if (!appUnlocked || storageBlocked) return@setItems
+                when (index) {
+                    0 -> requestSpeechDraft()
+                    1 -> showCihatIdentity()
+                    2 -> openInstalledCihat()
+                    3 -> previewClipboardReply()
+                }
+            }.setNegativeButton("Vazgeç", null).show()
+    }
+
+    private fun showExpertMenu() {
+        if (!appUnlocked || !uiReady || storageBlocked || session.state.value?.busy == true) return
+        AlertDialog.Builder(this).setTitle("Uzman görevleri")
+            .setItems(arrayOf("Yeni uzman görevi", "Görev durumunu yenile", "Görevi iptal et", "Sunucu işçi durumunu oku")) { _, index ->
+                if (!appUnlocked || storageBlocked) return@setItems
+                when (index) {
+                    0 -> chooseExpert()
+                    1 -> taskActionDialog(false)
+                    2 -> taskActionDialog(true)
+                    3 -> runOwnerAction("İşçi durumu", false) { app, base, _ ->
+                        val result = OwnerGateway.localWorkers(app, base, ExpertTasks.statusBatch(), 2)
+                        "Sunucuda iki salt okunur iş:\n${result.toString(2)}\nCanlı model isteği yapılmadı."
+                    }
+                }
+            }.setNegativeButton("Vazgeç", null).show()
+    }
+
+    private fun chooseExpert() {
+        val experts = OwnerGateway.EXPERTS.toList()
+        AlertDialog.Builder(this).setTitle("Uzman rolü seç")
+            .setItems(experts.toTypedArray()) { _, index ->
+                if (!appUnlocked || storageBlocked || session.state.value?.busy == true) return@setItems
+                val draft = EditText(this).apply {
+                    hint = "Yalnız bu görev metni gönderilir"
+                    filters = arrayOf(InputFilter.LengthFilter(8000))
+                    if (input.text.length <= 8000) setText(input.text)
+                }
+                AlertDialog.Builder(this).setTitle("Uzman: ${experts[index]}")
+                    .setMessage("Seçili modele yalnız bu metin gönderilir; sağlayıcı ücretlendirebilir. " +
+                        "Uzman öneri üretir. Dosya, hesap veya dış sistemde işlem yapmaz.")
+                    .setView(draft)
+                    .setPositiveButton("Görevi gönder") { _, _ ->
+                        val text = draft.text.toString().trim()
+                        if (text.isBlank()) return@setPositiveButton
+                        runOwnerAction("Uzman görevi", true) { app, base, model ->
+                            ExpertTasks.report(OwnerGateway.submitTask(app, base, model, experts[index], text))
+                        }
+                    }.setNegativeButton("Vazgeç", null).show()
+            }.setNegativeButton("Vazgeç", null).show()
+    }
+
+    private fun taskActionDialog(cancel: Boolean) {
+        val idField = EditText(this).apply { hint = "Geçmişteki 32 karakterlik görev kimliği"; isSingleLine = true }
+        AlertDialog.Builder(this).setTitle(if (cancel) "Görevi iptal et" else "Görev durumunu yenile")
+            .setMessage(if (cancel) "Başlamış sağlayıcı isteği uzaktan durdurulamaz; dönen sonucu bastırılır."
+                else "Sunucudaki görev durumu ve varsa yanıt özeti okunur.")
+            .setView(idField).setPositiveButton(if (cancel) "İptal iste" else "Yenile") { _, _ ->
+                val id = idField.text.toString().trim()
+                if (!ExpertTasks.validTaskId(id)) {
+                    connectionStatus.text = getString(R.string.status_task_id_invalid)
+                    return@setPositiveButton
+                }
+                runOwnerAction(if (cancel) "Görev iptali" else "Görev durumu", false) { app, base, _ ->
+                    ExpertTasks.report(if (cancel) OwnerGateway.cancelTask(app, base, id)
+                        else OwnerGateway.taskStatus(app, base, id))
+                }
+            }.setNegativeButton("Vazgeç", null).show()
+    }
+
+    private fun runOwnerAction(
+        label: String, needsModel: Boolean,
+        operation: (android.content.Context, String, String) -> String,
+    ) {
+        if (!appUnlocked || !uiReady || storageBlocked || session.state.value?.busy == true) return
+        val base = prefs.getString("endpoint", "").orEmpty()
+        val owner = prefs.getString("owner_id", "").orEmpty()
+        val model = prefs.getString("model", "").orEmpty()
+        if (!OwnerGateway.validBase(base) || !OmegaEnvelope.validOwner(owner)) {
+            connectionStatus.text = getString(R.string.status_owner_server_required)
+            return
+        }
+        val app = applicationContext
+        unlock {
+            if (!appUnlocked || storageBlocked || session.state.value?.busy == true) return@unlock
+            if (needsModel && OwnerGateway.verifiedModels(base, owner).none { it.id == model }) {
+                connectionStatus.text = getString(R.string.status_model_verification_required)
+                return@unlock
+            }
+            session.runOwnerOperation(label) { operation(app, base, model) }
+        }
+    }
+
+    private fun showCihatIdentity() {
+        if (!appUnlocked || !uiReady || session.state.value?.busy == true) return
+        val verified = CihatIdentity.inspect(this)
+        AlertDialog.Builder(this)
+            .setTitle("CİHAT uygulama kimliği")
+            .setMessage(verified.report())
+            .setPositiveButton("Tamam", null)
+            .show()
+    }
+
+    // User-mediated handoff, not a privileged API or silent CİHAT automation.
+    private fun openInstalledCihat() {
+        if (!appUnlocked || session.state.value?.busy == true) {
+            connectionStatus.text = getString(R.string.status_unlock_and_wait)
+            return
+        }
+        val installed = CihatIdentity.inspect(this)
+        if (!installed.verified) {
+            connectionStatus.text =
+                getString(R.string.status_cihat_identity_unverified)
+            return
+        }
+        val launch = try {
+            packageManager.getLaunchIntentForPackage(CihatHandoff.PACKAGE_NAME)
+        } catch (_: RuntimeException) { null }
+        if (launch == null) {
+            connectionStatus.text = getString(R.string.status_cihat_not_launchable)
+            return
+        }
+        val draft = CihatHandoff.copyableDraft(input.text.toString())
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Mevcut CİHAT AI uygulaması")
+            .setMessage(
+                "KRAL CİHAT'ı açabilir ama CİHAT'ın sohbetine otomatik mesaj gönderemez veya yanıt okuyamaz. " +
+                "Metni kopyala seçeneği yalnızca bu mesaj kutusundaki metni Android panosuna koyar. " +
+                "Pano içeriği başka uygulamalarda görülebilir; şifre, anahtar ve özel bilgiler için kullanma. " +
+                "Sohbet geçmişi veya hafıza otomatik aktarılmaz."
+            )
+            .setPositiveButton("Yalnız aç") { _, _ ->
+                try {
+                    if (!appUnlocked || !uiReady || storageBlocked || !CihatIdentity.inspect(this).verified)
+                        return@setPositiveButton
+                    startActivity(launch)
+                }
+                catch (_: RuntimeException) {
+                    connectionStatus.text = getString(R.string.status_cihat_launch_failed)
+                }
+            }
+            .setNegativeButton("Vazgeç", null)
+        if (draft != null) {
+            dialog.setNeutralButton("Metni kopyala ve aç") { _, _ ->
+                try {
+                    if (!appUnlocked || !uiReady || storageBlocked || !CihatIdentity.inspect(this).verified)
+                        return@setNeutralButton
+                    val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    val clip = android.content.ClipData.newPlainText("KRAL'dan CİHAT'a metin", draft)
+                    if (android.os.Build.VERSION.SDK_INT >= 33) {
+                        clip.description.extras = android.os.PersistableBundle().apply {
+                            putBoolean(android.content.ClipDescription.EXTRA_IS_SENSITIVE, true)
+                        }
+                    }
+                    clipboard.setPrimaryClip(clip)
+                    startActivity(launch)
+                } catch (_: RuntimeException) {
+                    connectionStatus.text = getString(R.string.status_cihat_clipboard_failed)
+                }
+            }
+        }
+        dialog.show()
+    }
+
+    /** Manual reply return: user explicitly inspects untrusted clipboard. */
+    private fun previewClipboardReply() {
+        if (!appUnlocked || !uiReady || session.state.value?.busy == true) {
+            if (uiReady) connectionStatus.text = getString(R.string.status_unlock_and_wait)
+            return
+        }
+        val reply = try {
+            val clipboard = getSystemService(CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+            val clip = clipboard?.primaryClip
+            if (clip != null && clip.itemCount == 1 &&
+                clip.description.hasMimeType(android.content.ClipDescription.MIMETYPE_TEXT_PLAIN)
+            ) CihatHandoff.importableReply(clip.getItemAt(0).text) else null
+        } catch (_: RuntimeException) { null }
+        if (reply == null) {
+            connectionStatus.text = getString(R.string.status_clipboard_invalid)
+            return
+        }
+        val overwrite = if (input.text.isNotBlank())
+            "Mevcut taslak bu metinle değiştirilecek.\n\n" else ""
+        AlertDialog.Builder(this)
+            .setTitle("Panodaki metni KRAL'a al")
+            .setMessage(
+                "Panodaki metnin CİHAT'tan geldiği doğrulanamaz. Önce kontrol et. " +
+                "Aktarım yalnızca taslağı doldurur, sohbeti/hafızayı kaydetmez ve mesaj göndermez.\n\n" +
+                overwrite + "PANODAKİ METİN:\n" + reply
+            )
+            .setPositiveButton("Taslağa aktar") { _, _ ->
+                if (appUnlocked && !isFinishing && !isDestroyed &&
+                    session.state.value?.busy != true
+                ) {
+                    input.setText(reply)
+                    input.setSelection(reply.length)
+                    connectionStatus.text = getString(R.string.status_clipboard_draft_added)
+                }
+            }
+            .setNegativeButton("Vazgeç", null)
+            .show()
+    }
+
+    private fun requestSpeechDraft() {
+        if (!appUnlocked || !uiReady || session.state.value?.busy == true) return
+        AlertDialog.Builder(this).setTitle("Sesle yaz")
+            .setMessage(
+                "Telefonun konuşma tanıma hizmeti sesini işleyebilir. " +
+                "Yalnız senin onayınla başlatılır; tanınan metin yalnız taslağa eklenir, " +
+                "otomatik gönderilmez veya hafızaya kaydedilmez."
+            )
+            .setPositiveButton("Konuşmayı başlat") { _, _ ->
+                if (!appUnlocked || isFinishing || isDestroyed ||
+                    session.state.value?.busy == true
+                ) return@setPositiveButton
+                try {
+                    val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                        putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                            RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                        putExtra(RecognizerIntent.EXTRA_LANGUAGE, "tr-TR")
+                        putExtra(RecognizerIntent.EXTRA_PROMPT, "Türkçe konuş")
+                    }
+                    startActivityForResult(intent, 4702)
+                } catch (_: ActivityNotFoundException) {
+                    connectionStatus.text = getString(R.string.status_recognizer_unavailable)
+                } catch (_: SecurityException) {
+                    connectionStatus.text = getString(R.string.status_recognizer_denied)
+                }
+            }.setNegativeButton("Vazgeç", null).show()
+    }
+
     private fun showLocal(action: () -> String) {
+        if (!appUnlocked || !uiReady || storageBlocked) return
         try {
             store.saveMessage("assistant", action())
             session.refreshHistory()
         } catch (_: Exception) {
-            connectionStatus.text = "Kayıt okunamadı veya kaydedilemedi. Depolama alanını kontrol et."
+            connectionStatus.text = getString(R.string.status_record_read_failed)
         }
     }
 
@@ -274,10 +535,10 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             if (decision != OwnerExecutionDecision.ALLOW_LOCAL_ROUTINE &&
                 decision != OwnerExecutionDecision.ALLOW_SIGNED_REMOTE_ATTEMPT) {
                 connectionStatus.text = when (decision) {
-                    OwnerExecutionDecision.DENY_OWNER_LOCKED -> "Sahip kilidi kapalı; önce doğrulama gerekiyor."
-                    OwnerExecutionDecision.DENY_STORAGE_UNAVAILABLE -> "Şifreli depolama kullanılamıyor; işlem reddedildi."
-                    OwnerExecutionDecision.DENY_REMOTE_NOT_VERIFIED -> "Doğrulanmış model yok; Model tuşuyla bağlantıyı yenile."
-                    else -> "İşlem bu sürümde yetkilendirilmemiş."
+                    OwnerExecutionDecision.DENY_OWNER_LOCKED -> getString(R.string.status_owner_locked)
+                    OwnerExecutionDecision.DENY_STORAGE_UNAVAILABLE -> getString(R.string.status_storage_unavailable)
+                    OwnerExecutionDecision.DENY_REMOTE_NOT_VERIFIED -> getString(R.string.status_remote_model_not_verified)
+                    else -> getString(R.string.status_operation_denied)
                 }
                 false
             } else when (command) {
@@ -295,7 +556,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 }
                 is KralCommand.Speak -> {
                     val accepted = recordLocal(raw) {
-                        if (ttsReady) "Sesli okuma istendi" else "Telefonda Türkçe seslendirme hazır değil"
+                        if (ttsReady) "Sesli okuma istendi" else getString(R.string.status_tts_unavailable)
                     }
                     if (accepted && ttsReady)
                         tts?.speak(command.value.take(4000), TextToSpeech.QUEUE_FLUSH, null, "kral-spoken")
@@ -308,7 +569,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                     val owner = prefs.getString("owner_id", "").orEmpty()
                     if (!OwnerGateway.validBase(endpoint) ||
                         OwnerGateway.verifiedModels(endpoint, owner).none { it.id == model }) {
-                        connectionStatus.text = "Doğrulanmış model yok; Model tuşuyla bağlantıyı yenile."
+                        connectionStatus.text = getString(R.string.status_remote_model_not_verified)
                         false
                     } else {
                         unlock {
@@ -327,7 +588,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 KralCommand.Invalid -> recordLocal(raw) { "Komut geçersiz. " + KralCore.help() }
             }
         } catch (_: Exception) {
-            connectionStatus.text = "İşlem kaydedilemedi; yazdığın metin korundu. Depolama alanını kontrol et."
+            connectionStatus.text = getString(R.string.status_record_write_failed)
             false
         }
     }
@@ -353,7 +614,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                     val text = TextView(this).apply { this.text = registration; setTextIsSelectable(true); setPadding(24, 24, 24, 24) }
                     AlertDialog.Builder(this).setTitle("Yalnız açık kayıt bilgileri").setView(ScrollView(this).apply { addView(text) })
                         .setPositiveButton("Tamam", null).show()
-                } catch (_: Exception) { connectionStatus.text = "Kayıt anahtarları oluşturulamadı; ekran kilidini ve sahip kimliğini kontrol et." }
+                } catch (_: Exception) { connectionStatus.text = getString(R.string.status_registration_failed) }
             }.setNegativeButton("Vazgeç", null).show()
     }
 
@@ -376,20 +637,20 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 val base = endpoint.text.toString().trim().trimEnd('/')
                 val identity = owner.text.toString().trim()
                 if (!OwnerGateway.validBase(base) || !OmegaEnvelope.validOwner(identity)) {
-                    connectionStatus.text = "Geçerli HTTPS sunucu kökü ve sahip kimliği gerekli."
+                    connectionStatus.text = getString(R.string.status_owner_server_invalid)
                 } else unlock { refreshModels(base, identity) }
             }
             .setNeutralButton("Bağlantıyı kaldır") { _, _ ->
                 OwnerGateway.clear()
-                prefs.edit().remove("endpoint").remove("model").remove("owner_id").apply()
-                session.resetConnectionStatus("Model bağlantısı yapılandırılmadı")
+                prefs.edit { remove("endpoint"); remove("model"); remove("owner_id") }
+                session.resetConnectionStatus(getString(R.string.status_model_not_configured))
             }.setNegativeButton("Vazgeç", null).show()
     }
 
     private fun refreshModels(base: String, identity: String) {
         modelButton.isEnabled = false
         sendButton.isEnabled = false
-        connectionStatus.text = "Sahip imzası ve canlı model yanıtı doğrulanıyor…"
+        connectionStatus.text = getString(R.string.status_model_verifying)
         thread {
             val models = try { OwnerGateway.models(base, identity) } catch (_: Exception) { null }
             runOnUiThread {
@@ -399,7 +660,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 if (models == null) {
                     session.resetConnectionStatus("Bağlantı doğrulanamadı. Sunucu kaydını, ekran kilidini ve HTTPS adresini kontrol et.")
                 } else {
-                    prefs.edit().putString("endpoint", base).putString("owner_id", identity).remove("model").apply()
+                    prefs.edit { putString("endpoint", base); putString("owner_id", identity); remove("model") }
                     if (models.isEmpty()) {
                         session.resetConnectionStatus("Sunucuya erişildi; canlı yanıtla doğrulanmış model bulunamadı.")
                     } else if (appUnlocked) {
@@ -407,7 +668,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                         AlertDialog.Builder(this).setTitle("Canlı doğrulanan modeli seç").setItems(labels) { _, index ->
                             val selected = models[index]
                             if (appUnlocked && OwnerGateway.verifiedModels(base, identity).any { it == selected }) {
-                                prefs.edit().putString("model", selected.id).apply()
+                                prefs.edit { putString("model", selected.id) }
                                 session.resetConnectionStatus("Doğrulanmış model: ${selected.provider} / ${selected.id}")
                             } else session.resetConnectionStatus("Model doğrulamasının süresi doldu; bağlantıyı yenile.")
                         }.setNegativeButton("Vazgeç", null).show()

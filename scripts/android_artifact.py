@@ -30,6 +30,7 @@ def main() -> None:
     parser.add_argument("--sdk", type=Path, default=os.environ.get("ANDROID_HOME"))
     parser.add_argument("--build-tools", default="34.0.0")
     parser.add_argument("--expected-sha", help="CI-provided exact head commit, never synthetic PR merge")
+    parser.add_argument("--signing-report", type=Path, help="Public signing result; never a keystore")
     args = parser.parse_args()
     actual_sha = command("git", "rev-parse", "HEAD").strip()
     if args.expected_sha and (not re.fullmatch(r"[0-9a-f]{40}", args.expected_sha) or actual_sha != args.expected_sha):
@@ -75,6 +76,22 @@ def main() -> None:
     }
     if not metadata["signer_certificate_sha256"]:
         raise ValueError("No signing certificate SHA-256 returned by apksigner")
+    if args.signing_report:
+        signing = json.loads(args.signing_report.read_text())
+        if signing["source_commit"] != actual_sha:
+            raise ValueError("SIGNING_REPORT_SOURCE_MISMATCH")
+        owner_verified = signing["owner_signing_verified"]
+        if not isinstance(owner_verified, bool):
+            raise ValueError("SIGNING_REPORT_FLAG_INVALID")
+        if owner_verified and (
+            signing["status"] != "OWNER_SIGNER_PIN_VERIFIED" or
+            metadata["signer_certificate_sha256"] != [signing["expected_certificate_sha256"]] or
+            signing["actual_certificate_sha256"] != signing["expected_certificate_sha256"]
+        ):
+            raise ValueError("OWNER_SIGNING_CERTIFICATE_MISMATCH")
+        metadata["owner_signing_verified"] = owner_verified
+        metadata["signing_status"] = signing["status"]
+        metadata["previous_install_upgrade_verified"] = False
     args.output.mkdir(parents=True, exist_ok=True)
     (args.output / "apk-metadata.json").write_text(json.dumps(metadata, indent=2, ensure_ascii=False) + "\n")
     (args.output / "apk-badging.txt").write_text(badging)
