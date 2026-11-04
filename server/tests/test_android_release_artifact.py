@@ -89,7 +89,7 @@ class ReleaseBundleSignatureTests(unittest.TestCase):
                     + base64.b64encode(self.cert).decode() + "\n-----END CERTIFICATE-----\n")
 
     def test_pinned_self_signed_certificate_warning_is_allowed(self):
-        verified = subprocess.CompletedProcess([], 4, stdout="\njar verified.\n", stderr="")
+        verified = subprocess.CompletedProcess([], 4, stdout="\njar verified, with signer errors.\n", stderr="")
         with patch.object(release.subprocess, "run", return_value=verified), patch.object(release, "command", return_value=self.pem):
             release.verify_bundle_signature(Path("fixture.aab"), self.digest)
 

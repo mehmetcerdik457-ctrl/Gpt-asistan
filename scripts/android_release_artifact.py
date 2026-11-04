@@ -139,7 +139,7 @@ def verify_bundle_signature(bundle, expected):
     # all other strict errors fail. Locale is fixed for the verified marker.
     result = subprocess.run(["jarsigner", "-J-Duser.language=en", "-J-Duser.country=US",
                              "-verify", "-strict", str(bundle)], capture_output=True, text=True, timeout=90)
-    if result.returncode not in (0, 4) or not re.search(r"(?m)^jar verified\.", result.stdout):
+    if result.returncode not in (0, 4) or not re.search(r"(?m)^jar verified(?:, with signer errors)?\.$", result.stdout):
         raise ValueError("RELEASE_AAB_SIGNATURE_INVALID")
     certs = command("keytool", "-J-Duser.language=en", "-J-Duser.country=US",
                     "-printcert", "-jarfile", str(bundle), "-rfc")
