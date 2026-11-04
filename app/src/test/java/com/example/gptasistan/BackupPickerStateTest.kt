@@ -233,6 +233,10 @@ class BackupPickerStateTest {
         return try {
             val helper = backup(controller.get()) {}
             pickDocument(helper, export)
+            // Robolectric shares this queue through its application shadow.
+            // Consume this fixture's picker so later authorization checks see
+            // only intents launched by the recreated activity under test.
+            assertNotNull(shadowOf(controller.get()).nextStartedActivityForResult)
             Bundle().also(helper::savePendingState)
         } finally { controller.pause().stop().destroy() }
     }

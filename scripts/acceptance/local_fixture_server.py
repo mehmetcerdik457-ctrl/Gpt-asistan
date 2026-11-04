@@ -28,5 +28,8 @@ class LocalProvider:
 service=g.Gateway(g.Store(os.environ['OMEGA_DATA_DB']),LocalProvider())
 httpd=ThreadingHTTPServer(('127.0.0.1',0),g.handler_for(service))
 httpd.daemon_threads=True
-Path(os.environ['INDEPENDENT_READY']).write_text(str(httpd.server_port))
+ready = Path(os.environ['INDEPENDENT_READY'])
+pending_ready = ready.with_name(ready.name + '.pending')
+pending_ready.write_text(str(httpd.server_port))
+pending_ready.replace(ready)
 httpd.serve_forever(poll_interval=.05)

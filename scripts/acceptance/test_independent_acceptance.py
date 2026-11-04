@@ -39,7 +39,12 @@ class AcceptanceServiceChecks(unittest.TestCase):
             'INDEPENDENT_READY':str(self.root/'ready'),
             'OPENAI_API_KEY':'isolated-not-a-real-provider-key'})
         self.process=None
-        self.start()
+        try:
+            self.start()
+        except BaseException:
+            self.stop()
+            self.temp.cleanup()
+            raise
     def tearDown(self):
         self.stop()
         self.temp.cleanup()
