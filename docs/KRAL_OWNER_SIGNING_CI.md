@@ -1,4 +1,27 @@
-# KRAL 1.0.6 — Existing owner signer and explicit readiness evidence
+# KRAL — Existing owner signer and explicit readiness evidence
+
+## 1.0.7 continuation — 2026-11-04
+
+The current owner instruction authorizes main integration and APK delivery.
+`config/android-owner-signing.json` now additionally permits the same owner
+actor's push to `main` for release APK/AAB signing. The existing historical
+branch remains the only context for candidate/instrumentation re-signing.
+The public certificate pin and four existing secret names below are unchanged.
+
+The release and debug variants both keep `com.example.gptasistan.genesis`;
+versionCode is 8. APK ABI splits are disabled and the four existing native ABIs
+are explicit. Release is non-debuggable. Release outputs are post-signed with
+the existing key, then checked for matching APK/AAB identity, content and pin.
+
+The trusted main workflow checks secret availability before attempting release
+signing. Missing keys produce `BLOCKED_OWNER_SECRETS_MISSING` evidence; the
+signed-release jobs are skipped. A separate, clearly labelled debug prerelease
+may publish only after Python/JVM/Lint and API 30/36 candidate checks pass.
+It does not satisfy owner release signing or phone upgrade compatibility.
+Configured secrets with an invalid keystore or mismatched certificate cause
+the signing path to fail. No replacement key is generated.
+
+The following sections preserve the original 1.0.6 design and its provenance.
 
 ## What changes
 

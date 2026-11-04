@@ -1,5 +1,15 @@
 # KRAL GENESIS 3.0 — MASTER PROGRESS
-Last updated: 2026-11-03 (UTC)
+Last updated: 2026-11-04 (UTC)
+Current continuation: `kral-genesis-parallel-20261104`, based on `f2fd46a3c6edfae4f37d2e78669418f00cb33d41`.
+Current delivery and authorization: [parallel delivery](docs/KRAL_PARALLEL_DELIVERY_20261104.md).
+The owner explicitly authorized verified main integration and APK delivery in this session.
+The exact T01–T26 matrix has now been recovered from the authorized Drive document:
+[source and verbatim criteria](docs/KRAL_ACCEPTANCE_CRITERIA_SOURCE_20261104.md).
+Earlier missing-specification and PR-only continuation statements below are historical.
+Current acceptance status is recorded in [the acceptance report](docs/KRAL_PARALLEL_ACCEPTANCE_20261104.md).
+
+## Historical progress below
+
 Repository: https://github.com/mehmetcerdik457-ctrl/Gpt-asistan
 Active review: PR #79 (OPEN / DRAFT; NOT MERGED)
 Working branch: audit/kral-api36-sqlcipher-integration-20261103

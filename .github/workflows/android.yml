@@ -1,10 +1,19 @@
-name: Kral Android Candidate Build
+name: Kral Android Build and Delivery
 on:
   push:
   pull_request:
   workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: android-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 jobs:
+  backend:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    uses: ./.github/workflows/ci.yml
   build:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -53,7 +62,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p build/delivery
-          ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest :app:bundleRelease --no-daemon --stacktrace 2>&1 | tee build/delivery/gradle.log
+          ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest :app:assembleRelease :app:bundleRelease --no-daemon --stacktrace 2>&1 | tee build/delivery/gradle.log
       - name: Stage application and instrumentation APKs
         if: success()
         shell: bash
@@ -139,6 +148,16 @@ jobs:
             app/build/outputs/bundle/release/app-release.aab \
             build/delivery \
             --expected-sha "$EXPECTED_SHA"
+          cp app/build/outputs/apk/release/app-release-unsigned.apk build/delivery/app-release-unsigned.apk
+      - name: Upload unsigned inputs for the separate owner release gate
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kral-asistan-unsigned-release-inputs
+          path: |
+            build/delivery/app-release-unsigned.apk
+            build/delivery/app-release-unsigned.aab
+          if-no-files-found: error
       - name: Upload unsigned release AAB and provenance
         if: success()
         uses: actions/upload-artifact@v4
@@ -158,6 +177,7 @@ jobs:
             build/delivery/
             !build/delivery/app-debug.apk
             !build/delivery/app-release-unsigned.aab
+            !build/delivery/app-release-unsigned.apk
             app/build/test-results/
             app/build/reports/lint-results-debug.*
           if-no-files-found: error
@@ -226,3 +246,197 @@ jobs:
             app/build/outputs/androidTest-results/
             app/build/reports/androidTests/connected/
           if-no-files-found: warn
+  release-build:
+    needs: [backend, build, emulator]
+    if: >-
+      github.event_name == 'push' && github.ref == 'refs/heads/main' &&
+      github.repository == 'mehmetcerdik457-ctrl/Gpt-asistan' &&
+      github.actor == 'mehmetcerdik457-ctrl'
+    runs-on: ubuntu-24.04
+    outputs:
+      ready: ${{ steps.signing.outputs.ready }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Check existing owner signing configuration without exposing secrets
+        id: signing
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          names = ('ANDROID_KEYSTORE_BASE64', 'ANDROID_KEY_ALIAS', 'ANDROID_KEY_PASSWORD', 'ANDROID_STORE_PASSWORD')
+          missing = [name for name in names if not os.environ.get(name)]
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'ready={str(not missing).lower()}\n')
+          Path('build/release').mkdir(parents=True, exist_ok=True)
+          if missing:
+              report = dict(status='BLOCKED_OWNER_SECRETS_MISSING', owner_signing_verified=False,
+                            missing_secret_names=missing, source_commit=os.environ['GITHUB_SHA'],
+                            github_run_id=os.environ['GITHUB_RUN_ID'], new_key_created=False)
+              Path('build/release/signing-status.json').write_text(json.dumps(report, indent=2) + '\n')
+              with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+                  summary.write('Owner release BLOCKED: existing signing secrets are missing. No owner-signed APK/AAB will be published. The separately tested debug candidate is a prerelease.\n')
+          PY
+      - uses: actions/download-artifact@v4
+        if: steps.signing.outputs.ready == 'true'
+        with:
+          name: kral-asistan-unsigned-release-inputs
+          path: build/release
+      - uses: actions/setup-java@v4
+        if: steps.signing.outputs.ready == 'true'
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+        if: steps.signing.outputs.ready == 'true'
+        with:
+          packages: build-tools;36.0.0
+          log-accepted-android-sdk-licenses: false
+      - name: Sign release APK and AAB with the existing pinned owner key
+        if: steps.signing.outputs.ready == 'true'
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          mv build/release/app-release-unsigned.apk build/release/app-release.apk
+          mv build/release/app-release-unsigned.aab build/release/app-release.aab
+          python3 scripts/android_owner_signing.py \
+            --release-apk build/release/app-release.apk --bundle build/release/app-release.aab \
+            --require-owner --apksigner "$ANDROID_HOME/build-tools/36.0.0/apksigner" \
+            --output build/release/signing-status.json
+          python3 scripts/android_release_artifact.py \
+            build/release/app-release.apk build/release/app-release.aab build/release \
+            --expected-sha "$GITHUB_SHA" --signing-report build/release/signing-status.json \
+            --sdk "$ANDROID_HOME" --build-tools 36.0.0
+          python3 scripts/check_delivery_secrets.py --apk build/release/app-release.apk
+      - name: Upload owner release evidence and verified outputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kral-asistan-owner-release
+          path: build/release/
+          if-no-files-found: error
+  release-smoke:
+    needs: release-build
+    if: needs.release-build.outputs.ready == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        sdk: [30, 36]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: kral-asistan-owner-release
+          path: build/release
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Enable emulator KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Install and launch the signed release on a fresh emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.sdk }}
+          arch: x86_64
+          target: google_apis
+          profile: pixel_2
+          emulator-boot-timeout: 240
+          cores: 2
+          ram-size: 2048M
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: |
+            (cd build/release && sha256sum -c RELEASE-SHA256SUMS)
+            test "$(adb -e shell getprop ro.kernel.qemu | tr -d '\r')" = 1
+            timeout 60 adb -e install build/release/app-release.apk
+            timeout 30 adb -e shell am start -W -n com.example.gptasistan.genesis/com.example.gptasistan.MainActivity
+            for attempt in $(seq 1 10); do timeout 15 adb -e shell uiautomator dump /sdcard/release-window.xml && adb -e pull /sdcard/release-window.xml release-window.xml && python3 -c 'import xml.etree.ElementTree as E; assert any(n.get("text")=="KRAL ASİSTAN — cihaz kilidiyle aç" for n in E.parse("release-window.xml").getroot().iter("node"))' && break; sleep 1; done
+            python3 -c 'import xml.etree.ElementTree as E; nodes=list(E.parse("release-window.xml").getroot().iter("node")); assert any(n.get("text")=="KRAL ASİSTAN — cihaz kilidiyle aç" for n in nodes), "Release owner lock missing"'
+            adb -e shell pidof com.example.gptasistan.genesis
+      - name: Upload signed release smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kral-asistan-release-smoke-api${{ matrix.sdk }}
+          path: release-window.xml
+          if-no-files-found: warn
+  publish-owner-release:
+    needs: [release-build, release-smoke]
+    if: needs.release-build.outputs.ready == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: kral-asistan-owner-release
+          path: release
+      - name: Publish verified owner-signed APK and AAB assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          (cd release && sha256sum -c RELEASE-SHA256SUMS)
+          tag="genesis-${GITHUB_SHA:0:12}-${GITHUB_RUN_ID}"
+          printf 'Source: %s\nBuild, Python tests and Android API 30/36 checks passed.\nExisting owner signer verified. Physical-phone upgrade and live SMTP/model services are not verified.\n' "$GITHUB_SHA" > release-notes.md
+          gh release create "$tag" release/app-release.apk release/app-release.aab \
+            release/release-metadata.json release/signing-status.json release/RELEASE-SHA256SUMS \
+            --target "$GITHUB_SHA" --title "KRAL Genesis ${GITHUB_SHA:0:12}" --notes-file release-notes.md --draft
+          gh release edit "$tag" --draft=false
+          printf 'APK: https://github.com/%s/releases/download/%s/app-release.apk\n' "$GITHUB_REPOSITORY" "$tag" >> "$GITHUB_STEP_SUMMARY"
+  publish-candidate:
+    needs: [backend, build, emulator]
+    if: >-
+      github.event_name == 'push' && github.ref == 'refs/heads/main' &&
+      github.repository == 'mehmetcerdik457-ctrl/Gpt-asistan' &&
+      github.actor == 'mehmetcerdik457-ctrl'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: kral-asistan-candidate-apk
+          path: candidate
+      - name: Publish the tested debug candidate as an explicit prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          (cd candidate && sha256sum -c APK-SHA256SUMS)
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          metadata = json.loads(Path('candidate/apk-metadata.json').read_text())
+          assert metadata['source_commit'] == os.environ['GITHUB_SHA']
+          assert metadata['exact_source_head_verified'] is True
+          assert metadata['signature_verified'] is True
+          assert metadata['debuggable'] is True
+          PY
+          tag="genesis-candidate-${GITHUB_SHA:0:12}-${GITHUB_RUN_ID}"
+          printf 'DEBUG-SIGNED TEST CANDIDATE — not an owner-signed production release.\n\nSource: %s\nPython tests, JVM tests, lint and Android API 30/36 instrumentation/install/launch passed.\nPhysical-device installation and compatibility with an existing installed signer are not verified. Do not uninstall an existing app to bypass a signature mismatch. SMTP/provider services require server configuration.\n' "$GITHUB_SHA" > candidate-notes.md
+          gh release create "$tag" candidate/app-debug.apk candidate/APK-SHA256SUMS \
+            candidate/apk-metadata.json candidate/test-summary.json candidate/signing-status.json \
+            --target "$GITHUB_SHA" --title "KRAL Genesis test candidate ${GITHUB_SHA:0:12}" \
+            --prerelease --notes-file candidate-notes.md --draft
+          gh release edit "$tag" --draft=false
+          printf 'Debug candidate APK: https://github.com/%s/releases/download/%s/app-debug.apk\n' "$GITHUB_REPOSITORY" "$tag" >> "$GITHUB_STEP_SUMMARY"

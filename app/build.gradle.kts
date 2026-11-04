@@ -4,22 +4,25 @@ android {
     namespace = "com.example.gptasistan"
     compileSdk = 36
     defaultConfig {
-        applicationId = "com.example.gptasistan"
+        applicationId = "com.example.gptasistan.genesis"
         minSdk = 26
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         targetSdk = 36
-        versionCode = 7
-        versionName = "1.0.6-genesis-candidate"
+        versionCode = 8
+        versionName = "1.0.7-genesis-candidate"
+        ndk { abiFilters += setOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64") }
     }
     buildTypes {
         release {
+            isDebuggable = false
             isMinifyEnabled = false
         }
         debug {
             isDebuggable = true
-            applicationIdSuffix = ".genesis"
         }
     }
+    // A single APK includes every supported native ABI for direct installation.
+    splits { abi { isEnable = false } }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17

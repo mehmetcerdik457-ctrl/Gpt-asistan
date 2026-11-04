@@ -47,6 +47,9 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private var pendingUnlock: (() -> Unit)? = null
     private lateinit var contentRoot: LinearLayout
     private var initialState: Bundle? = null
+    private var foreground = false
+    private var otpGeneration = 0L
+    private val visibleDialogs = mutableSetOf<AlertDialog>()
     private val prefs by lazy { getSharedPreferences("kral_model", MODE_PRIVATE) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -88,7 +91,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         val manager = getSystemService(KEYGUARD_SERVICE) as KeyguardManager
         if (!manager.isDeviceSecure) {
             AlertDialog.Builder(this).setMessage("Önce Android ayarlarından güvenli ekran kilidi oluştur.")
-                .setPositiveButton("Tamam", null).show()
+                .setPositiveButton("Tamam", null).showProtected()
             return
         }
         val prompt = manager.createConfirmDeviceCredentialIntent("KRAL ASİSTAN", "Kişisel kayıtlarına ve sunucu isteğine erişimi doğrula")
@@ -107,6 +110,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                     // The external recognizer can stop our Activity. Never reveal or
                     // modify an existing private draft without a fresh device unlock.
                     unlock {
+                        if (!uiReady && !storageBlocked) buildContent(initialState)
                         if (appUnlocked && uiReady && !storageBlocked && !isFinishing && !isDestroyed &&
                             session.state.value?.busy != true
                         ) {
@@ -148,7 +152,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         val fields = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(24, 16, 24, 0) }
         val server = EditText(this).apply {
             hint = "https://sana-ait-sunucu.example"
-            setText(prefs.getString("endpoint", "")); isSingleLine = true
+            setText(prefs.getString("otp_endpoint", prefs.getString("endpoint", ""))); isSingleLine = true
         }
         val email = EditText(this).apply {
             hint = "E-posta adresin"
@@ -157,7 +161,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         }
         fields.addView(server); fields.addView(email)
         AlertDialog.Builder(this).setTitle("E-posta ile doğrula").setView(fields)
-            .setMessage("Kayıtlı e-postana 6 haneli onay kodu gönderilir.")
+            .setMessage("Kayıtlı e-postana 6 haneli kod gönderilir. Kişisel kayıtlarını açmak için ardından Android ekran kilidi doğrulanır.")
             .setPositiveButton("Kod gönder") { _, _ ->
                 val base = server.text.toString().trim().trimEnd('/')
                 val address = email.text.toString().trim()
@@ -165,19 +169,19 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                     notice("Geçerli HTTPS sunucu ve e-posta gir.")
                     return@setPositiveButton
                 }
-                prefs.edit { putString("endpoint", base); putString("otp_email", address) }
+                val generation = ++otpGeneration
                 thread {
                     val result = runCatching { EmailOtp.request(base, address) }
                     runOnUiThread {
-                        if (isFinishing || isDestroyed) return@runOnUiThread
-                        result.onSuccess { askOtpCode(base, it) }
-                            .onFailure { notice(it.message ?: "Kod gönderilemedi.") }
+                        if (!acceptOtpCallback(generation)) return@runOnUiThread
+                        result.onSuccess { askOtpCode(base, address, it) }
+                            .onFailure { notice("Kod gönderilemedi. Sunucu bağlantısını ve posta ayarlarını kontrol et.") }
                     }
                 }
-            }.setNegativeButton("Vazgeç", null).show()
+            }.setNegativeButton("Vazgeç", null).showProtected()
     }
 
-    private fun askOtpCode(base: String, challengeId: String) {
+    private fun askOtpCode(base: String, address: String, challengeId: String) {
         val code = EditText(this).apply {
             hint = "6 haneli kod"
             inputType = android.text.InputType.TYPE_CLASS_NUMBER
@@ -187,20 +191,43 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             .setPositiveButton("Doğrula") { _, _ ->
                 val entered = code.text.toString().trim()
                 if (!EmailOtp.validCode(entered)) { notice("Kod 6 rakam olmalı."); return@setPositiveButton }
+                val generation = ++otpGeneration
                 thread {
                     val result = runCatching { EmailOtp.verify(base, challengeId, entered) }
                     runOnUiThread {
-                        if (isFinishing || isDestroyed) return@runOnUiThread
-                        if (result.getOrNull() == true) {
-                            completeUnlock { if (!uiReady) buildContent(initialState) else setContentView(contentRoot) }
-                        } else notice(result.exceptionOrNull()?.message ?: "Kod doğrulanamadı.")
+                        if (!acceptOtpCallback(generation)) return@runOnUiThread
+                        if (result.getOrNull() == true) confirmVerifiedEmail(base, address)
+                        else notice("Kod doğrulanamadı. Yeni kod isteyip tekrar dene.")
                     }
                 }
-            }.setNegativeButton("Vazgeç", null).show()
+            }.setNegativeButton("Vazgeç", null).showProtected()
+    }
+
+    private fun acceptOtpCallback(generation: Long) =
+        foreground && generation == otpGeneration && !isFinishing && !isDestroyed && !storageBlocked
+
+    /** E-mail proves mailbox access, never authority to decrypt this device's history. */
+    internal fun confirmVerifiedEmail(base: String, address: String) {
+        if (!foreground || isFinishing || isDestroyed || storageBlocked ||
+            !OwnerGateway.validBase(base) || !EmailOtp.validEmail(address)) return
+        unlock {
+            // A login form must not replace the owner-signed model gateway configuration.
+            prefs.edit { putString("otp_endpoint", base); putString("otp_email", address) }
+            if (!uiReady) buildContent(initialState) else setContentView(contentRoot)
+        }
+    }
+
+    /** Dismiss private previews whenever Android puts the application behind its lock gate. */
+    private fun AlertDialog.Builder.showProtected(): AlertDialog {
+        val dialog = create()
+        visibleDialogs.add(dialog)
+        dialog.setOnDismissListener { visibleDialogs.remove(dialog) }
+        dialog.show()
+        return dialog
     }
 
     private fun notice(message: String) {
-        AlertDialog.Builder(this).setMessage(message).setPositiveButton("Tamam", null).show()
+        AlertDialog.Builder(this).setMessage(message).setPositiveButton("Tamam", null).showProtected()
     }
 
     /** After a failed encrypted DB preflight, never offer an unsafe reset/retry path. */
@@ -335,7 +362,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                     2 -> openInstalledCihat()
                     3 -> previewClipboardReply()
                 }
-            }.setNegativeButton("Vazgeç", null).show()
+            }.setNegativeButton("Vazgeç", null).showProtected()
     }
 
     private fun showExpertMenu() {
@@ -352,7 +379,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                         "Sunucuda iki salt okunur iş:\n${result.toString(2)}\nCanlı model isteği yapılmadı."
                     }
                 }
-            }.setNegativeButton("Vazgeç", null).show()
+            }.setNegativeButton("Vazgeç", null).showProtected()
     }
 
     private fun chooseExpert() {
@@ -375,8 +402,8 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                         runOwnerAction("Uzman görevi", true) { app, base, model ->
                             ExpertTasks.report(OwnerGateway.submitTask(app, base, model, experts[index], text))
                         }
-                    }.setNegativeButton("Vazgeç", null).show()
-            }.setNegativeButton("Vazgeç", null).show()
+                    }.setNegativeButton("Vazgeç", null).showProtected()
+            }.setNegativeButton("Vazgeç", null).showProtected()
     }
 
     private fun taskActionDialog(cancel: Boolean) {
@@ -394,7 +421,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                     ExpertTasks.report(if (cancel) OwnerGateway.cancelTask(app, base, id)
                         else OwnerGateway.taskStatus(app, base, id))
                 }
-            }.setNegativeButton("Vazgeç", null).show()
+            }.setNegativeButton("Vazgeç", null).showProtected()
     }
 
     private fun runOwnerAction(
@@ -427,7 +454,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             .setTitle("CİHAT uygulama kimliği")
             .setMessage(verified.report())
             .setPositiveButton("Tamam", null)
-            .show()
+            .showProtected()
     }
 
     // User-mediated handoff, not a privileged API or silent CİHAT automation.
@@ -488,7 +515,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 }
             }
         }
-        dialog.show()
+        dialog.showProtected()
     }
 
     /** Manual reply return: user explicitly inspects untrusted clipboard. */
@@ -527,7 +554,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 }
             }
             .setNegativeButton("Vazgeç", null)
-            .show()
+            .showProtected()
     }
 
     private fun requestSpeechDraft() {
@@ -555,7 +582,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 } catch (_: SecurityException) {
                     connectionStatus.text = getString(R.string.status_recognizer_denied)
                 }
-            }.setNegativeButton("Vazgeç", null).show()
+            }.setNegativeButton("Vazgeç", null).showProtected()
     }
 
     private fun showLocal(action: () -> String) {
@@ -679,9 +706,9 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                     val registration = OwnerIdentity.publicRegistration(owner.text.toString().trim())
                     val text = TextView(this).apply { this.text = registration; setTextIsSelectable(true); setPadding(24, 24, 24, 24) }
                     AlertDialog.Builder(this).setTitle("Yalnız açık kayıt bilgileri").setView(ScrollView(this).apply { addView(text) })
-                        .setPositiveButton("Tamam", null).show()
+                        .setPositiveButton("Tamam", null).showProtected()
                 } catch (_: Exception) { connectionStatus.text = getString(R.string.status_registration_failed) }
-            }.setNegativeButton("Vazgeç", null).show()
+            }.setNegativeButton("Vazgeç", null).showProtected()
     }
 
     private fun configureModel() {
@@ -710,7 +737,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 OwnerGateway.clear()
                 prefs.edit { remove("endpoint"); remove("model"); remove("owner_id") }
                 session.resetConnectionStatus(getString(R.string.status_model_not_configured))
-            }.setNegativeButton("Vazgeç", null).show()
+            }.setNegativeButton("Vazgeç", null).showProtected()
     }
 
     private fun refreshModels(base: String, identity: String) {
@@ -737,11 +764,16 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                                 prefs.edit { putString("model", selected.id) }
                                 session.resetConnectionStatus("Doğrulanmış model: ${selected.provider} / ${selected.id}")
                             } else session.resetConnectionStatus("Model doğrulamasının süresi doldu; bağlantıyı yenile.")
-                        }.setNegativeButton("Vazgeç", null).show()
+                        }.setNegativeButton("Vazgeç", null).showProtected()
                     } else session.resetConnectionStatus("Model doğrulaması bitti; seçim için bağlantıyı tekrar aç.")
                 }
             }
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        foreground = true
     }
 
     override fun onResume() {
@@ -750,6 +782,9 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
 
     override fun onStop() {
+        foreground = false
+        otpGeneration++
+        visibleDialogs.toList().forEach { it.dismiss() }
         appUnlocked = false
         if (uiReady) contentRoot.visibility = View.INVISIBLE
         tts?.stop()

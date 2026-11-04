@@ -54,19 +54,20 @@ def send_via_smtp(to_address, code):
     password = os.environ["SMTP_PASSWORD"]
     message = EmailMessage()
     message["Subject"] = "KRAL Genesis onay kodu"
-    message["From"] = os.getenv("SMTP_FROM", user)
+    message["From"] = os.getenv("SMTP_FROM", "").strip() or user
     message["To"] = to_address
     message.set_content(
         f"KRAL Genesis giriş kodun: {code}\n\n"
         f"Kod {CODE_TTL // 60} dakika geçerlidir ve tek kullanımlıktır. "
         "Bu isteği sen yapmadıysan görmezden gel.")
     context = ssl.create_default_context()
-    if os.getenv("SMTP_SSL", "").lower() in ("1", "true", "yes"):
+    implicit_tls = os.getenv("SMTP_SSL", "").strip().lower() in ("1", "true", "yes")
+    if implicit_tls:
         client = smtplib.SMTP_SSL(host, port, timeout=15, context=context)
     else:
         client = smtplib.SMTP(host, port, timeout=15)
     with client:
-        if not isinstance(client, smtplib.SMTP_SSL):
+        if not implicit_tls:
             client.starttls(context=context)
         client.login(user, password)
         client.send_message(message)
@@ -77,7 +78,9 @@ class EmailOtp:
         self.db_path = db_path
         self.sender = sender or send_via_smtp
         self.clock = clock
-        self._pepper = os.getenv("KRAL_OTP_SECRET", "").encode() or secrets.token_bytes(32)
+        secret = os.getenv("KRAL_OTP_SECRET", "").encode()
+        self._pepper = secret or secrets.token_bytes(32)
+        self._persistent_secret = len(secret.strip()) >= 32
         with self._db() as db:
             db.execute("CREATE TABLE IF NOT EXISTS email_otp_v1 ("
                        "id TEXT PRIMARY KEY, digest TEXT NOT NULL, expires INTEGER NOT NULL, "
@@ -100,6 +103,10 @@ class EmailOtp:
             raise OtpDenied("OTP_NOT_ALLOWED", 403)
         if not smtp_configured() and self.sender is send_via_smtp:
             raise OtpDenied("EMAIL_SERVICE_NOT_CONFIGURED", 503)
+        # Real SMTP challenges must remain verifiable across process restarts and
+        # workers. The random fallback is only useful for injected test senders.
+        if self.sender is send_via_smtp and not self._persistent_secret:
+            raise OtpDenied("EMAIL_SERVICE_NOT_CONFIGURED", 503)
         now = int(self.clock())
         with self._db() as db:
             db.execute("BEGIN IMMEDIATE")
@@ -115,7 +122,10 @@ class EmailOtp:
             try:
                 self.sender(owner_email(), code)
             except Exception:
-                db.rollback()
+                # Keep an unusable record so an unavailable SMTP service cannot
+                # be hammered indefinitely by unauthenticated request retries.
+                db.execute("UPDATE email_otp_v1 SET used=1 WHERE id=?", (challenge_id,))
+                db.commit()
                 raise OtpDenied("EMAIL_SEND_FAILED", 502)
         return {"challenge_id": challenge_id, "expires_in": CODE_TTL}
 
@@ -129,7 +139,7 @@ class EmailOtp:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute("SELECT digest,expires,attempts,used FROM email_otp_v1 WHERE id=?",
                              (challenge_id,)).fetchone()
-            if row is None or row[3] or row[1] < now or row[2] >= MAX_ATTEMPTS:
+            if row is None or row[3] or row[1] <= now or row[2] >= MAX_ATTEMPTS:
                 raise OtpDenied("OTP_DENIED", 403)
             if not hmac.compare_digest(row[0], self._digest(challenge_id, code)):
                 db.execute("UPDATE email_otp_v1 SET attempts=attempts+1 WHERE id=?", (challenge_id,))
