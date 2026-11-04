@@ -100,6 +100,7 @@
   ],
   "observations": [
     {"task": "Verify repository and pull request source", "status": "CODE_COMPLETE", "evidence": "GitHub API: main 5062b22ccfc11bdd10302bed75e5902deeb4ea4c; PR 86 open, head 5c365322ca1722d0e837a2785d4fc4401cea56b8."},
+    {"task": "Inspect existing architecture", "status": "IN_PROGRESS", "evidence": "server/task_runtime.py defines a bounded execution pool; server/gateway.py authorizes signed owner requests; app/src/main/java/com/example/gptasistan/ contains SQLCipher storage, migration, speech intent/TTS and signed task-client implementations. Presence in code does not prove complete requirements or live operation."},
     {"task": "Run existing backend unit suite locally", "status": "CODE_COMPLETE", "evidence": "python -m unittest discover -s server/tests: 121 tests OK in isolated virtual environment; does not establish product acceptance."},
     {"task": "Baseline local Android build", "status": "BLOCKED", "evidence": "./gradlew --no-daemon :app:assembleDebug failed with Java 27; Android SDK not installed and dl.google.com DNS resolution failed."}
   ]
