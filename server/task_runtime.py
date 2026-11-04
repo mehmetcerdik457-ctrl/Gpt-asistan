@@ -44,6 +44,25 @@ EXPERTS = {
 }
 
 
+class TaskIdempotencyConflict(ValueError):
+    """One logical submission key can never authorize a different task."""
+
+
+class TaskIdempotencyUnavailable(RuntimeError):
+    """A damaged durable acceptance must never be recreated automatically."""
+
+
+def submission_key(idempotency_key=None, client_request_id=None):
+    """Task keys double as stable task IDs; existing unkeyed calls stay valid."""
+    for value in (idempotency_key, client_request_id):
+        if value is not None and (not isinstance(value, str) or not TASK_ID.fullmatch(value)):
+            raise ValueError("TASK_IDEMPOTENCY_KEY_INVALID")
+    if (idempotency_key is not None and client_request_id is not None
+            and idempotency_key != client_request_id):
+        raise ValueError("TASK_IDEMPOTENCY_KEY_INVALID")
+    return idempotency_key if idempotency_key is not None else client_request_id
+
+
 class TaskManager:
     def __init__(self, store, provider, execution_slots=None):
         self.store = store
@@ -87,19 +106,69 @@ class TaskManager:
             ):
                 if name not in columns:
                     db.execute("ALTER TABLE owner_tasks ADD COLUMN " + name + " " + kind)
+            # No expiry: deleting a completed key could permit a second paid POST.
+            # The store is already bound to the authenticated single owner by
+            # the gateway; the key is hashed, and no prompt is persisted here.
+            db.execute("""
+                CREATE TABLE IF NOT EXISTS task_submissions (
+                    key_sha256 TEXT PRIMARY KEY,
+                    request_sha256 TEXT NOT NULL,
+                    task_id TEXT NOT NULL UNIQUE
+                )
+            """)
             # A process restart cannot safely resume in-memory synchronous work.
             db.execute(
                 "UPDATE owner_tasks SET status='failed', error_code='PROCESS_RESTARTED', updated_at=? "
                 "WHERE status IN ('queued','running')", (int(time.time()),)
             )
 
-    def submit(self, model, candidate, expert, prompt, *, approval_required=False):
+    @staticmethod
+    def _submission_digest(model, expert, prompt, approval_required):
+        return hashlib.sha256(json.dumps(
+            {"model": model, "expert": expert, "input": prompt,
+             "requires_approval": approval_required},
+            ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _find_submission(db, key, fingerprint):
+        reservation = db.execute(
+            "SELECT request_sha256,task_id FROM task_submissions WHERE key_sha256=?",
+            (hashlib.sha256(key.encode("ascii")).hexdigest(),)
+        ).fetchone()
+        if reservation is None:
+            return None
+        if reservation[0] != fingerprint:
+            raise TaskIdempotencyConflict("TASK_IDEMPOTENCY_KEY_CONFLICT")
+        row = db.execute("SELECT " + TASK_COLUMNS + " FROM owner_tasks WHERE task_id=?",
+                         (reservation[1],)).fetchone()
+        if row is None or reservation[1] != key:
+            # An inconsistent reservation must fail closed, never recreate work.
+            raise TaskIdempotencyUnavailable("TASK_IDEMPOTENCY_RECORD_INVALID")
+        return TaskManager._task_result(row)
+
+    def lookup_submission(self, key, model, expert, prompt, *, approval_required=False):
+        """Recover a durable acceptance before model freshness/rate admission."""
+        key = submission_key(key)
+        if key is None:
+            return None
+        self._flush_failure(key)
+        fingerprint = self._submission_digest(model, expert, prompt, approval_required)
+        with self.store.connect() as db:
+            return self._find_submission(db, key, fingerprint)
+
+    def submit(self, model, candidate, expert, prompt, *, approval_required=False,
+               idempotency_key=None, client_request_id=None):
         if expert not in EXPERTS:
             raise ValueError("TASK_EXPERT_NOT_FOUND")
         if not isinstance(prompt, str) or not prompt.strip() or len(prompt) > 8000:
             raise ValueError("TASK_INPUT_INVALID")
+        if not isinstance(approval_required, bool):
+            raise ValueError("TASK_APPROVAL_FLAG_INVALID")
+        key = submission_key(idempotency_key, client_request_id)
+        fingerprint = self._submission_digest(model, expert, prompt, approval_required)
         self._flush_pending_failures()
-        task_id = uuid.uuid4().hex
+        task_id = key if key is not None else uuid.uuid4().hex
         now = int(time.time())
         digest = hashlib.sha256(
             json.dumps({"model": model, "expert": expert, "input": prompt},
@@ -108,6 +177,14 @@ class TaskManager:
         status = "awaiting_approval" if approval_required else "queued"
         with self.lock, self.store.connect() as db:
             db.execute("BEGIN IMMEDIATE")
+            if key is not None:
+                existing = self._find_submission(db, key, fingerprint)
+                if existing is not None:
+                    return existing
+                if db.execute("SELECT 1 FROM owner_tasks WHERE task_id=?", (task_id,)).fetchone():
+                    # A client key may collide with a legacy UUID. That row
+                    # has no matching reservation and cannot be adopted safely.
+                    raise TaskIdempotencyConflict("TASK_IDEMPOTENCY_KEY_CONFLICT")
             active = db.execute(
                 "SELECT COUNT(*) FROM owner_tasks WHERE status IN ('queued','running','awaiting_approval')"
             ).fetchone()[0]
@@ -118,6 +195,11 @@ class TaskManager:
                 "approval_required,client_request_id) VALUES(?,?,?,?,?,?,?,?,?)",
                 (task_id, status, now, now, model, expert, digest, int(approval_required), task_id)
             )
+            if key is not None:
+                db.execute(
+                    "INSERT INTO task_submissions(key_sha256,request_sha256,task_id) VALUES(?,?,?)",
+                    (hashlib.sha256(key.encode("ascii")).hexdigest(), fingerprint, task_id)
+                )
             # Read the accepted descriptor before committing/scheduling. A failed
             # read rolls back without a provider call or an undiscoverable task.
             accepted = self._task_result(db.execute(

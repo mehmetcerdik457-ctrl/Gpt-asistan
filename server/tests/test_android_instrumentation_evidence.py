@@ -17,13 +17,23 @@ class InstrumentationEvidenceTests(unittest.TestCase):
                        f"INSTRUMENTATION_STATUS_CODE: 1\n"
                        f"INSTRUMENTATION_STATUS: class=Store\nINSTRUMENTATION_STATUS: test=case{i}\n"
                        f"INSTRUMENTATION_STATUS_CODE: 0\n" for i in range(16)]
-        self.suffix = "OK (16 tests)\nINSTRUMENTATION_CODE: -1\n"
+        self.blocks.extend(
+            f"INSTRUMENTATION_STATUS: class={classname}\nINSTRUMENTATION_STATUS: test={name}\n"
+            "INSTRUMENTATION_STATUS_CODE: 1\n"
+            f"INSTRUMENTATION_STATUS: class={classname}\nINSTRUMENTATION_STATUS: test={name}\n"
+            "INSTRUMENTATION_STATUS_CODE: 0\n"
+            for classname, name in sorted(self.verifier.REMINDER_TESTS)
+        )
+        self.suffix = ("".join(f"INSTRUMENTATION_RESULT: kral_reminder_{flag}=true\n"
+                               for flag in self.verifier.REMINDER_FLAGS)
+                       + f"OK ({len(self.blocks)} tests)\nINSTRUMENTATION_CODE: -1\n")
 
     def test_individual_passes_cover_the_skipped_jvm_test(self):
         result = self.verifier.verify("".join(self.blocks) + self.suffix,
                                       self.summary, self.source, self.apk)
-        self.assertEqual(result["instrumentation_tests"], 16)
+        self.assertEqual(result["instrumentation_tests"], 21)
         self.assertEqual(result["jvm_skips_covered_on_android"], self.summary["skipped_tests"])
+        self.assertTrue(result["local_task_reminder_background_verified"])
 
     def test_success_summary_alone_is_not_a_test_result(self):
         with self.assertRaisesRegex(ValueError, "TEST_COUNT_MISMATCH"):
@@ -48,3 +58,23 @@ class InstrumentationEvidenceTests(unittest.TestCase):
         data = self.blocks[0] + "".join(self.blocks) + self.suffix
         with self.assertRaisesRegex(ValueError, "DUPLICATE_TEST"):
             self.verifier.verify(data, self.summary, self.source, self.apk)
+
+    def test_background_test_cannot_be_replaced_by_another_passing_case(self):
+        data = ("".join(self.blocks) + self.suffix).replace(
+            "scheduledJobPostsPrivateNotificationAndOpensLockedActivity", "unrelatedSyntheticCase")
+        with self.assertRaisesRegex(ValueError, "BACKGROUND_REMINDER_TEST_NOT_COVERED"):
+            self.verifier.verify(data, self.summary, self.source, self.apk)
+
+    def test_test_pass_without_actual_os_observation_is_rejected(self):
+        data = "".join(self.blocks) + self.suffix.replace(
+            "INSTRUMENTATION_RESULT: kral_reminder_actual_notification=true\n", "")
+        with self.assertRaisesRegex(ValueError, "BACKGROUND_REMINDER_OS_EVIDENCE_MISSING"):
+            self.verifier.verify(data, self.summary, self.source, self.apk)
+
+    def test_duplicate_or_false_background_marker_is_rejected(self):
+        for marker in ("false", "true\nINSTRUMENTATION_RESULT: kral_reminder_real_job_dispatch=true"):
+            with self.subTest(marker=marker):
+                data = "".join(self.blocks) + self.suffix.replace(
+                    "kral_reminder_real_job_dispatch=true", f"kral_reminder_real_job_dispatch={marker}")
+                with self.assertRaisesRegex(ValueError, "BACKGROUND_REMINDER_OS_EVIDENCE_MISSING"):
+                    self.verifier.verify(data, self.summary, self.source, self.apk)

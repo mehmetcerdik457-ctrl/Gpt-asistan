@@ -94,6 +94,75 @@ class ChatSessionTest {
         assertFalse(session.state.value!!.busy)
     }
 
+    @Test fun taskSubmissionCannotStartWithoutDurableIdentifierReceipt() {
+        val (session, worker) = session(InMemoryChatStore(failWrites = true)) { _, _, _ -> error("No provider") }
+        val submission = TaskSubmission.create("https://example.invalid", "owner", "model",
+            "test-engineer", "PRIVATE_TASK_SENTINEL")
+        assertFalse(session.retainTaskSubmission(submission))
+        assertNull(session.pendingTaskSubmission)
+        assertTrue(session.state.value!!.status.contains("başlatılmadı"))
+        flush(worker)
+        assertTrue(session.history.value!!.isEmpty())
+    }
+
+    @Test fun verifiedTaskWithFailedHistoryWriteRetainsExactRequestUntilRecordedRetry() {
+        var failWrites = false
+        val storage = object : ChatStore {
+            override fun saveMessage(role: String, text: String) {
+                if (failWrites) throw IOException("storage outage")
+                TestChatRows.append(role, text)
+            }
+            override fun history(limit: Int) = TestChatRows.history(limit)
+            override fun close() = Unit
+        }
+        val (session, worker) = session(storage) { _, _, _ -> error("No chat provider") }
+        val submission = TaskSubmission.create("https://example.invalid", "owner", "model",
+            "test-engineer", "PRIVATE_TASK_SENTINEL")
+        assertTrue(session.retainTaskSubmission(submission))
+        assertTrue(session.history.value!!.single().text.contains(submission.requestId))
+        assertFalse(session.history.value!!.single().text.contains(submission.input))
+        val calls = AtomicInteger()
+        failWrites = true
+        assertTrue(session.runOwnerOperation("Task", onRecorded = { session.forgetTaskSubmission(submission) }) {
+            calls.incrementAndGet()
+            "verified ${submission.requestId}"
+        })
+        flush(worker)
+        assertSame(submission, session.pendingTaskSubmission)
+        assertEquals(1, calls.get())
+        assertFalse(session.retainTaskSubmission(TaskSubmission.create(
+            "https://example.invalid", "owner", "model", "test-engineer", "new task")))
+        failWrites = false
+        assertTrue(session.runOwnerOperation("Task", onRecorded = { session.forgetTaskSubmission(submission) }) {
+            assertSame(submission, session.pendingTaskSubmission)
+            calls.incrementAndGet()
+            "verified ${submission.requestId}"
+        })
+        flush(worker)
+        assertEquals(2, calls.get())
+        assertNull(session.pendingTaskSubmission)
+        assertEquals(2, session.history.value!!.size)
+    }
+
+    @Test fun uncertainTaskTransportRetainsIdentifierAndNeverRetriesAutomatically() {
+        val (session, worker) = session { _, _, _ -> error("No chat provider") }
+        val submission = TaskSubmission.create("https://example.invalid", "owner", "model",
+            "test-engineer", "PRIVATE_TASK_SENTINEL")
+        assertTrue(session.retainTaskSubmission(submission))
+        val calls = AtomicInteger()
+        assertTrue(session.runOwnerOperation("Task", onRecorded = { session.forgetTaskSubmission(submission) }) {
+            calls.incrementAndGet()
+            throw IOException("PRIVATE_PROVIDER_ERROR")
+        })
+        flush(worker)
+        assertEquals(1, calls.get())
+        assertSame(submission, session.pendingTaskSubmission)
+        assertTrue(session.history.value!!.any { it.text.contains(submission.requestId) })
+        assertTrue(session.history.value!!.none { it.text.contains("PRIVATE_") })
+        session.forgetTaskSubmission(submission)
+        assertNull(session.pendingTaskSubmission)
+    }
+
     @Test fun onePendingRequestRejectsSecondSendWithoutPersistingSecondDraft() {
         val entered = CountDownLatch(1)
         val release = CountDownLatch(1).also { releaseOnCleanup.add(it) }

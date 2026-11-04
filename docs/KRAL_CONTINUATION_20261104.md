@@ -1,4 +1,32 @@
-# KRAL 1.0.9 devam çalışması
+# KRAL 1.0.10 devam çalışması
+
+## Arka plan ve aynı uzman gönderimini güvenle sürdürme
+
+Görevler → Arka plan hatırlatıcısı, yeni cihaz doğrulaması ve bildirim izniyle
+isteğe bağlı açılır. Android JobScheduler, en az 15 dakika aralıkla yalnız
+mevcut şifreli veritabanındaki açık yerel görev sayısını okur. Bildirim özel
+görev metni içermez; dokunmak mevcut ekran açık olsa bile sahip kilidini kapatır.
+Yeni veritabanı/anahtar oluşturulmaz, geçiş yapılmaz, uzak model çağrılmaz.
+Kapatmak kalıcı işi ve bildirimi iptal eder; başlamış okuma geç bildirim üretemez.
+Android pil ve zamanlama koşulları kesin çalışma saati garantisi vermez.
+
+Uzman gönderimi hazırlanırken tek rastgele kimlik oluşturulur ve sunucu
+isteğinden önce yalnız bu kimlik şifreli geçmişe kaydedilir. Özel görev metni
+yeniden denemek için yalnız ViewModel belleğinde tutulur; Activity kayıt
+durumuna veya düz metin tercihlerine yazılmaz. Kullanıcının yeniden deneme
+eylemi, yeni cihaz doğrulamasıyla aynı kimliği kullanır. Sunucu atomik SQLite
+kaydından aynı görevi döndürür; aynı kimlikle farklı içerik veya onay değeri
+409 hatasıdır. Başlamış sağlayıcı isteği otomatik tekrarlanmaz.
+
+Başarılı sunucu yanıtı geçmişe yazılamazsa yeniden deneme kimliği korunur.
+Süreç kapanırsa özel metin tutulmaz; geçmişteki kimlikle durum sorgulanabilir.
+Bu, kalıcı Android çevrimdışı gönderim kuyruğu veya otomatik devam iddiası
+değildir. Yeni istemcinin anahtarlı istekleri için güncel sunucu gerekir;
+eski sunucu bilinmeyen alanları sağlayıcı çağrısından önce reddeder.
+
+Bu sürümün arka plan/bildirim kabulü ancak gerçek JobScheduler çalışması ve
+NotificationManager çıktısı son kaynak CI'ında gözlendikten sonra tamamlanmış
+sayılır. Birim testleri veya önceki sürümün sonuçları bunun yerine geçmez.
 
 Bu devam, test edilmiş `345f8c0e2c0f1c7438a2ee0dffedcade0d67c693`
 kaynağından ilerler; mevcut PR #92 güncellenir. Önceki APK ve kaynak geçmişi

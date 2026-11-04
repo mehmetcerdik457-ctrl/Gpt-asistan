@@ -8,8 +8,8 @@ android {
         minSdk = 26
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         targetSdk = 36
-        versionCode = 10
-        versionName = "1.0.9-genesis-candidate"
+        versionCode = 11
+        versionName = "1.0.10-genesis-candidate"
         ndk { abiFilters += setOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64") }
     }
     buildTypes {

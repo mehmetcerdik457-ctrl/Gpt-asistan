@@ -32,6 +32,14 @@ timeout 90 adb -e install -t "$apk_dir/app-debug.apk" 2>&1 |
 timeout 90 adb -e install -t "$apk_dir/app-debug-androidTest.apk" 2>&1 |
   tee "$evidence_dir/instrumentation-install-test.txt"
 
+# Android 13+ requires an explicit notification grant. Apply the synthetic CI
+# fixture's grant before instrumentation: changing it during a test can kill the
+# application process and invalidate the real JobScheduler service observation.
+if (( api_level >= 33 )); then
+  timeout 20 adb -e shell pm grant com.example.gptasistan.genesis android.permission.POST_NOTIFICATIONS 2>&1 |
+    tee "$evidence_dir/instrumentation-notification-permission.txt"
+fi
+
 # Fail on nonzero adb status AND malformed/missing test-runner success summary.
 # The two-phase installation-copy fixture runs only in its own fresh emulator job.
 timeout 240 adb -e shell am instrument -w -r \

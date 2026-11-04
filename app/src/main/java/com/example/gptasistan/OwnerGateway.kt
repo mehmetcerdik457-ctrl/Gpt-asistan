@@ -98,21 +98,43 @@ object OwnerGateway {
         context: Context, base: String, model: String, expert: String,
         input: String, requiresApproval: Boolean = false,
     ): Task {
-        require(input.isNotBlank() && input.length <= 8000)
-        require(expert in EXPERTS)
         val owner = context.getSharedPreferences("kral_model", Context.MODE_PRIVATE)
             .getString("owner_id", "").orEmpty()
-        val selected = verifiedModels(base, owner).singleOrNull { it.id == model }
-            ?: throw SecurityException("MODEL_NOT_VERIFIED")
-        val body = JSONObject().put("input", input).put("model", selected.id)
-            .put("expert", expert).put("tools", org.json.JSONArray())
-            .put("requires_approval", requiresApproval)
-        return parseTask(request(base, OmegaEnvelope.TASKS, owner, body)).also {
-            require(it.requestSha256 == taskRequestDigest(selected.id, expert, input)) {
-                "TASK_RESPONSE_REQUEST_MISMATCH"
-            }
-        }
+        return submitTask(context, base,
+            prepareTaskSubmission(base, owner, model, expert, input, requiresApproval))
     }
+
+    /** Create once, after selecting a freshly verified model, before the first POST. */
+    fun prepareTaskSubmission(
+        base: String, owner: String, model: String, expert: String,
+        input: String, requiresApproval: Boolean = false,
+    ): TaskSubmission {
+        if (verifiedModels(base, owner).none { it.id == model })
+            throw SecurityException("MODEL_NOT_VERIFIED")
+        return TaskSubmission.create(base, owner, model, expert, input, requiresApproval)
+    }
+
+    /**
+     * Reuses the frozen bytes and logical key only when explicitly called again.
+     * A durable server lookup must remain possible after the model cache expires.
+     */
+    fun submitTask(context: Context, base: String, submission: TaskSubmission): Task {
+        val prefs = context.getSharedPreferences("kral_model", Context.MODE_PRIVATE)
+        val owner = prefs.getString("owner_id", "").orEmpty()
+        val model = prefs.getString("model", "").orEmpty()
+        val configuredBase = prefs.getString("endpoint", "").orEmpty()
+        if (!submission.matches(base, owner, model) ||
+            !submission.matches(configuredBase, owner, model))
+            throw SecurityException("TASK_SUBMISSION_SCOPE_CHANGED")
+        return parseTaskForSubmission(
+            request(base, OmegaEnvelope.TASKS, owner, submission.requestBytes()), submission)
+    }
+
+    internal fun parseTaskForSubmission(result: JSONObject, submission: TaskSubmission): Task =
+        parseTaskForId(result, submission.requestId).also {
+            require(it.clientRequestId == submission.requestId) { "TASK_RESPONSE_CLIENT_ID_MISMATCH" }
+            require(it.requestSha256 == submission.requestSha256) { "TASK_RESPONSE_REQUEST_MISMATCH" }
+        }
 
     internal fun taskRequestDigest(model: String, expert: String, input: String): String =
         KralAndroidCore.sha256Hex("""{"expert":${quoteTaskString(expert)},"input":${quoteTaskString(input)},"model":${quoteTaskString(model)}}""")
@@ -391,8 +413,11 @@ object OwnerGateway {
     }
 
     private fun request(base: String, path: String, owner: String, json: JSONObject): JSONObject {
+        return request(base, path, owner, json.toString().toByteArray(Charsets.UTF_8))
+    }
+
+    private fun request(base: String, path: String, owner: String, body: ByteArray): JSONObject {
         require(validBase(base) && OmegaEnvelope.validOwner(owner))
-        val body = json.toString().toByteArray(Charsets.UTF_8)
         val headers = OwnerIdentity.sign(path, body, owner)
         val connection = URL(base.trimEnd('/') + path).openConnection() as HttpURLConnection
         return try {

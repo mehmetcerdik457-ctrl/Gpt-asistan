@@ -517,7 +517,8 @@ class Gateway:
 
     def route(self, path, data, *, request_deadline=None):
         if path == PREFIX + "tasks":
-            if set(data) - {"input", "model", "expert", "tools", "requires_approval"}:
+            if set(data) - {"input", "model", "expert", "tools", "requires_approval",
+                            "idempotency_key", "client_request_id"}:
                 raise Denied("TASK_FIELDS_DENIED")
             prompt, model = data.get("input"), data.get("model")
             expert, tools = data.get("expert"), data.get("tools", [])
@@ -530,6 +531,26 @@ class Gateway:
                 raise Denied("TASK_TOOL_CAPABILITY_DENIED", 403)
             if not isinstance(approval, bool):
                 raise Denied("TASK_APPROVAL_FLAG_INVALID")
+            if any(field in data and data[field] is None
+                   for field in ("idempotency_key", "client_request_id")):
+                raise Denied("TASK_IDEMPOTENCY_KEY_INVALID")
+            try:
+                key = task_runtime.submission_key(data.get("idempotency_key"),
+                                                  data.get("client_request_id"))
+                # Retrieval is not a new model call. Accepted submissions remain
+                # discoverable after restart/expiry/rate or capacity exhaustion.
+                existing = self.tasks.lookup_submission(key, model, expert, prompt,
+                                                        approval_required=approval)
+                if existing is not None:
+                    return existing
+            except task_runtime.TaskIdempotencyConflict as exc:
+                raise Denied(str(exc), 409) from None
+            except task_runtime.TaskIdempotencyUnavailable as exc:
+                raise Denied(str(exc), 503) from None
+            except ValueError as exc:
+                raise Denied(str(exc), 400) from None
+            except RuntimeError as exc:
+                raise Denied(str(exc), 503) from None
             with self.lock:
                 row = self.models.get(model)
                 now = time.time()
@@ -542,7 +563,12 @@ class Gateway:
                         raise Denied("OWNER_RATE_LIMIT", 429)
                     self.calls.append(now)
             try:
-                return self.tasks.submit(model, row[1], expert, prompt, approval_required=approval)
+                return self.tasks.submit(model, row[1], expert, prompt, approval_required=approval,
+                                         idempotency_key=key)
+            except task_runtime.TaskIdempotencyConflict as exc:
+                raise Denied(str(exc), 409) from None
+            except task_runtime.TaskIdempotencyUnavailable as exc:
+                raise Denied(str(exc), 503) from None
             except ValueError as exc:
                 raise Denied(str(exc), 400) from None
             except RuntimeError as exc:

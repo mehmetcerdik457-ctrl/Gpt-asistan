@@ -48,6 +48,14 @@ internal object AndroidDatabaseKeyProvider : DatabaseKeyProvider {
         return rawKey
     }
 
+    /** Background readers may unwrap an existing key, but never enroll a new one. */
+    @Synchronized
+    fun existingKey(context: Context): ByteArray? {
+        val stored = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(PREF_KEY, null) ?: return null
+        return unwrap(getWrappingKey(create = false), stored)
+    }
+
     private fun getWrappingKey(create: Boolean): SecretKey {
         val store = KeyStore.getInstance(KEYSTORE).apply { load(null) }
         val existing = store.getKey(WRAPPING_KEY_ALIAS, null) as? SecretKey

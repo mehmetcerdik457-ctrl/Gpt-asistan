@@ -40,6 +40,30 @@ class ChatSession internal constructor(
     val state: LiveData<State> = mutableState
     private var pending = false
     private var cleared = false
+    // Retained only by this ViewModel. A retry reuses the same immutable request;
+    // private input is never written to Activity saved state or plain preferences.
+    internal var pendingTaskSubmission: TaskSubmission? = null
+        private set
+
+    internal fun retainTaskSubmission(submission: TaskSubmission): Boolean {
+        requireMainThread()
+        if (cleared || pending || pendingTaskSubmission != null) return false
+        try {
+            store.saveMessage("assistant", "Uzman gönderim kimliği: ${submission.requestId}\n" +
+                "Sunucu kabulü henüz doğrulanmadı. Bağlantı kesilirse bu kimlikle görev durumunu sorgulayabilirsin.")
+        } catch (_: Exception) {
+            mutableState.value = State(false, "Gönderim kimliği kaydedilemedi; sunucu isteği başlatılmadı.")
+            return false
+        }
+        pendingTaskSubmission = submission
+        refreshHistory()
+        return true
+    }
+
+    internal fun forgetTaskSubmission(submission: TaskSubmission) {
+        requireMainThread()
+        if (pendingTaskSubmission === submission) pendingTaskSubmission = null
+    }
     private val speechLock = Any()
     private var replySequence = 0L
     private var unspokenReply: Pair<Long, String>? = null
@@ -99,7 +123,9 @@ class ChatSession internal constructor(
     /** Owner-confirmed task/status calls share the chat queue and encrypted history.
      * No automatic retries, polling, speech, or execution of returned text.
      */
-    fun runOwnerOperation(label: String, operation: () -> String): Boolean {
+    fun runOwnerOperation(
+        label: String, onRecorded: (() -> Unit)? = null, operation: () -> String,
+    ): Boolean {
         requireMainThread()
         if (cleared || pending || worker.isShutdown) return false
         pending = true
@@ -108,8 +134,12 @@ class ChatSession internal constructor(
             worker.execute {
                 var status = "$label yanıtı alındı"
                 var failure: OwnerGateway.GatewayFailure? = null
+                var operationSucceeded = false
                 val report = try {
-                    operation().also { require(it.isNotBlank() && it.length <= 40000) }
+                    operation().also {
+                        require(it.isNotBlank() && it.length <= 40000)
+                        operationSucceeded = true
+                    }
                 } catch (error: OwnerGateway.GatewayFailure) {
                     failure = error
                     status = "$label başarısız: ${error.errorCode}. Otomatik yeniden denenmedi."
@@ -118,12 +148,16 @@ class ChatSession internal constructor(
                     status = "$label doğrulanamadı. İstek otomatik yeniden denenmedi; taslak korundu."
                     status
                 }
-                try { store.saveMessage("assistant", report) }
+                var recorded = false
+                try { store.saveMessage("assistant", report); recorded = true }
                 catch (_: Exception) { status = "$label sonucu geçmişe kaydedilemedi." }
                 val finalStatus = status
                 val error = failure
                 main.post {
-                    if (!cleared) refreshHistory()
+                    if (!cleared) {
+                        refreshHistory()
+                        if (operationSucceeded && recorded) onRecorded?.invoke()
+                    }
                     pending = false
                     mutableState.value = State(false, finalStatus,
                         providerRequestId = error?.providerRequestId,
@@ -199,6 +233,7 @@ class ChatSession internal constructor(
 
     override fun onCleared() {
         cleared = true
+        pendingTaskSubmission = null
         // shutdown() does not interrupt accepted work. Closing is queued after
         // the current request, so even a cleared ViewModel persists its answer.
         worker.execute { store.close() }

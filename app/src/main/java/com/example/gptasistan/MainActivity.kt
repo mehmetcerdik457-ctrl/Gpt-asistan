@@ -49,6 +49,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private var initialState: Bundle? = null
     private var foreground = false
     private var otpGeneration = 0L
+    private var reminderPermissionPending = false
     private val visibleDialogs = mutableSetOf<AlertDialog>()
     private val prefs by lazy { getSharedPreferences("kral_model", MODE_PRIVATE) }
     private val backups by lazy {
@@ -70,6 +71,21 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         initialState = savedInstanceState
         backups.restorePendingState(savedInstanceState)
+        showLocked()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        if (intent.action != LocalTaskReminders.OPEN_ACTION) return
+        // A notification may reuse a foreground Activity without onStop().
+        // Its PendingIntent must still pass through the owner gate.
+        appUnlocked = false
+        pendingUnlock = null
+        reminderPermissionPending = false
+        otpGeneration++
+        visibleDialogs.toList().forEach { it.dismiss() }
+        if (uiReady) contentRoot.visibility = View.INVISIBLE
+        tts?.stop()
         showLocked()
     }
 
@@ -305,7 +321,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             return b
         }
         button(getString(R.string.action_memory)) { showMemoryMenu() }
-        button(getString(R.string.action_tasks)) { showLocal { store.tasks() } }
+        button(getString(R.string.action_tasks)) { showLocalTaskMenu() }
         modelButton = button(getString(R.string.action_model)) { configureModel() }
         root.addView(actions)
         root.addView(Button(this).apply {
@@ -378,6 +394,74 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private fun memoryControlsReady() = appUnlocked && uiReady && !storageBlocked &&
         session.state.value?.busy != true && !isFinishing && !isDestroyed
 
+    private fun showLocalTaskMenu() {
+        if (!memoryControlsReady()) return
+        AlertDialog.Builder(this).setTitle("Yerel görevler")
+            .setItems(arrayOf("Görevleri göster", "Arka plan hatırlatıcısı")) { _, index ->
+                if (!memoryControlsReady()) return@setItems
+                if (index == 0) showLocal { store.tasks() } else showReminderSettings()
+            }.setNegativeButton("Vazgeç", null).showProtected()
+    }
+
+    private fun showReminderSettings() {
+        if (!memoryControlsReady()) return
+        val status = LocalTaskReminders.status(this)
+        val description = "Açık yerel görev varsa Android arka planda genel bir hatırlatma gösterir. " +
+            "Görev metni bildirimde görünmez; dokununca cihaz doğrulaması gerekir. " +
+            "İnternet veya model kullanılmaz. Android'in pil ve zamanlama koşullarına göre " +
+            "15 dakika veya daha uzun aralıklarla çalışır.\n\n" +
+            "Hatırlatıcı: ${if (status.enabled) "açık" else "kapalı"}. " +
+            "Zamanlama: ${if (status.scheduled) "kayıtlı" else "kayıtlı değil"}. " +
+            "Bildirim izni: ${if (status.notificationsAllowed) "açık" else "kapalı"}."
+        AlertDialog.Builder(this).setTitle("Yerel görev hatırlatıcısı").setMessage(description)
+            .setPositiveButton(if (status.enabled) "Kapat" else "Etkinleştir") { _, _ ->
+                if (!memoryControlsReady()) return@setPositiveButton
+                unlock {
+                    if (!memoryControlsReady()) return@unlock
+                    if (status.enabled) {
+                        val saved = LocalTaskReminders.disable(this)
+                        notice(if (saved) "Yerel görev hatırlatıcısı kapatıldı."
+                            else "Zamanlanan iş durduruldu fakat kapalı ayarı kaydedilemedi. Ayarı yeniden kontrol et.")
+                    } else requestReminderPermissionOrEnable()
+                }
+            }.setNegativeButton("Vazgeç", null).showProtected()
+    }
+
+    private fun requestReminderPermissionOrEnable() {
+        if (!memoryControlsReady()) return
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(
+                android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            reminderPermissionPending = true
+            requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 4705)
+        } else enableLocalReminders()
+    }
+
+    private fun enableLocalReminders() {
+        if (!memoryControlsReady()) return
+        val message = when (LocalTaskReminders.enable(this)) {
+            LocalTaskReminders.EnableResult.ENABLED -> "Yerel görev hatırlatıcısı zamanlandı."
+            LocalTaskReminders.EnableResult.NOTIFICATIONS_BLOCKED -> "Bildirim izni veya kanalı kapalı; hatırlatıcı etkinleştirilmedi."
+            LocalTaskReminders.EnableResult.SCHEDULE_FAILED -> "Android hatırlatıcıyı zamanlayamadı; etkinleştirilmedi."
+            LocalTaskReminders.EnableResult.STORAGE_FAILED -> "Hatırlatıcı ayarı kaydedilemedi; etkinleştirilmedi."
+        }
+        notice(message)
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != 4705) return
+        val pending = reminderPermissionPending
+        reminderPermissionPending = false
+        if (!pending || !foreground || isFinishing || isDestroyed) {
+            notice("Bildirim ayarını Görevler menüsünden yeniden aç.")
+            return
+        }
+        if (permissions.size == 1 && permissions[0] == android.Manifest.permission.POST_NOTIFICATIONS &&
+            grantResults.size == 1 && grantResults[0] == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            unlock { if (memoryControlsReady()) enableLocalReminders() }
+        } else notice("Bildirim izni verilmedi; hatırlatıcı etkinleştirilmedi.")
+    }
+
     private fun showMemoryMenu() {
         if (!memoryControlsReady()) return
         AlertDialog.Builder(this).setTitle(getString(R.string.action_memory))
@@ -447,7 +531,8 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private fun showExpertMenu() {
         if (!appUnlocked || !uiReady || storageBlocked || session.state.value?.busy == true) return
         AlertDialog.Builder(this).setTitle("Uzman görevleri")
-            .setItems(arrayOf("Yeni uzman görevi", "Görev durumunu yenile", "Görevi iptal et", "Sunucu işçi durumunu oku")) { _, index ->
+            .setItems(arrayOf("Yeni uzman görevi", "Görev durumunu yenile", "Görevi iptal et", "Sunucu işçi durumunu oku",
+                "Bekleyen gönderimi yeniden dene", "Bekleyen gönderimi bırak")) { _, index ->
                 if (!appUnlocked || storageBlocked) return@setItems
                 when (index) {
                     0 -> chooseExpert()
@@ -457,11 +542,17 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                         val result = OwnerGateway.localWorkers(app, base, ExpertTasks.statusBatch(), 2)
                         "Sunucuda iki salt okunur iş:\n${result.toString(2)}\nCanlı model isteği yapılmadı."
                     }
+                    4 -> retryPendingTask()
+                    5 -> discardPendingTask()
                 }
             }.setNegativeButton("Vazgeç", null).showProtected()
     }
 
     private fun chooseExpert() {
+        if (session.pendingTaskSubmission != null) {
+            notice("Önce bekleyen uzman gönderimini yeniden dene veya menüden bırak. Yeni gönderim ayrı bir görev ve ücret oluşturabilir.")
+            return
+        }
         val experts = OwnerGateway.EXPERTS.toList()
         AlertDialog.Builder(this).setTitle("Uzman rolü seç")
             .setItems(experts.toTypedArray()) { _, index ->
@@ -478,10 +569,57 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                     .setPositiveButton("Görevi gönder") { _, _ ->
                         val text = draft.text.toString().trim()
                         if (text.isBlank()) return@setPositiveButton
-                        runOwnerAction("Uzman görevi", true) { app, base, model ->
-                            ExpertTasks.report(OwnerGateway.submitTask(app, base, model, experts[index], text))
+                        if (!memoryControlsReady()) return@setPositiveButton
+                        val submission = try {
+                            OwnerGateway.prepareTaskSubmission(
+                                prefs.getString("endpoint", "").orEmpty(),
+                                prefs.getString("owner_id", "").orEmpty(),
+                                prefs.getString("model", "").orEmpty(), experts[index], text)
+                        } catch (_: Exception) {
+                            notice("Gönderim hazırlanamadı; sunucu/model doğrulamasını yenile. Hiçbir görev başlatılmadı.")
+                            return@setPositiveButton
                         }
+                        if (session.retainTaskSubmission(submission)) sendPreparedTask(submission)
                     }.setNegativeButton("Vazgeç", null).showProtected()
+            }.setNegativeButton("Vazgeç", null).showProtected()
+    }
+
+    private fun sendPreparedTask(submission: TaskSubmission) {
+        if (!memoryControlsReady()) return
+        if (!submission.matches(prefs.getString("endpoint", "").orEmpty(),
+                prefs.getString("owner_id", "").orEmpty(), prefs.getString("model", "").orEmpty())) {
+            notice("Bekleyen gönderimin sunucu, sahip veya modeli değişmiş. Önce eski ayarları geri getir ya da gönderimi bırak.")
+            return
+        }
+        runOwnerAction("Uzman görevi", false,
+            onRecorded = { session.forgetTaskSubmission(submission) }) { app, base, _ ->
+            ExpertTasks.report(OwnerGateway.submitTask(app, base, submission))
+        }
+    }
+
+    private fun retryPendingTask() {
+        if (!memoryControlsReady()) return
+        val submission = session.pendingTaskSubmission ?: run {
+            notice("Bu oturumda bekleyen gönderim yok. Önceki gönderimin kimliği geçmişteyse durumunu sorgula.")
+            return
+        }
+        AlertDialog.Builder(this).setTitle("Aynı gönderimi yeniden dene")
+            .setMessage("Aynı görev kimliği kullanılır; sunucu daha önce kabul ettiyse ikinci görev başlatmaz. " +
+                "Uygulama kapanınca bekleyen metin tutulmaz; gönderim kimliği geçmişte kalır.\n\nKimlik: ${submission.requestId}")
+            .setPositiveButton("Yeniden dene") { _, _ ->
+                if (memoryControlsReady() && session.pendingTaskSubmission === submission) sendPreparedTask(submission)
+            }.setNegativeButton("Vazgeç", null).showProtected()
+    }
+
+    private fun discardPendingTask() {
+        if (!memoryControlsReady()) return
+        val submission = session.pendingTaskSubmission ?: run { notice("Bekleyen gönderim yok."); return }
+        AlertDialog.Builder(this).setTitle("Bekleyen gönderimi bırak")
+            .setMessage("Yalnız bu telefondaki yeniden deneme metni bırakılır. Sunucunun kabul ettiği görevi iptal etmez. " +
+                "Yeni gönderim ayrı ücret oluşturabilir; önce geçmişteki kimlikle durumu kontrol edebilirsin.")
+            .setPositiveButton("Bırak") { _, _ ->
+                if (!memoryControlsReady()) return@setPositiveButton
+                unlock { if (memoryControlsReady()) session.forgetTaskSubmission(submission) }
             }.setNegativeButton("Vazgeç", null).showProtected()
     }
 
@@ -505,6 +643,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     private fun runOwnerAction(
         label: String, needsModel: Boolean,
+        onRecorded: (() -> Unit)? = null,
         operation: (android.content.Context, String, String) -> String,
     ) {
         if (!appUnlocked || !uiReady || storageBlocked || session.state.value?.busy == true) return
@@ -522,7 +661,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 connectionStatus.text = getString(R.string.status_model_verification_required)
                 return@unlock
             }
-            session.runOwnerOperation(label) { operation(app, base, model) }
+            session.runOwnerOperation(label, onRecorded) { operation(app, base, model) }
         }
     }
 

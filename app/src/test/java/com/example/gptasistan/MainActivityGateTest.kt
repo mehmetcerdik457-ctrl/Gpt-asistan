@@ -3,6 +3,7 @@ package com.example.gptasistan
 import android.app.Activity
 import android.app.KeyguardManager
 import android.content.Context
+import android.content.Intent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
@@ -21,6 +22,19 @@ import org.robolectric.shadows.ShadowDialog
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28])
 class MainActivityGateTest {
+    @Test fun reminderTapRelocksAnExistingForegroundSessionWithoutRequiringOnStop() {
+        val controller = Robolectric.buildActivity(MainActivity::class.java).create().start().resume().visible()
+        val activity = controller.get()
+        val unlocked = MainActivity::class.java.getDeclaredField("appUnlocked").apply { isAccessible = true }
+        try {
+            unlocked.setBoolean(activity, true)
+            controller.newIntent(Intent(activity, MainActivity::class.java).setAction(LocalTaskReminders.OPEN_ACTION))
+            assertFalse(unlocked.getBoolean(activity))
+            assertTrue(allText(activity.window.decorView).contains("Kilidi aç"))
+            assertNull(shadowOf(activity).nextStartedActivityForResult)
+        } finally { controller.pause().stop().destroy() }
+    }
+
     @Test fun emailVerificationRequiresDeviceCredentialAndDoesNotReplaceGateway() {
         val controller = Robolectric.buildActivity(MainActivity::class.java).create().start().resume().visible()
         val activity = controller.get()

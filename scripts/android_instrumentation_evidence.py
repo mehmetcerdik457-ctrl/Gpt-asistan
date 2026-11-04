@@ -9,6 +9,19 @@ from pathlib import Path
 import re
 
 
+REMINDER_CLASS = "com.example.gptasistan.LocalTaskReminderDeviceTest"
+REMINDER_TESTS = frozenset((REMINDER_CLASS, name) for name in (
+    "scheduledJobPostsPrivateNotificationAndOpensLockedActivity",
+    "encryptedPendingTaskCountIsReadOnlyAndIgnoresCompletedRows",
+    "missingOrWrongKeyNeverReplacesEncryptedDatabase",
+    "missingOrPlaintextDatabaseIsNotCreatedOrMigrated",
+    "disablingRemindersCancelsScheduledJobAndNotification",
+))
+REMINDER_FLAGS = (
+    "real_job_dispatch", "actual_notification", "notification_opens_locked_activity",
+)
+
+
 def verify(data: str, unit_summary: dict, source_sha: str, apk_sha256: str) -> dict:
     if unit_summary["source_commit"] != source_sha or unit_summary["apk_sha256"] != apk_sha256:
         raise ValueError("INSTRUMENTATION_BUILD_IDENTITY_MISMATCH")
@@ -49,9 +62,17 @@ def verify(data: str, unit_summary: dict, source_sha: str, apk_sha256: str) -> d
     required = {(case["classname"], case["name"]) for case in skipped}
     if len(required) != len(skipped) or not required <= passed:
         raise ValueError("JVM_SKIPPED_TEST_NOT_COVERED_ON_ANDROID")
+    if not REMINDER_TESTS <= passed:
+        raise ValueError("BACKGROUND_REMINDER_TEST_NOT_COVERED_ON_ANDROID")
+    for flag in REMINDER_FLAGS:
+        values = re.findall(r"(?m)^INSTRUMENTATION_RESULT: kral_reminder_" + re.escape(flag) + r"=(.*)$", data)
+        if values != ["true"]:
+            raise ValueError("BACKGROUND_REMINDER_OS_EVIDENCE_MISSING_OR_INVALID")
     return {"instrumentation_tests": count, "instrumentation_passed": True,
             "passed_tests": [{"classname": c, "name": n} for c, n in sorted(passed)],
-            "jvm_skips_covered_on_android": [{"classname": c, "name": n} for c, n in sorted(required)]}
+            "jvm_skips_covered_on_android": [{"classname": c, "name": n} for c, n in sorted(required)],
+            "local_task_reminder_background_verified": True,
+            "local_task_reminder_evidence": {flag: True for flag in REMINDER_FLAGS}}
 
 
 def main():
