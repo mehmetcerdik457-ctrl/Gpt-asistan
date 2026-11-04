@@ -1,0 +1,106 @@
+{
+  "schema_version": 1,
+  "updated_at_utc": "2026-11-04",
+  "specification": {
+    "source": "Owner-provided complete roadmap text in the current conversation",
+    "original_pdf_or_md_available": false,
+    "requirement_extraction_complete": false,
+    "note": "The conversation text supplies sections 0-28 and T01-T26; no independent original file or file hash was supplied."
+  },
+  "source_commit": "5c365322ca1722d0e837a2785d4fc4401cea56b8",
+  "source_branch": "fix/kral-genesis-android-delivery-20261103",
+  "expert_profiles": {
+    "note": "Profiles are configurations, not evidence of running agents, model access or independent execution. Roles without exact profiles are not represented as independent specialists.",
+    "roles": [
+      {"role": "Baş koordinatör", "profile": "chief-engineer.agent.md", "match": "DIRECT"},
+      {"role": "Android uzmanı", "profile": "android-engineer.agent.md", "match": "DIRECT"},
+      {"role": "Backend uzmanı", "profile": "cloud-engineer.agent.md", "match": "PARTIAL"},
+      {"role": "Model uzmanı", "profile": "ai-ml-engineer.agent.md", "match": "DIRECT"},
+      {"role": "Güvenlik uzmanı", "profile": "security-auditor.agent.md", "match": "DIRECT"},
+      {"role": "Hafıza uzmanı", "profile": "ai-ml-engineer.agent.md", "match": "PARTIAL"},
+      {"role": "DevOps uzmanı", "profile": "ci-cd-engineer.agent.md", "match": "DIRECT"},
+      {"role": "Test uzmanı", "profile": "test-engineer.agent.md", "match": "DIRECT"},
+      {"role": "APK uzmanı", "profile": "apk-forensic.agent.md", "match": "PARTIAL"},
+      {"role": "Yetenek uzmanı", "profile": null, "match": "MISSING"},
+      {"role": "OMEGA uzmanı", "profile": null, "match": "MISSING"},
+      {"role": "Bağımsız denetçi", "profile": "code-reviewer.agent.md", "match": "PARTIAL"}
+    ]
+  },
+  "section_defaults": {
+    "initial_status": "NOT_STARTED",
+    "subrequirements": "NOT_FULLY_MAPPED",
+    "code_changes": [],
+    "tests": [],
+    "ci": [],
+    "security_review": "NOT_PERFORMED",
+    "independent_auditor_decision": "NOT_REVIEWED"
+  },
+  "resource_acquisition_steps": {
+    "default_status": "NOT_STARTED",
+    "steps": [
+      {"number": "4.1", "title": "Kaynağı tanı"},
+      {"number": "4.2", "title": "Orijinali koru"},
+      {"number": "4.3", "title": "Derin teknik analiz yap"},
+      {"number": "4.4", "title": "İşlev/yetenek çıkar"},
+      {"number": "4.5", "title": "Bağımlılık ve uyumluluk haritası oluştur"},
+      {"number": "4.6", "title": "Kurtarma yöntemini seç"},
+      {"number": "4.7", "title": "API/hizmet bağlantısını doğrula"},
+      {"number": "4.8", "title": "Model/araç kabiliyetini ölç"},
+      {"number": "4.9", "title": "Entegrasyon planı hazırla"},
+      {"number": "4.10", "title": "Adaptör geliştir, çalışan sisteme bağla"},
+      {"number": "4.11", "title": "Gerçek testten geçir"},
+      {"number": "4.12", "title": "Kontrollü etkinleştir ve geri al"},
+      {"number": "4.13", "title": "Geleceğe kalıcı beceri ekle"}
+    ]
+  },
+  "phases": {
+    "default_status": "NOT_STARTED",
+    "items": [
+      {"number": 0, "title": "Bağlantı ve kaynaklar", "status": "IN_PROGRESS"},
+      {"number": 1, "title": "Sağlam Android temel", "status": "BLOCKED"},
+      {"number": 2, "title": "Tek KRAL CORE"},
+      {"number": 3, "title": "Hafıza + ses + sahiplik"},
+      {"number": 4, "title": "Hesaplar ve eylem"},
+      {"number": 5, "title": "Kaynak kazanımı"},
+      {"number": 6, "title": "Otonom üretim"},
+      {"number": 7, "title": "Süreklilik ve öz gelişim"},
+      {"number": 8, "title": "Savunma + taşıma + teslim"}
+    ]
+  },
+  "sections": [
+    {"number": 0, "title": "Bittiğinde Mehmet'in elinde ne olacak?", "status": "IN_PROGRESS", "next": "Map every product and delivery requirement to evidence."},
+    {"number": 1, "title": "Değişmez çalışma ilkeleri", "status": "NOT_STARTED"},
+    {"number": 2, "title": "Başlangıç kaynakları — Henüz canlı doğrulanmadı", "status": "IN_PROGRESS", "next": "Verify source and APK provenance and accessible services."},
+    {"number": 3, "title": "Tek KRAL mimarisi — Tek deneyim, gerektiğinde çok motor", "status": "NOT_STARTED"},
+    {"number": 4, "title": "Kaynak verildiğinde 13 aşamalı EVRENSEL KAYNAK KAZANIMI", "status": "NOT_STARTED"},
+    {"number": 5, "title": "API, OAuth ve mevcut gizli bilgileri güvenli kullanma", "status": "NOT_STARTED"},
+    {"number": 6, "title": "Çoklu modellerin tek zeka gibi çalışması", "status": "NOT_STARTED"},
+    {"number": 7, "title": "Dört katmanlı Mehmet hafızası", "status": "NOT_STARTED"},
+    {"number": 8, "title": "Sahip kimliği, yüksek sadakat ve emir güvenliği", "status": "NOT_STARTED"},
+    {"number": 9, "title": "Android, bilgisayar ve web üzerinde gerçek eylem", "status": "NOT_STARTED"},
+    {"number": 10, "title": "Ses, doğal konuşma ve proaktif iletişim", "status": "NOT_STARTED"},
+    {"number": 11, "title": "Otonom görev motoru — Tıkla/üret/teslim et", "status": "NOT_STARTED"},
+    {"number": 12, "title": "İçerik üretimi ve uzmanlık iş akışları", "status": "NOT_STARTED"},
+    {"number": 13, "title": "Kendi deneyiminden öğrenme, yetenek kazanma, kod geliştirme", "status": "NOT_STARTED"},
+    {"number": 14, "title": "Siber savunma, gizlilik ve güvenli tedarik zinciri", "status": "NOT_STARTED"},
+    {"number": 15, "title": "Kendini kurtarma, yedek, kontrollü kopyalama", "status": "NOT_STARTED"},
+    {"number": 16, "title": "Sürekli çalışan, çevrimdışı/çevrimiçi ve proaktif KRAL", "status": "NOT_STARTED"},
+    {"number": 17, "title": "Günlük kullanım kolaylığı — TEK KOMUT / TEK EKLE / TEK ONAY", "status": "NOT_STARTED"},
+    {"number": 18, "title": "Gerçek Android sürümü, GitHub CI ve Drive teslim protokolü", "status": "BLOCKED", "blockers": ["ANDROID_DEVICE_UNAVAILABLE", "INSTALLED_SIGNER_UNVERIFIED", "DRIVE_ACCESS_UNVERIFIED"], "next": "Verify actual installed package and signer without uninstalling; verify Drive access."},
+    {"number": 19, "title": "Kayıtlar, kanıt ve kaynak dosyaları", "status": "IN_PROGRESS", "next": "Complete requirement-level mapping and remaining machine-readable records."},
+    {"number": 20, "title": "Uygulama sırası: ÖNCE ÇALIŞAN ÜRÜN, SONRA TAM KAPSAM", "status": "NOT_STARTED"},
+    {"number": 21, "title": "Bağımsız gerçek dünya kabul testi matrisi", "status": "IN_PROGRESS", "next": "Evaluate each original acceptance criterion against independent evidence."},
+    {"number": 22, "title": "Erişim engeli, yetki politikası ve dürüst durum bildirimi", "status": "IN_PROGRESS", "next": "Confirm service access and track precise blockers."},
+    {"number": 23, "title": "Kaynak değişikliklerini otomatik takip", "status": "NOT_STARTED"},
+    {"number": 24, "title": "Somut senaryolar — Mehmet'in söyleyeceği tek cümle", "status": "NOT_STARTED"},
+    {"number": 25, "title": "Uygulayıcı için en kısa çalışma protokolü", "status": "NOT_STARTED"},
+    {"number": 26, "title": "Resmî teknik başvuru noktaları ve araştırma doğruluk notu", "status": "NOT_STARTED"},
+    {"number": 27, "title": "Eski üç planın kapsama kontrolü — Hiçbir ek belge gerekmeyecek", "status": "NOT_STARTED"},
+    {"number": 28, "title": "Tek ve değişmez nihai başarı tanımı", "status": "NOT_STARTED"}
+  ],
+  "observations": [
+    {"task": "Verify repository and pull request source", "status": "CODE_COMPLETE", "evidence": "GitHub API: main 5062b22ccfc11bdd10302bed75e5902deeb4ea4c; PR 86 open, head 5c365322ca1722d0e837a2785d4fc4401cea56b8."},
+    {"task": "Run existing backend unit suite locally", "status": "CODE_COMPLETE", "evidence": "python -m unittest discover -s server/tests: 121 tests OK in isolated virtual environment; does not establish product acceptance."},
+    {"task": "Baseline local Android build", "status": "BLOCKED", "evidence": "./gradlew --no-daemon :app:assembleDebug failed with Java 27; Android SDK not installed and dl.google.com DNS resolution failed."}
+  ]
+}

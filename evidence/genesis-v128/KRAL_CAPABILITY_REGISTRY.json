@@ -1,0 +1,6 @@
+{
+  "schema_version": 1,
+  "updated_at_utc": "2026-11-04",
+  "note": "No product capability is marked active until its actual invocation and authorization are independently verified. Existing synthetic tests and configuration are not live integrations.",
+  "capabilities": []
+}
