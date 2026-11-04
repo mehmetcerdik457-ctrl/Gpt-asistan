@@ -160,10 +160,12 @@ class TaskManager:
             digest = hashlib.sha256(answer.encode("utf-8")).hexdigest()
             with self.store.connect() as db:
                 db.execute("BEGIN IMMEDIATE")
-                row = db.execute("SELECT cancel_requested FROM owner_tasks WHERE task_id=?", (task_id,)).fetchone()
-                if row is None:
+                row = db.execute(
+                    "SELECT status,cancel_requested FROM owner_tasks WHERE task_id=?", (task_id,)
+                ).fetchone()
+                if row is None or row[0] != "running":
                     return
-                if row[0]:
+                if row[1]:
                     db.execute(
                         "UPDATE owner_tasks SET status='cancelled', result=NULL, result_sha256=NULL, "
                         "error_code='TASK_CANCELLED', updated_at=? WHERE task_id=?",
@@ -185,15 +187,17 @@ class TaskManager:
                 code = "TASK_PROVIDER_FAILED"
             with self.store.connect() as db:
                 db.execute("BEGIN IMMEDIATE")
-                row = db.execute("SELECT cancel_requested FROM owner_tasks WHERE task_id=?", (task_id,)).fetchone()
-                if row is None:
+                row = db.execute(
+                    "SELECT status,cancel_requested FROM owner_tasks WHERE task_id=?", (task_id,)
+                ).fetchone()
+                if row is None or row[0] != "running":
                     return
-                status = "cancelled" if row[0] else "failed"
+                status = "cancelled" if row[1] else "failed"
                 db.execute(
                     "UPDATE owner_tasks SET status=?, error_code=?, provider_request_id=?, "
                     "provider_http_status=?, provider_error_code=?, retryable=?, retry_after_seconds=?, "
                     "updated_at=? WHERE task_id=?",
-                    (status, "TASK_CANCELLED" if row[0] else code,
+                    (status, "TASK_CANCELLED" if row[1] else code,
                      getattr(exc, "provider_request_id", None),
                      getattr(exc, "provider_http_status", None),
                      getattr(exc, "provider_error_code", None),

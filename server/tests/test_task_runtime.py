@@ -236,6 +236,37 @@ class TaskLifecycleTests(unittest.TestCase):
         finally:
             restarted.close()
 
+    def test_late_provider_outcome_cannot_overwrite_restart_failure(self):
+        for fail in (False, True):
+            with self.subTest(provider_fails=fail):
+                class LateProvider(FakeProvider):
+                    def reply(self, model, prompt):
+                        answer = super().reply(model, prompt)
+                        if fail:
+                            raise RuntimeError("synthetic provider failure")
+                        return answer
+
+                provider = LateProvider(block=True)
+                manager = TaskManager(self.store, provider)
+                restarted = None
+                try:
+                    task = manager.submit("model-fixture", "model-fixture", "test-engineer", "Task")
+                    self.assertTrue(provider.started.wait(1))
+                    restarted = TaskManager(self.store, provider)
+                    self.assertEqual(restarted.get(task["task_id"])["error"], "PROCESS_RESTARTED")
+                    provider.release.set()
+                    manager.close()
+                    result = restarted.get(task["task_id"])
+                    self.assertEqual((result["status"], result["error"]),
+                                     ("failed", "PROCESS_RESTARTED"))
+                    self.assertIsNone(result["result"])
+                    self.assertEqual(provider.calls, 1)
+                finally:
+                    provider.release.set()
+                    manager.close()
+                    if restarted is not None:
+                        restarted.close()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -2,5 +2,10 @@
   "schema_version": 1,
   "updated_at_utc": "2026-11-04",
   "status": "NOT_FULLY_MAPPED",
-  "dependencies": []
+  "dependencies": [
+    {"task": "RUNTIME-RESUME", "depends_on": ["RUNTIME-RESTART-OUTCOME", "RUNTIME-RESUME-SECURITY-REVIEW"], "status": "NOT_STARTED"},
+    {"task": "T17-ACCEPTANCE", "depends_on": ["RUNTIME-RESUME", "EXTERNAL-EFFECT-IDEMPOTENCY"], "status": "BLOCKED"},
+    {"task": "T26-ACCEPTANCE", "depends_on": ["SIGNER-DEVICE", "PHYSICAL-UPGRADE-TEST", "VERIFIED-DELIVERY"], "status": "BLOCKED"},
+    {"task": "ROADMAP-ACCEPTANCE-MAPPING", "depends_on": ["ROADMAP-SOURCE-ACCESS"], "status": "BLOCKED"}
+  ]
 }
