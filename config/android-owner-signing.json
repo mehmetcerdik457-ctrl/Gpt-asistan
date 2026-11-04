@@ -1,0 +1,8 @@
+{
+  "repository": "mehmetcerdik457-ctrl/Gpt-asistan",
+  "trusted_branch": "fix/kral-owner-signing-20261103",
+  "actor": "mehmetcerdik457-ctrl",
+  "certificate_sha256": "279084a36b7c17a1663bfba5fe1c5bdac974f8ef4ce56b21000d882493e39448",
+  "pin_source_commit": "7228a9ecd9f2a3d1ed5402b39d72f2e31994952e",
+  "pin_source_path": ".github/workflows/owner-feature-parity-build.yml"
+}
