@@ -18,6 +18,10 @@ class EmailOtpTest {
         assertFalse(EmailOtp.validCode("12345a"))
     }
 
+    @Test fun defaultOwnerEmailIsValid() {
+        assertTrue(EmailOtp.validEmail(EmailOtp.DEFAULT_EMAIL))
+    }
+
     @Test fun buildsBodies() {
         assertEquals("user@example.com", EmailOtp.requestBody("user@example.com").getString("email"))
         val body = EmailOtp.verifyBody("abcdefghijklmnop", "123456")

@@ -22,7 +22,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from . import owner_auth_v1 as auth
-from . import kral_memory, idempotency, owner_workers, task_runtime
+from . import email_otp, kral_memory, idempotency, owner_workers, task_runtime
 
 CONTRACT = "OMEGA-OWNER-API-V1"
 PREFIX = "/api/v1/owner/"
@@ -285,8 +285,9 @@ class Store:
 
 
 class Gateway:
-    def __init__(self, store, provider=None):
+    def __init__(self, store, provider=None, otp=None):
         self.store = store
+        self.otp = otp if otp is not None else email_otp.EmailOtp(str(store.path.with_name("kral-otp.sqlite3")))
         self.provider = provider if provider is not None else OpenAIProvider()
         self.models = {}
         self.lock = threading.Lock()
@@ -547,9 +548,45 @@ def handler_for(gateway):
             else:
                 self.send_json(404, {"error": "ROUTE_NOT_FOUND"})
 
+        def read_json_body(self):
+            if self.headers.get("Transfer-Encoding") or len(self.headers.get_all("Content-Length", [])) != 1:
+                raise Denied("BODY_LENGTH_REQUIRED", 411)
+            if self.headers.get_content_type() != "application/json":
+                raise Denied("JSON_REQUIRED", 415)
+            length = int(self.headers.get("Content-Length", "0"))
+            if not 0 < length <= 1024:
+                raise Denied("BODY_TOO_LARGE", 413)
+            raw = self.rfile.read(length)
+            data = json.loads(raw) if len(raw) == length else None
+            if not isinstance(data, dict):
+                raise Denied("JSON_OBJECT_REQUIRED")
+            return data
+
+        def handle_otp(self):
+            # Pre-login endpoints: the code goes only to the configured owner e-mail.
+            try:
+                data = self.read_json_body()
+                if self.path == email_otp.REQUEST_PATH:
+                    result = gateway.otp.request(data)
+                else:
+                    result = gateway.otp.verify(data)
+                self.send_json(200, result)
+            except email_otp.OtpDenied as exc:
+                self.send_json(exc.status, {"error": exc.code})
+            except Denied as exc:
+                self.send_json(exc.status, {"error": exc.code})
+            except (ValueError, UnicodeError):
+                self.send_json(400, {"error": "REQUEST_INVALID"})
+            except sqlite3.Error:
+                self.send_json(503, {"error": "PERSISTENT_STORE_UNAVAILABLE"})
+            finally:
+                self.close_connection = True
+
         def do_POST(self):
             acquired = False
             try:
+                if self.path in (email_otp.REQUEST_PATH, email_otp.VERIFY_PATH):
+                    return self.handle_otp()
                 if self.path not in {PREFIX + p for p in ("chat", "models", "history", "memory", "workers", "tasks", "tasks/status", "tasks/cancel", "tasks/approve")}:
                     raise Denied("ROUTE_NOT_FOUND", 404)
                 if self.headers.get("Transfer-Encoding") or len(self.headers.get_all("Content-Length", [])) != 1:

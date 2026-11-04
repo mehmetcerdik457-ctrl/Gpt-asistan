@@ -152,7 +152,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         }
         val email = EditText(this).apply {
             hint = "E-posta adresin"
-            setText(prefs.getString("otp_email", "")); isSingleLine = true
+            setText(prefs.getString("otp_email", EmailOtp.DEFAULT_EMAIL)); isSingleLine = true
             inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
         }
         fields.addView(server); fields.addView(email)
