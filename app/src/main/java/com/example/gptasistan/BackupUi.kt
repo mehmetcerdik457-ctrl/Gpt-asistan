@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.net.Uri
+import android.os.Bundle
 import android.text.InputFilter
 import android.text.InputType
 import android.widget.EditText
@@ -23,6 +24,22 @@ internal class BackupUi(
 ) {
     private var pendingPicker: Int? = null
     private var busy = false
+
+    /** Persist the outstanding operation only, never its URI, password or private records. */
+    fun savePendingState(state: Bundle) {
+        state.remove(PENDING_PICKER_STATE)
+        pendingPicker?.takeIf { it == EXPORT || it == RESTORE }?.let {
+            state.putInt(PENDING_PICKER_STATE, it)
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    fun restorePendingState(state: Bundle?) {
+        val saved = try { state?.get(PENDING_PICKER_STATE) as? Int } catch (_: RuntimeException) { null }
+        pendingPicker = saved?.takeIf {
+            it == EXPORT || it == RESTORE
+        }
+    }
 
     fun showMenu() {
         if (store() == null || busy || pendingPicker != null) return
@@ -155,6 +172,7 @@ internal class BackupUi(
     }
 
     private companion object {
+        const val PENDING_PICKER_STATE = "kral.backup.pending_picker"
         const val EXPORT = 4703
         const val RESTORE = 4704
     }

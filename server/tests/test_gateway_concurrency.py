@@ -34,7 +34,7 @@ class ProbeProvider:
 
 
 class GatedWorkerSlots:
-    """Hold four worker slots, observe the probe wait, and bound broken-code cleanup."""
+    """Hold four worker slots and bound cleanup if old probes wait for them."""
     def __init__(self):
         self.slots = threading.BoundedSemaphore(4)
         self.lock = threading.Lock()
@@ -43,24 +43,34 @@ class GatedWorkerSlots:
         self.release_workers = threading.Event()
         self.probe_attempted = threading.Event()
 
-    def __enter__(self):
+    def acquire(self, blocking=True, timeout=-1):
         with self.lock:
             self.entered += 1
             position = self.entered
         if position > 4:
             self.probe_attempted.set()
-        if not self.slots.acquire(timeout=2):
-            raise AssertionError("probe deadlocked behind model-cache workers")
+        acquired = (self.slots.acquire(timeout=2 if timeout == -1 else timeout) if blocking
+                    else self.slots.acquire(blocking=False))
+        if not acquired:
+            return False
         if position <= 4:
             if position == 4:
                 self.all_workers_entered.set()
             if not self.release_workers.wait(4):
                 self.slots.release()
                 raise AssertionError("synthetic workers were not released")
+        return True
+
+    def release(self):
+        self.slots.release()
+
+    def __enter__(self):
+        if not self.acquire():
+            raise AssertionError("probe deadlocked behind model-cache workers")
         return self
 
     def __exit__(self, *_):
-        self.slots.release()
+        self.release()
 
 
 class GatewayConcurrencyTests(unittest.TestCase):
@@ -96,7 +106,7 @@ class GatewayConcurrencyTests(unittest.TestCase):
         self.assertNotIn("error", result, repr(result.get("error")))
         return result["value"]
 
-    def test_cached_model_workers_release_slots_while_probe_waits(self):
+    def test_cached_model_workers_and_busy_probe_cannot_invert_locks(self):
         slots = GatedWorkerSlots()
         self.gateway.execution_slots = slots
         self.gateway.models = {
@@ -120,10 +130,11 @@ class GatewayConcurrencyTests(unittest.TestCase):
             slots.release_workers.set()
         worker_result = self.finished(workers)
         if refresh is not None:
-            self.finished(refresh)
+            probe_result = self.finished(refresh)
+            self.assertEqual(probe_result["errors"], [{"code": "OWNER_REQUEST_BUSY"}])
         self.assertTrue(registry_unlocked, "model registry lock held while awaiting execution slots")
         self.assertTrue(all(row["status"] == "COMPLETED_LOCAL_READ" for row in worker_result["results"]))
-        self.assertEqual(self.provider.calls, [("alias-old", True)])
+        self.assertEqual(self.provider.calls, [])
 
     def test_same_configuration_uses_one_inflight_probe(self):
         self.provider.block_old = True

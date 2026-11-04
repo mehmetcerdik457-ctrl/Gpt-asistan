@@ -80,11 +80,17 @@ object OwnerGateway {
             .getString("owner_id", "").orEmpty()
         val chosen = verifiedModels(base, owner).singleOrNull { it.id == model }
             ?: throw SecurityException("MODEL_NOT_VERIFIED")
-        val clientRequestId = UUID.randomUUID().toString().replace("-", "")
-        val body = JSONObject().put("message", question).put("model", chosen.id)
-            .put("include_memory", false).put("client_request_id", clientRequestId)
+        val body = chatRequestBody(chosen.id, question)
+        val clientRequestId = body.getString("client_request_id")
         val result = request(base, OmegaEnvelope.CHAT, owner, body)
         return parseReplyWithMetadata(result, chosen, clientRequestId)
+    }
+
+    internal fun chatRequestBody(model: String, question: String): JSONObject {
+        val requestId = UUID.randomUUID().toString().replace("-", "")
+        return JSONObject().put("message", question).put("model", model)
+            .put("include_memory", false).put("client_request_id", requestId)
+            .put("idempotency_key", requestId)
     }
 
     /** Submit a bounded expert task through the existing dual-P256 owner gateway. */

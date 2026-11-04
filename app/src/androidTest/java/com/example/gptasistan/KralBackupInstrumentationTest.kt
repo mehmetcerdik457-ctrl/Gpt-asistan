@@ -194,15 +194,16 @@ class KralBackupInstrumentationTest {
     }
 
     @Test
-    fun insertFailureRollsBackAllRestoredTablesAndPreservesExistingSchema() {
+    fun constraintFailureRollsBackAllRestoredTablesAndPreservesExistingSchema() {
         val source = sourceFixture()
         val original = snapshot(source)
         val target = openStore("transaction-failure", 97)
         val db = target.writableDatabase
-        db.execSQL(
-            "CREATE TRIGGER reject_fixture_task BEFORE INSERT ON tasks " +
-                "BEGIN SELECT RAISE(ABORT,'fixture restore rejection'); END",
-        )
+        // Alter only this isolated fixture: the second source task violates the CHECK.
+        db.execSQL("DROP TABLE tasks")
+        db.execSQL("CREATE TABLE tasks(id INTEGER PRIMARY KEY,title TEXT NOT NULL," +
+            "done INTEGER NOT NULL DEFAULT 0 CHECK(done=0))")
+        val schemaBefore = schemaSql(target, "table", "tasks")
         val password = fixturePassword()
         try {
             val encrypted = KralBackup.export(source, password)
@@ -210,15 +211,75 @@ class KralBackupInstrumentationTest {
                 KralBackup.restore(target, encrypted, password)
             }
             assertTrue(snapshot(target).values.all { it.isEmpty() })
-            db.rawQuery("SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' AND name='reject_fixture_task'", null).use {
-                assertTrue(it.moveToFirst())
-                assertEquals(1L, it.getLong(0))
-            }
+            assertEquals(schemaBefore, schemaSql(target, "table", "tasks"))
             assertEquals(original, snapshot(source))
 
-            db.execSQL("DROP TRIGGER reject_fixture_task")
+            db.execSQL("DROP TABLE tasks")
+            db.execSQL("CREATE TABLE tasks(id INTEGER PRIMARY KEY,title TEXT NOT NULL,done INTEGER NOT NULL DEFAULT 0)")
             KralBackup.restore(target, encrypted, password)
             assertEquals(original, snapshot(target))
+        } finally {
+            password.fill('\u0000')
+        }
+    }
+
+    @Test
+    fun targetTriggersCannotSilentlyIgnoreOrMutateRestoredRows() {
+        val source = sourceFixture()
+        val original = snapshot(source)
+        val password = fixturePassword()
+        try {
+            val encrypted = KralBackup.export(source, password)
+            val triggers = listOf(
+                "skip_fixture_task" to "CREATE TRIGGER skip_fixture_task BEFORE INSERT ON tasks " +
+                    "BEGIN SELECT RAISE(IGNORE); END",
+                "mutate_fixture_task" to "CREATE TRIGGER mutate_fixture_task AFTER INSERT ON tasks " +
+                    "BEGIN UPDATE tasks SET title='changed by trigger' WHERE id=NEW.id; END",
+            )
+            for ((index, fixture) in triggers.withIndex()) {
+                val (name, statement) = fixture
+                val target = openStore("trigger-$index", 110 + index)
+                target.writableDatabase.execSQL(statement)
+                val before = snapshot(target)
+                val triggerBefore = schemaSql(target, "trigger", name)
+
+                assertThrows(KralBackup.BackupException::class.java) {
+                    KralBackup.restore(target, encrypted, password)
+                }
+
+                assertEquals(before, snapshot(target))
+                assertEquals(triggerBefore, schemaSql(target, "trigger", name))
+                assertEquals(original, snapshot(source))
+            }
+        } finally {
+            password.fill('\u0000')
+        }
+    }
+
+    @Test
+    fun silentlyIgnoredConstraintRowsFailExactCopyVerificationAndRollBack() {
+        val source = sourceFixture()
+        source.writableDatabase.execSQL("UPDATE tasks SET title='same public title'")
+        val original = snapshot(source)
+        val target = openStore("constraint-ignore", 112)
+        val db = target.writableDatabase
+        // These columns have the production PRAGMA shape, but the extra constraint
+        // silently discards the second restored task instead of raising an error.
+        db.execSQL("DROP TABLE tasks")
+        db.execSQL("CREATE TABLE tasks(id INTEGER PRIMARY KEY," +
+            "title TEXT NOT NULL UNIQUE ON CONFLICT IGNORE,done INTEGER NOT NULL DEFAULT 0)")
+        val schemaBefore = schemaSql(target, "table", "tasks")
+        val password = fixturePassword()
+        try {
+            val encrypted = KralBackup.export(source, password)
+
+            assertThrows(KralBackup.BackupException::class.java) {
+                KralBackup.restore(target, encrypted, password)
+            }
+
+            assertTrue(snapshot(target).values.all { it.isEmpty() })
+            assertEquals(schemaBefore, schemaSql(target, "table", "tasks"))
+            assertEquals(original, snapshot(source))
         } finally {
             password.fill('\u0000')
         }
@@ -247,6 +308,15 @@ class KralBackupInstrumentationTest {
 
     private fun snapshot(store: KralStore): Map<String, List<List<String?>>> =
         listOf("mem", "tasks", "chat_messages").associateWith { rows(store, it) }
+
+    private fun schemaSql(store: KralStore, type: String, name: String): String {
+        store.readableDatabase.rawQuery("SELECT sql FROM sqlite_master WHERE type=? AND name=?", arrayOf(type, name)).use {
+            assertTrue(it.moveToFirst())
+            val sql = it.getString(0)
+            assertFalse(it.moveToNext())
+            return sql
+        }
+    }
 
     private fun rows(store: KralStore, table: String): List<List<String?>> {
         require(table in setOf("mem", "tasks", "chat_messages", "sqlitex_local"))

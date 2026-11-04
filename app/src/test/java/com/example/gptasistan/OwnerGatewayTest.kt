@@ -8,6 +8,22 @@ import org.junit.Test
 class OwnerGatewayTest {
     private val now = 1792537200L
 
+    @Test fun chatTransportReplayKeepsOneKeyAndEachNewSendGetsAnotherKey() {
+        val first = OwnerGateway.chatRequestBody("returned-model", "Merhaba")
+        val requestId = first.getString("client_request_id")
+        assertTrue(requestId.matches(Regex("[a-f0-9]{32}")))
+        assertEquals(requestId, first.getString("idempotency_key"))
+        val replay = JSONObject(first.toString())
+        assertEquals(requestId, replay.getString("client_request_id"))
+        assertEquals(requestId, replay.getString("idempotency_key"))
+        val next = OwnerGateway.chatRequestBody("returned-model", "Merhaba")
+        assertNotEquals(requestId, next.getString("idempotency_key"))
+        assertEquals(next.getString("client_request_id"), next.getString("idempotency_key"))
+        assertEquals("Merhaba", next.getString("message"))
+        assertEquals("returned-model", next.getString("model"))
+        assertFalse(next.getBoolean("include_memory"))
+    }
+
     @Test fun taskActionsRejectAValidResultForAnotherTask() {
         val result = taskJson()
         assertEquals("a".repeat(32), OwnerGateway.parseTaskForId(result, "a".repeat(32)).taskId)

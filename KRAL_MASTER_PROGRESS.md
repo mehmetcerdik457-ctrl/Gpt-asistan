@@ -1,6 +1,6 @@
 # KRAL GENESIS 3.0 — MASTER PROGRESS
 Last updated: 2026-11-04 (UTC)
-Latest continuation: [1.0.8 gateway, memory deletion and encrypted backup](docs/KRAL_CONTINUATION_20261104.md).
+Latest continuation: [1.0.9 gateway, memory deletion and encrypted backup](docs/KRAL_CONTINUATION_20261104.md).
 Current continuation: `kral-genesis-parallel-20261104`, based on `f2fd46a3c6edfae4f37d2e78669418f00cb33d41`.
 Current delivery and authorization: [parallel delivery](docs/KRAL_PARALLEL_DELIVERY_20261104.md).
 The owner explicitly authorized verified main integration and APK delivery in this session.

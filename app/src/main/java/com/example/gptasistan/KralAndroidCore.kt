@@ -6,6 +6,39 @@ import java.security.MessageDigest
 
 /** Deterministic local primitives. No network or provider calls are made here. */
 object KralAndroidCore {
+    const val MAX_LEDGER_RESULT_CHARS = 32_000
+    // Leave room for a caller's short label while keeping the ledger guard strict.
+    internal const val MAX_LOCAL_READ_REPLY_CHARS = 30_000
+    internal const val READ_TRUNCATION_NOTICE =
+        "\n… [Gösterim kısaltıldı; tüm kayıtlar korunuyor.]"
+
+    /** Bound only the displayed read result; persisted source records stay intact. */
+    internal fun localReadReply(lines: List<String>, empty: String, moreRows: Boolean = false): String {
+        if (lines.isEmpty()) return empty
+        val length = lines.sumOf { it.length.toLong() } + lines.size - 1L
+        val shortened = moreRows || length > MAX_LOCAL_READ_REPLY_CHARS
+        val budget = MAX_LOCAL_READ_REPLY_CHARS - if (shortened) READ_TRUNCATION_NOTICE.length else 0
+        val reply = StringBuilder(minOf(length, MAX_LOCAL_READ_REPLY_CHARS.toLong()).toInt())
+        for ((index, line) in lines.withIndex()) {
+            if (index > 0) {
+                if (reply.length == budget) break
+                reply.append('\n')
+            }
+            val available = budget - reply.length
+            if (line.length <= available) {
+                reply.append(line)
+            } else {
+                var end = available
+                if (end > 0 && Character.isHighSurrogate(line[end - 1]) &&
+                    Character.isLowSurrogate(line[end])) end--
+                reply.append(line, 0, end)
+                break
+            }
+        }
+        if (shortened) reply.append(READ_TRUNCATION_NOTICE)
+        return reply.toString()
+    }
+
     fun sha256Hex(value: ByteArray): String =
         MessageDigest.getInstance("SHA-256").digest(value)
             .joinToString("") { "%02x".format(it) }
@@ -66,7 +99,7 @@ class KralCoreOrchestrator(private val store: KralStore) {
                     }
                 }
                 val result = action(db)
-                require(result.length <= 32_000)
+                require(result.length <= KralAndroidCore.MAX_LEDGER_RESULT_CHARS)
                 db.execSQL(
                     "INSERT INTO kral_idempotency(operation_id,payload_sha256,result_text,created_at) VALUES(?,?,?,?)",
                     arrayOf<Any>(operationId, digest, result, System.currentTimeMillis() / 1000L)

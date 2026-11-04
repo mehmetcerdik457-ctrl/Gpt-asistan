@@ -54,7 +54,12 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private val backups by lazy {
         BackupUi(this,
             store = { if (appUnlocked && uiReady && !storageBlocked) store else null },
-            authorize = { action -> unlock(action) },
+            authorize = { action ->
+                if (!storageBlocked && !isFinishing && !isDestroyed) unlock {
+                    if (!uiReady && !storageBlocked) buildContent(initialState)
+                    if (appUnlocked && uiReady && !storageBlocked && !isFinishing && !isDestroyed) action()
+                }
+            },
             showDialog = { builder, dismissed -> builder.showProtected(dismissed) },
             notice = { notice(it) },
             refresh = { session.refreshHistory() })
@@ -64,6 +69,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         initialState = savedInstanceState
+        backups.restorePendingState(savedInstanceState)
         showLocked()
     }
 
@@ -138,6 +144,13 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         if (requestCode != 4701) return
         val action = pendingUnlock
         pendingUnlock = null
+        if (action == null) {
+            // A recreation during the credential screen loses its in-memory
+            // action/URI. Never replay the result or silently lose the operation.
+            if (resultCode == Activity.RESULT_OK) notice(
+                "Doğrulama isteği artık geçerli değil. Kilidi açıp işlemi yeniden başlat.")
+            return
+        }
         if (resultCode == Activity.RESULT_OK) completeUnlock(action)
         else { appUnlocked = false; showLocked() }
     }
@@ -858,7 +871,15 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
-        if (uiReady) outState.putString("draft", input.text.toString())
+        backups.savePendingState(outState)
+        // A recreated screen stays locked before input exists. Keep the already
+        // saved draft through further recreations, including external pickers.
+        val draft = if (uiReady) input.text.toString() else initialState?.getString("draft")
+        if (draft != null) {
+            var end = minOf(draft.length, 16000)
+            if (end < draft.length && end > 0 && Character.isHighSurrogate(draft[end - 1])) end--
+            outState.putString("draft", draft.substring(0, end))
+        }
         super.onSaveInstanceState(outState)
     }
 

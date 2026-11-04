@@ -86,6 +86,7 @@ object KralBackup {
             try {
                 checkSchema(db)
                 requireEmpty(db)
+                requireTriggerFreeTarget(db)
                 snapshot.memories.forEach { row ->
                     db.insertOrThrow("mem", null, ContentValues().apply {
                         put("id", row.id); put("ts", row.ts); put("text", row.text)
@@ -101,6 +102,11 @@ object KralBackup {
                         put("id", row.id); put("ts", row.ts); put("role", row.role); put("text", row.text)
                     })
                 }
+                // Accepted column shapes may still carry an ON CONFLICT IGNORE
+                // constraint. A successful INSERT call is not proof that its row
+                // was stored; compare the complete logical copy before commit.
+                preflight(db)
+                check(readSnapshot(db) == snapshot) { "BACKUP_RESTORE_CONTENT_MISMATCH" }
                 db.setTransactionSuccessful()
             } finally {
                 db.endTransaction()
@@ -225,6 +231,17 @@ object KralBackup {
             db.rawQuery("SELECT 1 FROM $quoted LIMIT 1", null).use { rows ->
                 if (rows.moveToFirst()) throw BackupException(NONEMPTY)
             }
+        }
+    }
+
+    private fun requireTriggerFreeTarget(db: SQLiteDatabase) {
+        // Triggers can silently skip/change rows or modify unrelated tables.
+        // Unknown target behavior is unsupported; never remove it automatically.
+        db.rawQuery(
+            "SELECT name FROM sqlite_master WHERE type='trigger' " +
+                "UNION ALL SELECT name FROM sqlite_temp_master WHERE type='trigger' LIMIT 1", null,
+        ).use { rows ->
+            check(!rows.moveToFirst()) { "BACKUP_TARGET_TRIGGERS_UNSUPPORTED" }
         }
     }
 

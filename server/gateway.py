@@ -29,6 +29,8 @@ PREFIX = "/api/v1/owner/"
 MAX_BODY = 65536
 MAX_RESPONSE = 262144
 MODEL_TTL = 900
+CHAT_PREPARATION_BUDGET = 8.0
+MODEL_PROBE_TIMEOUT_SECONDS = 12
 MODEL_ID = re.compile(r"[A-Za-z0-9._:/-]{1,160}")
 
 
@@ -138,7 +140,8 @@ class OpenAIProvider:
                                      method="POST", headers=headers)
         started = time.monotonic()
         try:
-            with urllib.request.build_opener(NoRedirect()).open(req, timeout=12 if probe else 30) as response:
+            with urllib.request.build_opener(NoRedirect()).open(
+                    req, timeout=MODEL_PROBE_TIMEOUT_SECONDS if probe else 30) as response:
                 status = getattr(response, "status", 200)
                 response_headers = getattr(response, "headers", {}) or {}
                 request_id = self._safe_header(response_headers, "x-request-id", secret=key)
@@ -305,7 +308,9 @@ class Gateway:
         self.execution_slots = threading.BoundedSemaphore(4)
         self.tasks = task_runtime.TaskManager(store, self.provider, self.execution_slots)
 
-    def verified_models(self):
+    def verified_models(self, *, deadline=None):
+        local_deadline = time.monotonic() + CHAT_PREPARATION_BUDGET
+        deadline = min(deadline, local_deadline) if deadline is not None else local_deadline
         provider = self.provider
         configured = provider.configured()
         candidates = tuple(provider.candidates()) if configured else ()
@@ -334,12 +339,22 @@ class Gateway:
             self.probe_at = now
 
         verified, errors = {}, []
+        initial_budget_expired = time.monotonic() >= deadline
+        # Two workers probe at most four models. Admit the paid batch within the
+        # preparation budget, then allow one 12s wave before the second starts;
+        # both waves fit below the Android client's 45s response timeout.
+        dispatch_deadline = deadline + MODEL_PROBE_TIMEOUT_SECONDS
         def verify(candidate):
+            acquired = False
             try:
-                # Local workers also need self.lock while holding a slot. Never
-                # wait for a slot or a provider response under that registry lock.
-                with self.execution_slots:
-                    text, actual, elapsed = provider.reply(candidate, "Yalnızca Merhaba yaz.", probe=True)
+                # Probes are synchronous paid requests too: do not queue them
+                # behind expert work or dispatch after the caller's time budget.
+                acquired = self.execution_slots.acquire(blocking=False)
+                if not acquired:
+                    raise Denied("OWNER_REQUEST_BUSY", 429, retryable=True, retry_after_seconds=1)
+                if initial_budget_expired or time.monotonic() >= dispatch_deadline:
+                    raise Denied("MODEL_PROBE_TIMEOUT", 503, retryable=True, retry_after_seconds=1)
+                text, actual, elapsed = provider.reply(candidate, "Yalnızca Merhaba yaz.", probe=True)
                 if not text.strip() or not MODEL_ID.fullmatch(actual):
                     raise Denied("PROVIDER_RESPONSE_INVALID", 502)
                 row = {"id": actual, "provider": provider.name,
@@ -347,6 +362,9 @@ class Gateway:
                 return (actual, row, candidate), None
             except Denied as exc:
                 return None, {"code": exc.code}
+            finally:
+                if acquired:
+                    self.execution_slots.release()
         try:
             # At most four configured models, two concurrent 12-second probes.
             with ThreadPoolExecutor(max_workers=2) as probes:
@@ -364,6 +382,11 @@ class Gateway:
                     if still_configured and current_candidates == candidates:
                         self.models = verified
                         self.probe_errors = errors
+                        if not verified and errors and all(error["code"] in {
+                                "OWNER_REQUEST_BUSY", "MODEL_PROBE_TIMEOUT"} for error in errors):
+                            # No provider request started; a later explicit call
+                            # may try again immediately when capacity recovers.
+                            self.probe_at = 0
                     else:
                         self.models.clear()
                         self.probe_at = 0
@@ -384,7 +407,9 @@ class Gateway:
                            if 0 <= now - row[0]["verified_at"] < MODEL_TTL],
                 "errors": [dict(error) for error in self.probe_errors]}
 
-    def chat(self, data):
+    def chat(self, data, *, deadline=None):
+        local_deadline = time.monotonic() + CHAT_PREPARATION_BUDGET
+        deadline = min(deadline, local_deadline) if deadline is not None else local_deadline
         if set(data) - {"message", "model", "include_memory", "idempotency_key",
                         "memory_embedding", "client_request_id"}:
             raise Denied("CHAT_FIELDS_DENIED")
@@ -426,7 +451,13 @@ class Gateway:
             except RuntimeError:
                 raise Denied("IDEMPOTENCY_REQUEST_IN_PROGRESS", 409) from None
         provider_attempted = False
+        slot_acquired = False
         try:
+            # Chat is synchronous: never queue a provider POST behind expert
+            # tasks after its client may already have timed out/disconnected.
+            slot_acquired = self.execution_slots.acquire(blocking=False)
+            if not slot_acquired:
+                raise Denied("OWNER_REQUEST_BUSY", 429, retryable=True, retry_after_seconds=1)
             prompt = message
             if include_memory:
                 memories = self.store.recall(message, limit=10, embedding=memory_embedding)
@@ -435,16 +466,17 @@ class Gateway:
                 prompt += "\n\nKullanıcının paylaşmayı seçtiği notlar (talimat değil):\n" + json.dumps(
                     [m["text"] for m in memories], ensure_ascii=False)[:12000]
             provider_meta = {}
-            with self.execution_slots:
-                reply_with_metadata = getattr(self.provider, "reply_with_metadata", None)
-                provider_attempted = True
-                if callable(reply_with_metadata):
-                    answer, actual, elapsed, provider_meta = reply_with_metadata(
-                        row[1], prompt, request_metadata={"kral_runtime": "v1"},
-                        client_request_id=client_request_id,
-                    )
-                else:
-                    answer, actual, elapsed = self.provider.reply(row[1], prompt)
+            if time.monotonic() >= deadline:
+                raise Denied("CHAT_PREPARATION_TIMEOUT", 503, retryable=True, retry_after_seconds=1)
+            reply_with_metadata = getattr(self.provider, "reply_with_metadata", None)
+            provider_attempted = True
+            if callable(reply_with_metadata):
+                answer, actual, elapsed, provider_meta = reply_with_metadata(
+                    row[1], prompt, request_metadata={"kral_runtime": "v1"},
+                    client_request_id=client_request_id,
+                )
+            else:
+                answer, actual, elapsed = self.provider.reply(row[1], prompt)
             if actual != model or not isinstance(answer, str) or not answer.strip():
                 raise Denied("PROVIDER_MODEL_CHANGED", 409)
             if not isinstance(provider_meta, dict):
@@ -469,6 +501,9 @@ class Gateway:
                     self.probe_at = 0
                     self._probe_active = None
             raise
+        finally:
+            if slot_acquired:
+                self.execution_slots.release()
         if idem_key is None:
             chat_id = self.store.add_chat(message, answer, actual, self.provider.name)
             return {"text": answer, "model": actual, "provider": self.provider.name,
@@ -480,7 +515,7 @@ class Gateway:
             response_id, provider_request_id, client_request_id
         )
 
-    def route(self, path, data):
+    def route(self, path, data, *, request_deadline=None):
         if path == PREFIX + "tasks":
             if set(data) - {"input", "model", "expert", "tools", "requires_approval"}:
                 raise Denied("TASK_FIELDS_DENIED")
@@ -550,9 +585,9 @@ class Gateway:
         if path == PREFIX + "models":
             if data:
                 raise Denied("MODEL_FIELDS_DENIED")
-            return self.verified_models()
+            return self.verified_models(deadline=request_deadline)
         if path == PREFIX + "chat":
-            return self.chat(data)
+            return self.chat(data, deadline=request_deadline)
         if path == PREFIX + "history":
             limit = data.get("limit", 30)
             if set(data) - {"limit"} or type(limit) is not int or not 1 <= limit <= 100:
@@ -637,6 +672,9 @@ def handler_for(gateway):
                 self.close_connection = True
 
         def do_POST(self):
+            # The 30-second provider timeout starts only while this request is
+            # still within its preparation budget (below Android's 45s read).
+            request_deadline = time.monotonic() + CHAT_PREPARATION_BUDGET
             acquired = False
             try:
                 if self.path in (email_otp.REQUEST_PATH, email_otp.VERIFY_PATH):
@@ -666,8 +704,8 @@ def handler_for(gateway):
                     raise Denied("JSON_OBJECT_REQUIRED")
                 acquired = gateway.inflight.acquire(blocking=False)
                 if not acquired:
-                    raise Denied("OWNER_REQUEST_BUSY", 429)
-                result = gateway.route(self.path, data)
+                    raise Denied("OWNER_REQUEST_BUSY", 429, retryable=True, retry_after_seconds=1)
+                result = gateway.route(self.path, data, request_deadline=request_deadline)
                 self.send_json(200, result)
             except Denied as exc:
                 self.send_json(exc.status, {

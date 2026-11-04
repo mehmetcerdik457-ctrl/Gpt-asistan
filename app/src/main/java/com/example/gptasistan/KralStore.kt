@@ -89,10 +89,17 @@ class KralStore private constructor(context: Context, private val databaseKey: B
     }
     fun memory(): String {
         val out = mutableListOf<String>()
-        readableDatabase.rawQuery("SELECT ts,text FROM mem ORDER BY id DESC LIMIT 20", null).use { c ->
-            while (c.moveToNext()) out.add(c.getString(0) + ": " + c.getString(1))
+        var moreRows = false
+        readableDatabase.rawQuery("SELECT ts,text FROM mem ORDER BY id DESC LIMIT 21", null).use { c ->
+            while (c.moveToNext()) {
+                if (out.size == 20) {
+                    moreRows = true
+                    break
+                }
+                out.add(c.getString(0) + ": " + c.getString(1))
+            }
         }
-        return if (out.isEmpty()) "(kayıt yok)" else out.asReversed().joinToString("\n")
+        return KralAndroidCore.localReadReply(out.asReversed(), "(kayıt yok)", moreRows)
     }
     /** Newest records first, for explicit local selection without copying them to chat. */
     fun memoryEntries(limit: Int = 100): List<MemoryEntry> {
@@ -126,14 +133,21 @@ class KralStore private constructor(context: Context, private val databaseKey: B
         val locale = java.util.Locale("tr", "TR")
         val terms = query.trim().lowercase(locale).split(Regex("\\s+")).distinct()
         val matches = mutableListOf<String>()
+        var moreRows = false
         readableDatabase.rawQuery("SELECT ts,text FROM mem ORDER BY id DESC", null).use { cursor ->
-            while (matches.size < limit && cursor.moveToNext()) {
+            while (cursor.moveToNext()) {
                 val note = cursor.getString(1)
                 val searchable = note.lowercase(locale)
-                if (terms.all { searchable.contains(it) }) matches.add(cursor.getString(0) + ": " + note)
+                if (terms.all { searchable.contains(it) }) {
+                    if (matches.size == limit) {
+                        moreRows = true
+                        break
+                    }
+                    matches.add(cursor.getString(0) + ": " + note)
+                }
             }
         }
-        return if (matches.isEmpty()) "(eşleşen bilgi yok)" else matches.asReversed().joinToString("\n")
+        return KralAndroidCore.localReadReply(matches.asReversed(), "(eşleşen bilgi yok)", moreRows)
     }
 
     fun addTask(title: String) {
@@ -149,13 +163,18 @@ class KralStore private constructor(context: Context, private val databaseKey: B
     }
     fun tasks(): String {
         val out = mutableListOf<String>()
-        readableDatabase.rawQuery("SELECT id,title,done FROM tasks ORDER BY id DESC LIMIT 30", null).use { c ->
+        var moreRows = false
+        readableDatabase.rawQuery("SELECT id,title,done FROM tasks ORDER BY id DESC LIMIT 31", null).use { c ->
             while (c.moveToNext()) {
+                if (out.size == 30) {
+                    moreRows = true
+                    break
+                }
                 out.add("#" + c.getLong(0) + " " + if (c.getInt(2) == 1) "[tamam] " + c.getString(1)
                     else "[bekliyor] " + c.getString(1))
             }
         }
-        return if (out.isEmpty()) "(görev yok)" else out.asReversed().joinToString("\n")
+        return KralAndroidCore.localReadReply(out.asReversed(), "(görev yok)", moreRows)
     }
 
     internal companion object {

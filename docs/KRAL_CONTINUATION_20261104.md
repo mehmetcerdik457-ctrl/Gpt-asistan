@@ -1,4 +1,4 @@
-# KRAL 1.0.8 devam çalışması
+# KRAL 1.0.9 devam çalışması
 
 Bu devam, test edilmiş `345f8c0e2c0f1c7438a2ee0dffedcade0d67c693`
 kaynağından ilerler; mevcut PR #92 güncellenir. Önceki APK ve kaynak geçmişi
@@ -27,6 +27,27 @@ korunur. Ana dalın zorunlu bağımsız inceleme kuralı değiştirilmez.
   çağrısını önler; bütün çıkışlarda bekleyen işçi serbest bırakılır.
 
 ## Hafıza silme
+
+Son inceleme düzeltmeleri: Android dosya seçici bekleyen işleminin türü
+ekran yeniden oluşturulurken korunur; dönüşte yeniden cihaz doğrulaması ve
+gerekirse yerel ekran/depo kurulumu yapılır. Parola ve dosya URI'si kayıt
+durumuna yazılmaz. Kimlik doğrulama ekranında süreç yenilenirse geçersiz/eski
+sonuç erişim açmaz; kullanıcıya yeniden başlatma bildirimi verilir. Kilitli
+ekranlar art arda yeniden oluşturulduğunda mevcut taslak da korunur.
+
+Hafıza, hatırlama ve görev listelemeleri toplam 30.000 karakterlik görüntüleme
+bütçesine uyar; Unicode çiftleri kesilmez ve kısaltma açıkça belirtilir.
+Asıl kayıtlar değişmez; 32.000 karakterlik ledger güvenlik sınırı korunur.
+
+Sohbet ve model doğrulama, dolu yürütme kapasitesinde ücretli istek
+başlatmadan hızlıca reddedilir. Hazırlık için sunucu içi süre bütçesi,
+model doğrulamada sınırlı iki probe dalgası vardır; otomatik tekrar yoktur.
+Android aynı gönderimin korelasyon UUID'sini idempotency anahtarı olarak da
+gönderir; yeni gönderim yeni anahtar alır.
+
+Geri yükleme artık hedefte ana/TEMP trigger varsa başlamaz. Eklemeden sonra
+bütün mantıksal kayıtlar çözülmüş yedekle karşılaştırılmadan commit yapılmaz;
+sessizce satır atlayan veya değiştiren hedef kurallarında bütün işlem geri alınır.
 
 Hafıza menüsündeki tek kayıt silme akışı, kayıt seçimi sonrasında yeniden
 cihaz doğrulaması ve açık onay ister. ID, zaman ve metin birlikte eşleşmeden
