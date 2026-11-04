@@ -36,7 +36,7 @@ class MainActivityGateTest {
             assertTrue(allText(activity.window.decorView).contains("Kilidi aç"))
             assertEquals("https://gateway.example", preferences.getString("endpoint", ""))
             assertFalse(preferences.contains("otp_endpoint"))
-            activity.onActivityResult(4701, Activity.RESULT_CANCELED, null)
+            shadowOf(activity).receiveResult(credential.intent, Activity.RESULT_CANCELED, null)
             assertTrue(allText(activity.window.decorView).contains("Kilidi aç"))
             assertEquals("https://gateway.example", preferences.getString("endpoint", ""))
         } finally { controller.pause().stop().destroy(); preferences.edit().clear().commit() }
