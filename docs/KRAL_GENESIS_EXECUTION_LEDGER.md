@@ -13,6 +13,20 @@ retrieved in this session; its detailed requirements are not yet mapped.
   1.0.5 source is `276f84109cb32826416d63b8b4d18bb702190f3c`.
 - Prior Android CI for `5c36532`, not this change:
   [run 41753708922](https://github.com/mehmetcerdik457-ctrl/Gpt-asistan/actions/runs/41753708922).
+- For source `4495de597954a354f53283d7ef5a3a37522c1488`, the Python
+  [CI run 41847326490](https://github.com/mehmetcerdik457-ctrl/Gpt-asistan/actions/runs/41847326490)
+  succeeded, as did Android build and API 30/36 emulator jobs in
+  [run 41847326360](https://github.com/mehmetcerdik457-ctrl/Gpt-asistan/actions/runs/41847326360).
+  Android JVM tests: 75 passed, 6 skipped, 0 failed; lint passed with warnings.
+  The artifact was downloaded and its recorded SHA-256 verified locally.
+- That CI candidate is `com.example.gptasistan.genesis`, versionCode 7,
+  versionName `1.0.6-genesis-candidate`, APK SHA-256
+  `41ed1881ce788599d15aebc2148612ceff9cbaeeaa522eda4564f71a591e48b3`,
+  debug signer SHA-256
+  `6fd07125d5d188757967b5ba4c849a98daf07f79c063bce019ce11d58780b9eb`.
+  The pinned owner signer is different; owner signing and an in-place upgrade
+  were not verified. Do not install over an existing app or treat it as a
+  release. Emulator results are separate from physical-device acceptance.
 - GitHub account authentication is not proof of KRAL owner/device identity.
   No live provider, physical device, installed signer, upgrade, Drive delivery
   or public release was verified here.
