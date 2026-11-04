@@ -17,6 +17,14 @@ korunur. Ana dalın zorunlu bağımsız inceleme kuralı değiştirilmez.
   Anahtarı içeren başarılı yanıt alanları da dışarı verilmez. Denemeler yalnız
   sentetik sırlar ve izole upstream ile yapılır.
 - Android özel diyalogları ayrıca FLAG_SECURE taşır.
+- Görev başlangıcı, executor zamanlaması ve terminal durumun SQLite kaydı
+  sırasında oluşan geçici hatalar artık görevleri sessizce kuyrukta bırakmaz.
+  Sınırlı yeniden denemeler yalnız veritabanına yazmayı tekrarlar; sağlayıcı
+  POST'u tekrarlanmaz. Depolama düzelince bekleyen terminal kayıtlar tamamlanır.
+  Sağlayıcı yanıtından sonraki kayıt hatasında bilinen yanıt/istek kimlikleri
+  korunur. İstemciye verilecek kabul kaydı işçi başlamadan hazırlanır.
+  Executor kuyruğa ekledikten sonra hata verse bile kabul kapısı sağlayıcı
+  çağrısını önler; bütün çıkışlarda bekleyen işçi serbest bırakılır.
 
 ## Hafıza silme
 
