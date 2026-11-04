@@ -51,6 +51,14 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private var otpGeneration = 0L
     private val visibleDialogs = mutableSetOf<AlertDialog>()
     private val prefs by lazy { getSharedPreferences("kral_model", MODE_PRIVATE) }
+    private val backups by lazy {
+        BackupUi(this,
+            store = { if (appUnlocked && uiReady && !storageBlocked) store else null },
+            authorize = { action -> unlock(action) },
+            showDialog = { builder, dismissed -> builder.showProtected(dismissed) },
+            notice = { notice(it) },
+            refresh = { session.refreshHistory() })
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -103,6 +111,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     @Deprecated("Activity result used for the platform device credential screen")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (backups.onActivityResult(requestCode, resultCode, data)) return
         if (requestCode == 4702) {
             if (resultCode == Activity.RESULT_OK) {
                 val hypotheses = data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.toList()
@@ -138,6 +147,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         try {
             if (uiReady) { contentRoot.visibility = View.VISIBLE; setContentView(contentRoot) }
             action?.invoke()
+            if (uiReady) session.refreshHistory()
         } catch (_: Exception) {
             // Do not create a new plaintext DB, reset the key, or discard the old data.
             appUnlocked = false
@@ -218,10 +228,11 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
 
     /** Dismiss private previews whenever Android puts the application behind its lock gate. */
-    private fun AlertDialog.Builder.showProtected(): AlertDialog {
+    private fun AlertDialog.Builder.showProtected(dismissed: () -> Unit = {}): AlertDialog {
         val dialog = create()
         visibleDialogs.add(dialog)
-        dialog.setOnDismissListener { visibleDialogs.remove(dialog) }
+        dialog.setOnDismissListener { visibleDialogs.remove(dialog); dismissed() }
+        dialog.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         dialog.show()
         return dialog
     }
@@ -280,7 +291,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             actions.addView(b, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             return b
         }
-        button(getString(R.string.action_memory)) { showLocal { store.memory() } }
+        button(getString(R.string.action_memory)) { showMemoryMenu() }
         button(getString(R.string.action_tasks)) { showLocal { store.tasks() } }
         modelButton = button(getString(R.string.action_model)) { configureModel() }
         root.addView(actions)
@@ -349,6 +360,61 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             if (appUnlocked) speakLatestReply()
         }
         tts = TextToSpeech(this, this)
+    }
+
+    private fun memoryControlsReady() = appUnlocked && uiReady && !storageBlocked &&
+        session.state.value?.busy != true && !isFinishing && !isDestroyed
+
+    private fun showMemoryMenu() {
+        if (!memoryControlsReady()) return
+        AlertDialog.Builder(this).setTitle(getString(R.string.action_memory))
+            .setItems(arrayOf(getString(R.string.action_memory_show), getString(R.string.action_memory_delete), getString(R.string.backup_title))) { _, index ->
+                if (!memoryControlsReady()) return@setItems
+                when (index) {
+                    0 -> showLocal { store.memory() }
+                    1 -> chooseMemoryForDeletion()
+                    2 -> backups.showMenu()
+                }
+            }.setNegativeButton("Vazgeç", null).showProtected()
+    }
+
+    private fun chooseMemoryForDeletion() {
+        if (!memoryControlsReady()) return
+        val entries = try { store.memoryEntries() } catch (_: Exception) {
+            connectionStatus.text = getString(R.string.status_record_read_failed)
+            return
+        }
+        if (entries.isEmpty()) {
+            notice(getString(R.string.status_memory_empty))
+            return
+        }
+        val labels = entries.map { "#${it.id} · ${it.ts}\n${it.text.take(160)}" }.toTypedArray()
+        AlertDialog.Builder(this).setTitle(getString(R.string.title_memory_select_delete))
+            .setItems(labels) { _, index ->
+                if (!memoryControlsReady()) return@setItems
+                val selected = entries[index]
+                unlock { if (memoryControlsReady()) confirmMemoryDeletion(selected) }
+            }.setNegativeButton("Vazgeç", null).showProtected()
+    }
+
+    private fun confirmMemoryDeletion(selected: MemoryEntry) {
+        if (!memoryControlsReady()) return
+        val preview = TextView(this).apply {
+            text = "#${selected.id} · ${selected.ts}\n\n${selected.text}"
+            setPadding(24, 16, 24, 16)
+        }
+        AlertDialog.Builder(this).setTitle(getString(R.string.title_memory_confirm_delete))
+            .setMessage(getString(R.string.message_memory_confirm_delete))
+            .setView(ScrollView(this).apply { addView(preview) })
+            .setPositiveButton(getString(R.string.action_memory_delete_selected)) { _, _ ->
+                if (!memoryControlsReady()) return@setPositiveButton
+                try {
+                    connectionStatus.text = getString(if (store.deleteMemory(selected))
+                        R.string.status_memory_deleted else R.string.status_memory_selection_changed)
+                } catch (_: Exception) {
+                    connectionStatus.text = getString(R.string.status_memory_delete_failed)
+                }
+            }.setNegativeButton("Vazgeç", null).showProtected()
     }
 
     private fun showHandoffMenu() {

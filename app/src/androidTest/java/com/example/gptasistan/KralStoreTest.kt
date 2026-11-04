@@ -281,6 +281,57 @@ class KralStoreTest {
     }
 
     @Test
+    fun selectedMemoryDeletionSurvivesReopenAndPreservesOtherMemoryChatAndTasks() {
+        val original = openStore()
+        original.saveMemory("İstanbul cuma silinecek kişisel not")
+        original.saveMemory("Ankara pazartesi korunacak kişisel not")
+        original.saveMessage("user", "Korunacak sohbet kaydı")
+        original.addTask("Korunacak bekleyen görev")
+        original.close()
+
+        val reopened = openStore()
+        assertTrue(reopened.recall("İSTANBUL CUMA").contains("silinecek kişisel not"))
+        val selected = reopened.memoryEntries().single { it.text.contains("İstanbul") }
+        val preserved = reopened.memoryEntries().single { it.text.contains("Ankara") }
+        val originalChat = reopened.history()
+        val originalTasks = reopened.tasks()
+        assertTrue(reopened.deleteMemory(selected))
+        reopened.close()
+
+        val afterDeletion = openStore()
+        assertEquals("(eşleşen bilgi yok)", afterDeletion.recall("İSTANBUL CUMA"))
+        assertEquals(listOf(preserved), afterDeletion.memoryEntries())
+        assertTrue(afterDeletion.recall("ANKARA PAZARTESİ").contains("korunacak kişisel not"))
+        assertEquals(originalChat, afterDeletion.history())
+        assertEquals(originalTasks, afterDeletion.tasks())
+        assertFalse(afterDeletion.deleteMemory(selected))
+        assertEquals(listOf(preserved), afterDeletion.memoryEntries())
+    }
+
+    @Test
+    fun staleSelectionCannotDeleteNewMemoryEvenWhenLegacyPrimaryKeyIsReused() {
+        val store = openStore()
+        store.saveMemory("Aynı metin birinci kayıt")
+        store.saveMemory("Aynı metin birinci kayıt")
+        val snapshots = store.memoryEntries()
+        val selected = snapshots.first()
+        val unrelated = snapshots.last()
+        assertTrue(store.deleteMemory(selected))
+        assertEquals(listOf(unrelated), store.memoryEntries())
+        store.saveMemory("Yeni kayıt eski satır kimliğini kullanır")
+        val replacement = store.memoryEntries().first()
+        assertEquals(selected.id, replacement.id)
+        assertFalse(store.deleteMemory(selected))
+        assertEquals(listOf(replacement, unrelated), store.memoryEntries())
+        store.close()
+
+        val reopened = openStore()
+        assertEquals(listOf(replacement, unrelated), reopened.memoryEntries())
+        assertFalse(reopened.deleteMemory(selected))
+        assertTrue(reopened.recall("Yeni kayıt").contains(replacement.text))
+    }
+
+    @Test
     fun privateContentIsNotStoredInThePlaintextDatabaseFile() {
         val marker = "AT_REST_ENCRYPTION_SENTINEL_7f1b"
         val store = openStore()

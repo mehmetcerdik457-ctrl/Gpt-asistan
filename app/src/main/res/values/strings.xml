@@ -9,6 +9,16 @@
     <string name="candidate_title">KRAL ASİSTAN — aday sürüm</string>
     <string name="owner_unlocked_notice">Cihaz kilidi açık. Sunucu erişimi kayıtlı sahip ve cihaz imzasıyla doğrulanır.</string>
     <string name="action_memory">Hafıza</string>
+    <string name="action_memory_show">Hafızayı göster</string>
+    <string name="action_memory_delete">Tek kaydı sil</string>
+    <string name="status_memory_empty">Silinecek hafıza kaydı yok.</string>
+    <string name="title_memory_select_delete">Silinecek kaydı seç (son 100)</string>
+    <string name="title_memory_confirm_delete">Bu hafıza kaydı silinsin mi?</string>
+    <string name="message_memory_confirm_delete">Yalnız aşağıdaki kayıt etkin yerel hafızadan kaldırılır. Sohbet geçmişi ve yedek kopyalar değişmez. Diğer hafıza kayıtları korunur.</string>
+    <string name="action_memory_delete_selected">Kaydı sil</string>
+    <string name="status_memory_deleted">Seçilen hafıza kaydı silindi.</string>
+    <string name="status_memory_selection_changed">Kayıt değişmiş veya daha önce silinmiş; hiçbir kayıt silinmedi.</string>
+    <string name="status_memory_delete_failed">Hafıza kaydı silinemedi. Depolama alanını kontrol et.</string>
     <string name="action_tasks">Görevler</string>
     <string name="action_model">Model</string>
     <string name="action_server_registration">Sunucuya kayıt bilgisi</string>
@@ -44,4 +54,17 @@
     <string name="status_model_verifying">Sahip imzası ve canlı model yanıtı doğrulanıyor…</string>
     <string name="storage_preserved_message">Şifreli depolama doğrulanamadı. Veri kaybını önlemek için erişim durduruldu. Uygulamayı silmeyin, veritabanı veya WAL dosyalarını temizlemeyin. Sahip onaylı yedek ve kurtarma işlemi gereklidir.</string>
     <string name="greeting_help">Merhaba! %1$s\n</string>
+    <string name="action_cancel">Vazgeç</string>
+    <string name="backup_title">Şifreli yedek / geri yükleme</string>
+    <string name="backup_export">Şifreli yedek oluştur</string>
+    <string name="backup_restore">Boş kuruluma geri yükle</string>
+    <string name="backup_password">Yedek parolası (en az 12 karakter)</string>
+    <string name="backup_repeat_password">Parolayı tekrar yaz</string>
+    <string name="backup_export_explanation">Hafıza, görev ve sohbetlerini seçtiğin dosyaya şifreli kaydeder. Parolanı güvenli sakla; unutulursa yedek açılamaz. Sunucu ayarları ve sahip anahtarları bu yedeğe dahil edilmez.</string>
+    <string name="backup_restore_explanation">Yalnız hafıza, görev ve sohbeti boş olan kuruluma geri yükler. Mevcut kayıtların üzerine yazılmaz. Dosyayı açmak için yedek parolanı gir.</string>
+    <string name="backup_password_invalid">En az 12 karakterlik parola kullan; iki alan varsa aynı parolayı yaz.</string>
+    <string name="backup_failed">Yedek işlenemedi. Dosyayı, parolayı ve geri yükleme hedefinin boş olduğunu kontrol et.</string>
+    <string name="backup_picker_missing">Telefonda dosya seçici bulunamadı.</string>
+    <string name="backup_exported">Şifreli yedek seçtiğin dosyaya kaydedildi.</string>
+    <string name="backup_restored">Geri yüklendi: %1$d hafıza, %2$d görev, %3$d sohbet kaydı.</string>
 </resources>

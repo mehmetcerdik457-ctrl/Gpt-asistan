@@ -8,6 +8,7 @@ import java.time.Instant
 // The mem schema intentionally preserves the original Python assistant.py fields.
 // The old Termux mem.db is not silently imported; the Android app owns this new DB.
 data class ChatEntry(val id: Long, val ts: String, val role: String, val text: String)
+data class MemoryEntry(val id: Long, val ts: String, val text: String)
 
 internal interface ChatStore {
     fun saveMessage(role: String, text: String)
@@ -93,6 +94,31 @@ class KralStore private constructor(context: Context, private val databaseKey: B
         }
         return if (out.isEmpty()) "(kayıt yok)" else out.asReversed().joinToString("\n")
     }
+    /** Newest records first, for explicit local selection without copying them to chat. */
+    fun memoryEntries(limit: Int = 100): List<MemoryEntry> {
+        require(limit in 1..100) { "Geçersiz hafıza sınırı" }
+        val entries = mutableListOf<MemoryEntry>()
+        readableDatabase.rawQuery(
+            "SELECT id,ts,text FROM mem ORDER BY id DESC LIMIT ?", arrayOf(limit.toString())
+        ).use { cursor ->
+            while (cursor.moveToNext()) entries.add(MemoryEntry(
+                cursor.getLong(0), cursor.getString(1), cursor.getString(2)
+            ))
+        }
+        return entries
+    }
+
+    /**
+     * Remove only the selected snapshot. The legacy INTEGER PRIMARY KEY may be
+     * reused after deletion, so matching its id alone could delete a newer note.
+     * This removes an active memory record, not copies in chat, backups or legacy files.
+     */
+    fun deleteMemory(selected: MemoryEntry): Boolean {
+        require(selected.id > 0) { "Geçersiz hafıza kimliği" }
+        return writableDatabase.delete("mem", "id=? AND ts=? AND text=?",
+            arrayOf(selected.id.toString(), selected.ts, selected.text)) == 1
+    }
+
     /** Local-only recall; Unicode Turkish matching does not send notes to any provider. */
     fun recall(query: String, limit: Int = 20): String {
         require(query.isNotBlank() && query.length <= 16000)

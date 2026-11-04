@@ -53,6 +53,7 @@ class MainActivityGateTest {
             assertTrue(allText(activity.window.decorView).contains("Kilidi aç"))
             val dialog = ShadowDialog.getLatestDialog()
             assertTrue(dialog.isShowing)
+            assertTrue(dialog.window!!.attributes.flags and android.view.WindowManager.LayoutParams.FLAG_SECURE != 0)
             assertTrue(allText(dialog.window!!.decorView).contains("güvenli ekran kilidi"))
         } finally { controller.pause().stop().destroy() }
     }
