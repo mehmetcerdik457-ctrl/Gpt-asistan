@@ -246,8 +246,68 @@ jobs:
             app/build/outputs/androidTest-results/
             app/build/reports/androidTests/connected/
           if-no-files-found: warn
+  backup-copy:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    env:
+      KRAL_EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      KRAL_EMULATOR_API: '30'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify the exact source before the installation-copy fixture
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA" || { echo "SOURCE_SHA_MISMATCH"; exit 1; }
+          test -z "$(git status --porcelain)" || { echo "SOURCE_TREE_DIRTY"; exit 1; }
+      - uses: actions/download-artifact@v4
+        with:
+          name: kral-asistan-candidate-apk
+          path: build/emulator/apk
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: build-tools;36.0.0
+          log-accepted-android-sdk-licenses: false
+      - name: Enable KVM for the isolated installation-copy emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Restore an encrypted fixture after a fresh application installation
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          arch: x86_64
+          target: google_apis
+          profile: pixel_2
+          emulator-boot-timeout: 240
+          cores: 2
+          ram-size: 2048M
+          heap-size: 256M
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: bash scripts/android_backup_copy_smoke.sh
+      - name: Upload encrypted installation-copy acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kral-asistan-backup-copy-evidence-api30
+          path: build/backup-copy/evidence/
+          if-no-files-found: warn
   release-build:
-    needs: [backend, build, emulator]
+    needs: [backend, build, emulator, backup-copy]
     if: >-
       github.event_name == 'push' && github.ref == 'refs/heads/main' &&
       github.repository == 'mehmetcerdik457-ctrl/Gpt-asistan' &&
@@ -403,7 +463,7 @@ jobs:
           gh release edit "$tag" --draft=false
           printf 'APK: https://github.com/%s/releases/download/%s/app-release.apk\n' "$GITHUB_REPOSITORY" "$tag" >> "$GITHUB_STEP_SUMMARY"
   publish-candidate:
-    needs: [backend, build, emulator]
+    needs: [backend, build, emulator, backup-copy]
     if: >-
       github.event_name == 'push' && github.ref == 'refs/heads/main' &&
       github.repository == 'mehmetcerdik457-ctrl/Gpt-asistan' &&

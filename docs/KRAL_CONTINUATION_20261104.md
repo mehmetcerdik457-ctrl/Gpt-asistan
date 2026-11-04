@@ -46,6 +46,15 @@ değiştirmez. Geçerli Android locale metaverisi korunur. Ayrı anahtarlı SQLC
 test depolarında geri yükleme ve yeniden açma testleri eklenmiştir; bunlar
 fiziksel ikinci telefon kurulumu iddiası değildir.
 
+CI ayrıca yeni açılmış API 30 emülatöründe gerçek kurulum döngüsünü sınar:
+başlangıçta iki test paketinin de bulunmadığını doğrular, yalnız kendisinin
+kurduğu debug paketlerinde sentetik kayıt oluşturup şifreli yedeği çıkarır;
+bu test kurulumunu kaldırıp aynı APK'ları yeniden kurar. Yeni kurulumda eski
+veritabanı, anahtar tercihi ve Android Keystore takma adı bulunmadan yedek
+geri yüklenir. Şifreli dosyanın hash'i ve geri yüklenen kayıtlar doğrulanır.
+Bu akış normal testlerden ayrı çalışır ve yayın kapısına dahildir. Fiziksel
+telefonlara veya önceden mevcut kurulumlara uygulanamaz.
+
 ## Tekrarlanabilir bağımsız kontroller
 
 `scripts/acceptance/run_exact_source_audit.py <tam-commit>` istenen Git kaynağını

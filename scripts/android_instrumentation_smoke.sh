@@ -33,7 +33,9 @@ timeout 90 adb -e install -t "$apk_dir/app-debug-androidTest.apk" 2>&1 |
   tee "$evidence_dir/instrumentation-install-test.txt"
 
 # Fail on nonzero adb status AND malformed/missing test-runner success summary.
+# The two-phase installation-copy fixture runs only in its own fresh emulator job.
 timeout 240 adb -e shell am instrument -w -r \
+  -e notClass com.example.gptasistan.BackupInstallationTest \
   com.example.gptasistan.genesis.test/androidx.test.runner.AndroidJUnitRunner 2>&1 |
   tee "$evidence_dir/instrumentation-result.txt"
 
