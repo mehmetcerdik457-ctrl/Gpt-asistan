@@ -75,6 +75,10 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         locked.findViewById<Button>(R.id.unlock_button).setOnClickListener {
             unlock { if (!uiReady) buildContent(initialState) else setContentView(contentRoot) }
         }
+        locked.addView(Button(this).apply {
+            text = "E-posta ile doğrula"
+            setOnClickListener { showEmailOtp() }
+        })
         setContentView(locked)
     }
 
@@ -121,20 +125,82 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         if (requestCode != 4701) return
         val action = pendingUnlock
         pendingUnlock = null
-        if (resultCode == Activity.RESULT_OK) {
-            appUnlocked = true
-            try {
-                if (uiReady) { contentRoot.visibility = View.VISIBLE; setContentView(contentRoot) }
-                action?.invoke()
-            } catch (_: Exception) {
-                // Do not create a new plaintext DB, reset the key, or discard the old data.
-                appUnlocked = false
-                uiReady = false
-                storageBlocked = true
-                if (::store.isInitialized) runCatching { store.close() }
-                showStorageBlocked()
-            }
-        } else { appUnlocked = false; showLocked() }
+        if (resultCode == Activity.RESULT_OK) completeUnlock(action)
+        else { appUnlocked = false; showLocked() }
+    }
+
+    private fun completeUnlock(action: (() -> Unit)?) {
+        appUnlocked = true
+        try {
+            if (uiReady) { contentRoot.visibility = View.VISIBLE; setContentView(contentRoot) }
+            action?.invoke()
+        } catch (_: Exception) {
+            // Do not create a new plaintext DB, reset the key, or discard the old data.
+            appUnlocked = false
+            uiReady = false
+            storageBlocked = true
+            if (::store.isInitialized) runCatching { store.close() }
+            showStorageBlocked()
+        }
+    }
+
+    private fun showEmailOtp() {
+        val fields = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(24, 16, 24, 0) }
+        val server = EditText(this).apply {
+            hint = "https://sana-ait-sunucu.example"
+            setText(prefs.getString("endpoint", "")); isSingleLine = true
+        }
+        val email = EditText(this).apply {
+            hint = "E-posta adresin"
+            setText(prefs.getString("otp_email", "")); isSingleLine = true
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
+        }
+        fields.addView(server); fields.addView(email)
+        AlertDialog.Builder(this).setTitle("E-posta ile doğrula").setView(fields)
+            .setMessage("Kayıtlı e-postana 6 haneli onay kodu gönderilir.")
+            .setPositiveButton("Kod gönder") { _, _ ->
+                val base = server.text.toString().trim().trimEnd('/')
+                val address = email.text.toString().trim()
+                if (!OwnerGateway.validBase(base) || !EmailOtp.validEmail(address)) {
+                    notice("Geçerli HTTPS sunucu ve e-posta gir.")
+                    return@setPositiveButton
+                }
+                prefs.edit { putString("endpoint", base); putString("otp_email", address) }
+                thread {
+                    val result = runCatching { EmailOtp.request(base, address) }
+                    runOnUiThread {
+                        if (isFinishing || isDestroyed) return@runOnUiThread
+                        result.onSuccess { askOtpCode(base, it) }
+                            .onFailure { notice(it.message ?: "Kod gönderilemedi.") }
+                    }
+                }
+            }.setNegativeButton("Vazgeç", null).show()
+    }
+
+    private fun askOtpCode(base: String, challengeId: String) {
+        val code = EditText(this).apply {
+            hint = "6 haneli kod"
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            filters = arrayOf(InputFilter.LengthFilter(6))
+        }
+        AlertDialog.Builder(this).setTitle("Onay kodu").setView(code)
+            .setPositiveButton("Doğrula") { _, _ ->
+                val entered = code.text.toString().trim()
+                if (!EmailOtp.validCode(entered)) { notice("Kod 6 rakam olmalı."); return@setPositiveButton }
+                thread {
+                    val result = runCatching { EmailOtp.verify(base, challengeId, entered) }
+                    runOnUiThread {
+                        if (isFinishing || isDestroyed) return@runOnUiThread
+                        if (result.getOrNull() == true) {
+                            completeUnlock { if (!uiReady) buildContent(initialState) else setContentView(contentRoot) }
+                        } else notice(result.exceptionOrNull()?.message ?: "Kod doğrulanamadı.")
+                    }
+                }
+            }.setNegativeButton("Vazgeç", null).show()
+    }
+
+    private fun notice(message: String) {
+        AlertDialog.Builder(this).setMessage(message).setPositiveButton("Tamam", null).show()
     }
 
     /** After a failed encrypted DB preflight, never offer an unsafe reset/retry path. */
