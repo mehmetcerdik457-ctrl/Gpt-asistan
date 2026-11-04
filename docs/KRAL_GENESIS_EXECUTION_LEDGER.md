@@ -60,3 +60,30 @@ test coverage, not acceptance of the complete requirement.
 Rollback of RUNTIME-RESTART-OUTCOME: revert its commit on the development
 branch; do not reset user data or alter signing identities. The implementation
 does not provide checkpoint/resume, exactly-once external actions or a release.
+
+## Android build and upgrade follow-up
+
+- An isolated Temurin 17.0.21 installation runs the Gradle 8.13 wrapper on
+  Java 17. The local `:app:assembleDebug` still fails to resolve Android Gradle
+  Plugin 8.13.2: this environment could not resolve `dl.google.com`, and it has
+  no Android SDK configured. The existing successful GitHub-hosted build above
+  is separate evidence, not proof of a successful local build.
+- The candidate and instrumentation APKs from run 41847326360 matched their
+  published SHA-256 files. The separately downloaded API 30 and API 36
+  instrumentation summaries each record 16 passed tests for the same source
+  and APK; neither claims a physical phone test.
+- `python3 -m unittest server.tests.test_android_owner_signing
+  server.tests.test_android_upgrade_gate server.tests.test_android_delivery_evidence
+  server.tests.test_android_instrumentation_evidence` passed 37 local tests.
+  These are synthetic gate and evidence tests, not an actual owner signing or
+  installed-APK upgrade.
+- The 41847326360 signing report says `DEBUG_ONLY_UNTRUSTED_EVENT` and
+  `previous_install_upgrade_verified: false`. Its signing certificate differs
+  from the historical owner pin. The trusted signing branch named in the
+  current workflow no longer exists, and the Actions secrets metadata API
+  returned HTTP 403. Do not weaken the signing event boundary or assume that
+  a different signer can update the installed application.
+- The original roadmap file, actual installed APK identity, owner signing key
+  availability, and physical-device upgrade evidence remain unavailable.
+  T01–T26 and a safe final APK remain unaccepted; do not uninstall or reset
+  the existing application to bypass a signature mismatch.
