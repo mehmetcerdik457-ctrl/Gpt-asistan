@@ -11,8 +11,8 @@ import java.net.URL
  * SMTP/API anahtarı uygulamaya gömülmez.
  */
 object EmailOtp {
-    // Varsayılan sahip e-postası; kilit ekranındaki alandan değiştirilebilir.
-    const val DEFAULT_EMAIL = "mehmetcerdik457@gmail.com"
+    // No owner email is embedded in a public APK; the user enters it on the device.
+    const val DEFAULT_EMAIL = ""
     const val REQUEST_PATH = "/api/v1/owner/email-otp/request"
     const val VERIFY_PATH = "/api/v1/owner/email-otp/verify"
     private val EMAIL = Regex("[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9-]{1,63}(\\.[A-Za-z0-9-]{1,63}){1,5}")
