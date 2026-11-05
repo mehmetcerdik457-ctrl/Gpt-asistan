@@ -18,8 +18,9 @@ class EmailOtpTest {
         assertFalse(EmailOtp.validCode("12345a"))
     }
 
-    @Test fun defaultOwnerEmailIsValid() {
-        assertTrue(EmailOtp.validEmail(EmailOtp.DEFAULT_EMAIL))
+    @Test fun publicApkDoesNotBundleAnOwnerEmail() {
+        assertEquals("", EmailOtp.DEFAULT_EMAIL)
+        assertFalse(EmailOtp.validEmail(EmailOtp.DEFAULT_EMAIL))
     }
 
     @Test fun buildsBodies() {

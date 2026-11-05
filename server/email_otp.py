@@ -21,7 +21,6 @@ from email.message import EmailMessage
 
 REQUEST_PATH = "/api/v1/owner/email-otp/request"
 VERIFY_PATH = "/api/v1/owner/email-otp/verify"
-DEFAULT_OWNER_EMAIL = "mehmetcerdik457@gmail.com"
 CODE_TTL = 600
 MAX_ATTEMPTS = 5
 MAX_REQUESTS = 3
@@ -39,7 +38,7 @@ class OtpDenied(Exception):
 
 
 def owner_email():
-    return os.getenv("KRAL_OTP_OWNER_EMAIL", DEFAULT_OWNER_EMAIL).strip().lower()
+    return os.getenv("KRAL_OTP_OWNER_EMAIL", "").strip().lower()
 
 
 def smtp_configured():
@@ -99,7 +98,10 @@ class EmailOtp:
         address = data.get("email")
         if not isinstance(address, str) or not EMAIL.fullmatch(address) or len(address) > 254:
             raise OtpDenied("EMAIL_INVALID")
-        if address.strip().lower() != owner_email():
+        configured_owner = owner_email()
+        if len(configured_owner) > 254 or not EMAIL.fullmatch(configured_owner):
+            raise OtpDenied("EMAIL_SERVICE_NOT_CONFIGURED", 503)
+        if address.strip().lower() != configured_owner:
             raise OtpDenied("OTP_NOT_ALLOWED", 403)
         if not smtp_configured() and self.sender is send_via_smtp:
             raise OtpDenied("EMAIL_SERVICE_NOT_CONFIGURED", 503)
@@ -120,7 +122,7 @@ class EmailOtp:
             db.execute("INSERT INTO email_otp_v1(id,digest,expires,created) VALUES(?,?,?,?)",
                        (challenge_id, self._digest(challenge_id, code), now + CODE_TTL, now))
             try:
-                self.sender(owner_email(), code)
+                self.sender(configured_owner, code)
             except Exception:
                 # Keep an unusable record so an unavailable SMTP service cannot
                 # be hammered indefinitely by unauthenticated request retries.
