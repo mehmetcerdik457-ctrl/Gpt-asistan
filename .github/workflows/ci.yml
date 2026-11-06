@@ -1,11 +1,55 @@
 name: CI
-on: [push, pull_request]
+on:
+  push:
+  pull_request:
+  workflow_call:
+permissions:
+  contents: read
+concurrency:
+  group: python-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   test:
+    # Same-repository PR heads are already tested by push; fork PRs still run.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify the exact source commit
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          git rev-parse HEAD > python-source-commit.txt
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.x'
-      - run: python -V
+          python-version: '3.12'
+      - run: python -m pip install -r server/requirements.txt
+      - name: Test owner authentication, memory, and provider contract
+        run: |
+          set -o pipefail
+          python -m unittest discover -s server/tests -v 2>&1 | tee python-tests.log
+      - name: Upload Python test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kral-python-tests
+          path: |
+            python-tests.log
+            python-source-commit.txt
+          if-no-files-found: error
+      - name: Independent restart, injection and credential reflection checks
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python3 scripts/acceptance/run_exact_source_audit.py "$EXPECTED_SHA"
+      - name: Upload independent acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kral-independent-acceptance
+          path: |
+            build/acceptance/
+          if-no-files-found: error

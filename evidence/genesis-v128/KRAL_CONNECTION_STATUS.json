@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "updated_at_utc": "2026-11-04",
+  "connections": [
+    {"provider": "GitHub", "status": "TESTED", "scope": "Repository metadata and CI reads", "evidence": "Authenticated GitHub API queries succeeded; repository push permission observed."},
+    {"provider": "Google Drive", "status": "BLOCKED", "scope": "Owner-provided root", "evidence": "No authenticated Drive connector available in this session."},
+    {"provider": "Product model providers", "status": "BLOCKED", "scope": "Live product model inference", "evidence": "No authorized live inference call performed."}
+  ]
+}

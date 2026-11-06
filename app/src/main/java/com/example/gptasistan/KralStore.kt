@@ -1,0 +1,184 @@
+package com.example.gptasistan
+
+import android.content.Context
+import net.zetetic.database.sqlcipher.SQLiteDatabase
+import net.zetetic.database.sqlcipher.SQLiteOpenHelper
+import java.time.Instant
+
+// The mem schema intentionally preserves the original Python assistant.py fields.
+// The old Termux mem.db is not silently imported; the Android app owns this new DB.
+data class ChatEntry(val id: Long, val ts: String, val role: String, val text: String)
+data class MemoryEntry(val id: Long, val ts: String, val text: String)
+
+internal interface ChatStore {
+    fun saveMessage(role: String, text: String)
+    fun history(limit: Int = 200): List<ChatEntry>
+    fun close()
+}
+
+class KralStore private constructor(context: Context, private val databaseKey: ByteArray) :
+    SQLiteOpenHelper(
+        context.applicationContext, DATABASE_NAME, databaseKey, null, DATABASE_VERSION,
+        0, null, null, false,
+    ), ChatStore {
+
+    constructor(context: Context) : this(
+        context.applicationContext,
+        AndroidDatabaseKeyProvider.getKey(context.applicationContext),
+    )
+
+    internal constructor(context: Context, keyProvider: DatabaseKeyProvider) : this(
+        context.applicationContext,
+        keyProvider.getKey(context.applicationContext),
+    )
+
+    init {
+        EncryptedDatabaseMigration.migrateIfNeeded(context.applicationContext, databaseKey)
+    }
+
+    override fun onCreate(db: SQLiteDatabase) {
+        db.execSQL("CREATE TABLE mem(id INTEGER PRIMARY KEY, ts TEXT NOT NULL, text TEXT NOT NULL)")
+        db.execSQL("CREATE TABLE tasks(id INTEGER PRIMARY KEY, title TEXT NOT NULL, done INTEGER NOT NULL DEFAULT 0)")
+        createChatTable(db)
+    }
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        require(oldVersion in 1..2 && newVersion == DATABASE_VERSION) {
+            "Desteklenmeyen veritabanı geçişi"
+        }
+        if (oldVersion == 1) createChatTable(db)
+    }
+
+    private fun createChatTable(db: SQLiteDatabase) {
+        db.execSQL("CREATE TABLE chat_messages(id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL, " +
+            "role TEXT NOT NULL CHECK(role IN ('user','assistant','system')), text TEXT NOT NULL)")
+    }
+
+    override fun saveMessage(role: String, text: String) {
+        require(role in setOf("user", "assistant", "system")) { "Geçersiz mesaj rolü" }
+        require(text.isNotBlank()) { "Boş mesaj kaydedilemez" }
+        val values = android.content.ContentValues().apply {
+            put("ts", Instant.now().toString())
+            put("role", role)
+            put("text", text)
+        }
+        writableDatabase.insertOrThrow("chat_messages", null, values)
+    }
+
+    override fun history(limit: Int): List<ChatEntry> {
+        require(limit in 1..1000) { "Geçersiz geçmiş sınırı" }
+        val entries = mutableListOf<ChatEntry>()
+        readableDatabase.rawQuery(
+            "SELECT id,ts,role,text FROM chat_messages ORDER BY id DESC LIMIT ?",
+            arrayOf(limit.toString())
+        ).use { cursor ->
+            while (cursor.moveToNext()) entries.add(ChatEntry(
+                cursor.getLong(0), cursor.getString(1), cursor.getString(2), cursor.getString(3)
+            ))
+        }
+        return entries.asReversed()
+    }
+
+    override fun close() = super.close()
+
+    fun saveMemory(text: String) {
+        val values = android.content.ContentValues().apply {
+            put("ts", Instant.now().toString())
+            put("text", text)
+        }
+        writableDatabase.insertOrThrow("mem", null, values)
+    }
+    fun memory(): String {
+        val out = mutableListOf<String>()
+        var moreRows = false
+        readableDatabase.rawQuery("SELECT ts,text FROM mem ORDER BY id DESC LIMIT 21", null).use { c ->
+            while (c.moveToNext()) {
+                if (out.size == 20) {
+                    moreRows = true
+                    break
+                }
+                out.add(c.getString(0) + ": " + c.getString(1))
+            }
+        }
+        return KralAndroidCore.localReadReply(out.asReversed(), "(kayıt yok)", moreRows)
+    }
+    /** Newest records first, for explicit local selection without copying them to chat. */
+    fun memoryEntries(limit: Int = 100): List<MemoryEntry> {
+        require(limit in 1..100) { "Geçersiz hafıza sınırı" }
+        val entries = mutableListOf<MemoryEntry>()
+        readableDatabase.rawQuery(
+            "SELECT id,ts,text FROM mem ORDER BY id DESC LIMIT ?", arrayOf(limit.toString())
+        ).use { cursor ->
+            while (cursor.moveToNext()) entries.add(MemoryEntry(
+                cursor.getLong(0), cursor.getString(1), cursor.getString(2)
+            ))
+        }
+        return entries
+    }
+
+    /**
+     * Remove only the selected snapshot. The legacy INTEGER PRIMARY KEY may be
+     * reused after deletion, so matching its id alone could delete a newer note.
+     * This removes an active memory record, not copies in chat, backups or legacy files.
+     */
+    fun deleteMemory(selected: MemoryEntry): Boolean {
+        require(selected.id > 0) { "Geçersiz hafıza kimliği" }
+        return writableDatabase.delete("mem", "id=? AND ts=? AND text=?",
+            arrayOf(selected.id.toString(), selected.ts, selected.text)) == 1
+    }
+
+    /** Local-only recall; Unicode Turkish matching does not send notes to any provider. */
+    fun recall(query: String, limit: Int = 20): String {
+        require(query.isNotBlank() && query.length <= 16000)
+        require(limit in 1..100)
+        val locale = java.util.Locale("tr", "TR")
+        val terms = query.trim().lowercase(locale).split(Regex("\\s+")).distinct()
+        val matches = mutableListOf<String>()
+        var moreRows = false
+        readableDatabase.rawQuery("SELECT ts,text FROM mem ORDER BY id DESC", null).use { cursor ->
+            while (cursor.moveToNext()) {
+                val note = cursor.getString(1)
+                val searchable = note.lowercase(locale)
+                if (terms.all { searchable.contains(it) }) {
+                    if (matches.size == limit) {
+                        moreRows = true
+                        break
+                    }
+                    matches.add(cursor.getString(0) + ": " + note)
+                }
+            }
+        }
+        return KralAndroidCore.localReadReply(matches.asReversed(), "(eşleşen bilgi yok)", moreRows)
+    }
+
+    fun addTask(title: String) {
+        val values = android.content.ContentValues().apply {
+            put("title", title)
+            put("done", 0)
+        }
+        writableDatabase.insertOrThrow("tasks", null, values)
+    }
+    fun finishTask(id: Long): Boolean {
+        val values = android.content.ContentValues().apply { put("done", 1) }
+        return writableDatabase.update("tasks", values, "id=? AND done=0", arrayOf(id.toString())) == 1
+    }
+    fun tasks(): String {
+        val out = mutableListOf<String>()
+        var moreRows = false
+        readableDatabase.rawQuery("SELECT id,title,done FROM tasks ORDER BY id DESC LIMIT 31", null).use { c ->
+            while (c.moveToNext()) {
+                if (out.size == 30) {
+                    moreRows = true
+                    break
+                }
+                out.add("#" + c.getLong(0) + " " + if (c.getInt(2) == 1) "[tamam] " + c.getString(1)
+                    else "[bekliyor] " + c.getString(1))
+            }
+        }
+        return KralAndroidCore.localReadReply(out.asReversed(), "(görev yok)", moreRows)
+    }
+
+    internal companion object {
+        const val DATABASE_NAME = "kral_local.db"
+        const val DATABASE_VERSION = 3
+    }
+}

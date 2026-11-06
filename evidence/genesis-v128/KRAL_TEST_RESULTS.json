@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "updated_at_utc": "2026-11-04",
+  "source_commit": "5c365322ca1722d0e837a2785d4fc4401cea56b8",
+  "acceptance_status_default": "NOT_TESTED",
+  "note": "Existing synthetic tests and successful CI are not automatically equivalent to the original acceptance tests. Each test needs an independent criterion-level evaluation.",
+  "acceptance_tests": [
+    {"id": "T01", "title": "Orijinal koruma", "status": "NOT_TESTED"},
+    {"id": "T02", "title": "APK teknik inceleme", "status": "NOT_TESTED"},
+    {"id": "T03", "title": "GitHub erişim/derleme", "status": "NOT_TESTED"},
+    {"id": "T04", "title": "Google Drive erişim", "status": "NOT_TESTED"},
+    {"id": "T05", "title": "Eski bot/motor", "status": "NOT_TESTED"},
+    {"id": "T06", "title": "Kaynaktan yeni yetenek", "status": "NOT_TESTED"},
+    {"id": "T07", "title": "Yeteneği yeniden kullanma", "status": "NOT_TESTED"},
+    {"id": "T08", "title": "Model seçimi/alternatif", "status": "NOT_TESTED"},
+    {"id": "T09", "title": "Kalıcı hafıza", "status": "NOT_TESTED"},
+    {"id": "T10", "title": "Ses", "status": "NOT_TESTED"},
+    {"id": "T11", "title": "Sahip doğrulama", "status": "NOT_TESTED"},
+    {"id": "T12", "title": "Android eylem", "status": "NOT_TESTED"},
+    {"id": "T13", "title": "Google görevi", "status": "NOT_TESTED"},
+    {"id": "T14", "title": "Video üretimi", "status": "NOT_TESTED"},
+    {"id": "T15", "title": "Dış yayın", "status": "NOT_TESTED"},
+    {"id": "T16", "title": "Kod/APK üretimi", "status": "NOT_TESTED"},
+    {"id": "T17", "title": "Kesinti/tekrar", "status": "NOT_TESTED"},
+    {"id": "T18", "title": "Süreklilik/bildirim", "status": "NOT_TESTED"},
+    {"id": "T19", "title": "Offline/online", "status": "NOT_TESTED"},
+    {"id": "T20", "title": "Prompt injection", "status": "NOT_TESTED"},
+    {"id": "T21", "title": "Sır/erişim savunması", "status": "NOT_TESTED"},
+    {"id": "T22", "title": "Geliştirme döngüsü", "status": "NOT_TESTED"},
+    {"id": "T23", "title": "Geri yükleme", "status": "NOT_TESTED"},
+    {"id": "T24", "title": "Kontrollü kopya", "status": "NOT_TESTED"},
+    {"id": "T25", "title": "Kullanım kolaylığı", "status": "NOT_TESTED"},
+    {"id": "T26", "title": "Tam teslim", "status": "NOT_TESTED"}
+  ],
+  "other_checks": [
+    {"name": "Local server unittest suite", "result": "PASS", "count": 121, "environment": "Python virtual environment; existing repository dependencies", "command": "python -m unittest discover -s server/tests", "source_commit": "5c365322ca1722d0e837a2785d4fc4401cea56b8"},
+    {"name": "Local Android assembleDebug", "result": "FAIL", "environment": "Java 27; no configured Android SDK", "command": "./gradlew --no-daemon :app:assembleDebug", "reason": "Gradle failed with Java 27; Android SDK and Google download access also unavailable."},
+    {"name": "GitHub Android candidate workflow", "result": "PASS", "scope": "Build and API 30/36 emulator jobs; not a physical device or release acceptance.", "source_commit": "5c365322ca1722d0e837a2785d4fc4401cea56b8", "url": "https://github.com/mehmetcerdik457-ctrl/Gpt-asistan/actions/runs/41753708922"},
+    {"name": "GitHub CI workflow", "result": "PASS", "source_commit": "5c365322ca1722d0e837a2785d4fc4401cea56b8", "url": "https://github.com/mehmetcerdik457-ctrl/Gpt-asistan/actions/runs/41753709122"}
+  ]
+}
