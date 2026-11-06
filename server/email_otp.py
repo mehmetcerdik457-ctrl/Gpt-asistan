@@ -95,6 +95,8 @@ class EmailOtp:
         return hmac.new(self._pepper, f"{challenge_id}:{code}".encode(), hashlib.sha256).hexdigest()
 
     def request(self, data):
+        if not isinstance(data, dict):
+            raise OtpDenied("EMAIL_INVALID")
         address = data.get("email")
         if not isinstance(address, str) or not EMAIL.fullmatch(address) or len(address) > 254:
             raise OtpDenied("EMAIL_INVALID")
@@ -132,6 +134,8 @@ class EmailOtp:
         return {"challenge_id": challenge_id, "expires_in": CODE_TTL}
 
     def verify(self, data):
+        if not isinstance(data, dict):
+            raise OtpDenied("OTP_INVALID")
         challenge_id, code = data.get("challenge_id"), data.get("code")
         if (not isinstance(challenge_id, str) or not CHALLENGE.fullmatch(challenge_id)
                 or not isinstance(code, str) or not CODE.fullmatch(code)):
