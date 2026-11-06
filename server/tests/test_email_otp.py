@@ -134,6 +134,17 @@ class EmailOtpUnit(unittest.TestCase):
         with ThreadPoolExecutor(max_workers=5) as workers:
             self.assertEqual(list(workers.map(verify, range(5))).count(True), 1)
 
+    def test_non_object_payloads_fail_closed(self):
+        for bad in (None, [], "text", 42, True):
+            with self.subTest(bad=bad):
+                with self.assertRaises(eo.OtpDenied) as request_error:
+                    self.otp.request(bad)
+                self.assertEqual(request_error.exception.code, "EMAIL_INVALID")
+                with self.assertRaises(eo.OtpDenied) as verify_error:
+                    self.otp.verify(bad)
+                self.assertEqual(verify_error.exception.code, "OTP_INVALID")
+        self.assertEqual(self.mail.sent, [])
+
     def test_malformed_inputs(self):
         for bad in ({"email": 5}, {"email": "x"}, {}):
             with self.assertRaises(eo.OtpDenied):
