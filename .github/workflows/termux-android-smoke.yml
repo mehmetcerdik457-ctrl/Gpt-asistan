@@ -1,0 +1,46 @@
+name: Termux Android smoke test
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - integration/github-termux-runner-20261107
+    paths:
+      - '.github/workflows/termux-android-smoke.yml'
+permissions:
+  contents: read
+jobs:
+  termux-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download official Termux APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,urllib.request
+          req=urllib.request.Request('https://api.github.com/repos/termux/termux-app/releases/latest',headers={'User-Agent':'kral-termux-ci'})
+          data=json.load(urllib.request.urlopen(req,timeout=30))
+          assets=[a for a in data['assets'] if a['name'].endswith('.apk') and 'apt-android-7' in a['name'] and ('universal' in a['name'] or 'arm64-v8a' in a['name'] or 'x86_64' in a['name'])]
+          if not assets: raise SystemExit('FAIL CLOSED: no compatible official APK asset found')
+          preferred=sorted(assets,key=lambda a:('universal' not in a['name'],'x86_64' not in a['name']))
+          url=preferred[0]['browser_download_url']
+          print('Selected official release asset:',preferred[0]['name'])
+          urllib.request.urlretrieve(url,'termux.apk')
+          PY
+          test -s termux.apk
+      - name: Android emulator Termux install and launch
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          arch: x86_64
+          profile: pixel_2
+          script: |
+            set -euo pipefail
+            adb install -r termux.apk
+            adb shell pm path com.termux | grep -q com.termux
+            adb shell monkey -p com.termux 1
+            sleep 8
+            adb shell pidof com.termux
+            echo 'PASS: Termux installed and process launched on Android emulator'
