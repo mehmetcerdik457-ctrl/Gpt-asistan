@@ -11,7 +11,7 @@ concurrency:
 jobs:
   test:
     # Same-repository PR heads are already tested by push; fork PRs still run.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository || github.head_ref == 'audit/kral-installed-apk-readonly-20261108'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
