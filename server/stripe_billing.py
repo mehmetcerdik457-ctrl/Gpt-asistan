@@ -65,6 +65,22 @@ def connect_db(path: str) -> sqlite3.Connection:
     db = sqlite3.connect(path, timeout=5)
     db.execute("PRAGMA busy_timeout=5000")
     db.execute("PRAGMA journal_mode=WAL")
+    requested_mode = os.getenv("STRIPE_LIVEMODE")
+    if requested_mode not in ("true", "false"):
+        db.close()
+        raise BillingError("STRIPE_LIVEMODE_MUST_BE_EXPLICIT", 503)
+    db.execute("""CREATE TABLE IF NOT EXISTS stripe_environment (
+        singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+        mode TEXT NOT NULL CHECK(mode IN ('true', 'false'))
+    )""")
+    with db:
+        db.execute("BEGIN IMMEDIATE")
+        pinned = db.execute("SELECT mode FROM stripe_environment WHERE singleton=1").fetchone()
+        if pinned is None:
+            db.execute("INSERT INTO stripe_environment(singleton,mode) VALUES(1,?)", (requested_mode,))
+        elif pinned[0] != requested_mode:
+            db.close()
+            raise BillingError("STRIPE_DB_ENVIRONMENT_MISMATCH", 403)
     db.execute("""CREATE TABLE IF NOT EXISTS stripe_events (
         event_id TEXT PRIMARY KEY,
         event_type TEXT NOT NULL,
@@ -106,7 +122,10 @@ def process_event(db: sqlite3.Connection, payload: bytes, header: str, secret: s
     if not _valid_id(event_id, "evt_") or not isinstance(event_type, str) or not isinstance(created, int) or isinstance(created, bool) or created < 0:
         raise BillingError("EVENT_METADATA_INVALID")
     # Prevent accidental cross-mode contamination. Production requires explicit deployment mode.
-    target_live = os.getenv("STRIPE_LIVEMODE", "false").lower() == "true"
+    mode = os.getenv("STRIPE_LIVEMODE")
+    if mode not in ("true", "false"):
+        raise BillingError("STRIPE_LIVEMODE_MUST_BE_EXPLICIT", 503)
+    target_live = mode == "true"
     if event["livemode"] is not target_live:
         raise BillingError("STRIPE_MODE_MISMATCH", 403)
     obj = _get_object(event) if event_type in EVENT_TYPES else None
@@ -123,8 +142,11 @@ def process_event(db: sqlite3.Connection, payload: bytes, header: str, secret: s
             if status not in valid_states:
                 raise BillingError("SUBSCRIPTION_STATUS_INVALID")
             cancel_at_period_end = 1 if obj.get("cancel_at_period_end") is True else 0
-            prior = db.execute("SELECT last_event_created,last_event_id FROM stripe_subscriptions WHERE subscription_id=?", (sid,)).fetchone()
-            if not prior or (created, event_id) > (prior[0], prior[1]):
+            prior = db.execute("SELECT last_event_created,last_event_id,status FROM stripe_subscriptions WHERE subscription_id=?", (sid,)).fetchone()
+            # A Stripe subscription ID cannot legitimately become active again after deletion.
+            # Out-of-order deliveries and same-second events must not revive canceled access.
+            is_terminal = prior is not None and prior[2] == "canceled"
+            if not is_terminal and (not prior or status == "canceled" or (created, event_id) > (prior[0], prior[1])):
                 db.execute("""INSERT INTO stripe_subscriptions(subscription_id,customer_id,status,cancel_at_period_end,last_event_created,last_event_id)
                     VALUES(?,?,?,?,?,?) ON CONFLICT(subscription_id) DO UPDATE SET
                     customer_id=excluded.customer_id, status=excluded.status,
@@ -184,8 +206,8 @@ class Handler(BaseHTTPRequestHandler):
 def main():
     secret = os.getenv("STRIPE_WEBHOOK_SECRET", "")
     path = os.getenv("BILLING_DB", "")
-    if not secret.startswith("whsec_") or not path:
-        raise SystemExit("STRIPE_BRIDGE_DISABLED: private webhook secret and billing database required")
+    if not secret.startswith("whsec_") or not path or os.getenv("STRIPE_LIVEMODE") not in ("true", "false"):
+        raise SystemExit("STRIPE_BRIDGE_DISABLED: private webhook secret, billing DB and explicit live/test mode required")
     with connect_db(path):
         pass
     bind = os.getenv("STRIPE_BIND", "127.0.0.1")
