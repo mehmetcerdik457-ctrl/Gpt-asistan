@@ -27,4 +27,4 @@ Stripe test mode, verified merchant KYB/KYC, webhook signature E2E, payout curre
 
 ## Test
 
-`python -m pytest -q tests/test_billing.py`
+`python -m unittest discover -s tests -v`
