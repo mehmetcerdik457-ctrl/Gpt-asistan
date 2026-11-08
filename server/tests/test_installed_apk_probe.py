@@ -72,6 +72,29 @@ class InstalledApkProbeTests(unittest.TestCase):
         self.assertFalse(report["database_migration_verified"])
         self.assertFalse(report["device_owner_verified"])
 
+    def test_changed_installed_paths_during_pull_fail_closed(self):
+        calls = []
+
+        def replaced_while_reading(args, timeout=60):
+            calls.append(args)
+            if "shell" in args:
+                if sum("shell" in cmd for cmd in calls) == 1:
+                    return "package:/data/app/old/base.apk\n"
+                return "package:/data/app/new/base.apk\n"
+            if "pull" in args:
+                Path(args[-1]).write_bytes(b"synthetic APK")
+                return "pulled"
+            raise AssertionError("Unexpected device operation")
+
+        with patch("scripts.inspect_installed_apk.run_adb", side_effect=replaced_while_reading), \
+                patch("scripts.inspect_installed_apk.inspect_apk", side_effect=AssertionError("no inspect after device changed")):
+            with self.assertRaisesRegex(UpgradeRejected, "INSTALLED_PACKAGE_CHANGED_DURING_PROBE"):
+                probe(serial="emulator-5554", package=PACKAGE)
+        self.assertTrue(all(
+            (("shell" in cmd and cmd[-3:] == ["pm", "path", PACKAGE]) or "pull" in cmd)
+            for cmd in calls
+        ))
+
     def test_split_identity_mismatch_blocks(self):
         n = iter([ApkIdentity(PACKAGE, 10, CERT, False), ApkIdentity(PACKAGE, 10, OTHER_CERT, False)])
         with patch("scripts.inspect_installed_apk.run_adb", side_effect=self.fake_adb), patch("scripts.inspect_installed_apk.inspect_apk", side_effect=lambda *a, **k: next(n)):
