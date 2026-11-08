@@ -112,6 +112,15 @@ def probe(
                 raise UpgradeRejected("ADB_PULLED_APK_MISSING_OR_EMPTY")
             local_paths.append(destination)
 
+        # An install/update can replace the base/split paths while adb pull is
+        # reading them. Refuse mixed-version snapshots instead of implying the
+        # copied files still describe the currently installed package.
+        confirmed_paths = parse_pm_paths(run_adb(
+            [adb, "-s", serial, "shell", "pm", "path", package]
+        ))
+        if set(confirmed_paths) != set(paths):
+            raise UpgradeRejected("INSTALLED_PACKAGE_CHANGED_DURING_PROBE")
+
         hashes = [sha256_file(path) for path in local_paths]
         identities = [inspect_apk(path, aapt=aapt, apksigner=apksigner) for path in local_paths]
         for idx, identity in enumerate(identities):
