@@ -56,4 +56,6 @@
     <string name="integration_read_workers">Sunucu işçi durumunu oku (imzalı)</string>
     <string name="integration_omega_write_disabled">OMEGA dış işlemler — kapalı</string>
     <string name="integration_notice">CİHAT sohbeti otomatik okunmaz veya yazılmaz. OMEGA canlı erişimi doğrulanmadı. İşçi durumu yalnız kayıtlı Owner sunucusuna imzalı salt okunur istektir. Hesaplara ve dosyalara yazma kapalıdır.</string>
+    <string name="action_voice_draft_short">Ses</string>
+    <string name="action_voice_draft_description">Sesle mesaj taslağı oluştur</string>
 </resources>
