@@ -72,6 +72,15 @@ certificate record. A candidate file hash by itself is insufficient to prove
 the owner controls the signing identity; missing the signer pin fails before
 contacting the Android device.
 
+**Preflight is device-free:** the local candidate's expected SHA-256, SDK
+package metadata, debuggable flag, and actual APK signing certificate are
+verified against the provided owner certificate pin before the first ADB call.
+A wrong hash, wrong package, debug candidate or wrong signing certificate
+rejects the request without accessing the phone. After device inventory,
+the candidate bytes are hashed again to detect substitution during inspection.
+This is a local fail-closed check, not proof the owner supplied the independent
+certificate pin or that Android accepted an upgrade.
+
 Here the proposed APK must have the exact pinned file SHA-256, the same
 verified signer and package ID, a higher versionCode, and debuggable=false.
 When supplied, the public owner-certificate pin must also match. A success is
@@ -90,7 +99,7 @@ Unsigned AAB is not a release.
 
 ## Testing and acceptance
 
-- Pure fake-ADB tests: python -m unittest server.tests.test_installed_apk_probe -v. The simulated package-change race regression is included (15 local passing tests); source-bound GitHub Actions verification is a separate required gate.
+- Pure fake-ADB tests: python -m unittest server.tests.test_installed_apk_probe -v. The simulated package-change race regression is included (18 synthetic regression tests (source-bound CI required)); source-bound GitHub Actions verification is a separate required gate.
 - The CI Python test discovery includes these tests on a source-bound GitHub
   Actions run; a successful local mock does not mean the on-device command worked.
 - Physical phone P0 acceptance additionally requires verifying the actual
