@@ -133,6 +133,56 @@ class InstalledApkProbeTests(unittest.TestCase):
                       candidate=Path("untrusted-release.apk"),
                       expected_candidate_sha256="0" * 64)
 
+    def test_invalid_candidate_hash_never_contacts_adb(self):
+        with TemporaryDirectory() as tmp:
+            candidate = Path(tmp) / "candidate.apk"
+            candidate.write_bytes(b"candidate file does not match trusted hash")
+            with patch("scripts.inspect_installed_apk.run_adb",
+                       side_effect=AssertionError("untrusted candidate must not contact phone")):
+                with self.assertRaisesRegex(UpgradeRejected, "APK_SHA256_MISMATCH"):
+                    probe(serial="emulator-5554", package=PACKAGE,
+                          candidate=candidate, expected_candidate_sha256="0" * 64,
+                          expected_owner_cert_sha256=CERT)
+
+    def test_candidate_with_wrong_signer_never_contacts_adb(self):
+        with TemporaryDirectory() as tmp:
+            candidate = Path(tmp) / "candidate.apk"
+            candidate.write_bytes(b"correct hash but wrong signer")
+            digest = hashlib.sha256(candidate.read_bytes()).hexdigest()
+            def bad_signer(path, **kwargs):
+                if path != candidate:
+                    raise AssertionError("Device APK must not be inspected")
+                return ApkIdentity(PACKAGE, 11, OTHER_CERT, False)
+            with patch("scripts.inspect_installed_apk.run_adb",
+                       side_effect=AssertionError("wrong signer must not contact phone")), \
+                    patch("scripts.inspect_installed_apk.inspect_apk", side_effect=bad_signer):
+                with self.assertRaisesRegex(UpgradeRejected, "CANDIDATE_OWNER_CERT_MISMATCH"):
+                    probe(serial="emulator-5554", package=PACKAGE,
+                          candidate=candidate, expected_candidate_sha256=digest,
+                          expected_owner_cert_sha256=CERT)
+
+    def test_candidate_modified_after_preflight_fails_closed(self):
+        with TemporaryDirectory() as tmp:
+            candidate = Path(tmp) / "candidate.apk"
+            candidate.write_bytes(b"original pinned owner release")
+            digest = hashlib.sha256(candidate.read_bytes()).hexdigest()
+            def mutate_on_device_query(args, timeout=60):
+                if "shell" in args:
+                    candidate.write_bytes(b"replaced after first hash/SDK inspection")
+                    return "package:/data/app/id/base.apk\\n"
+                if "pull" in args:
+                    Path(args[-1]).write_bytes(b"synthetic installed APK")
+                    return "pulled"
+                raise AssertionError("Unexpected device call")
+            def trusted_apk(path, **kwargs):
+                return ApkIdentity(PACKAGE, 11 if path == candidate else 10, CERT, False)
+            with patch("scripts.inspect_installed_apk.run_adb", side_effect=mutate_on_device_query), \
+                    patch("scripts.inspect_installed_apk.inspect_apk", side_effect=trusted_apk):
+                with self.assertRaisesRegex(UpgradeRejected, "APK_CHANGED_DURING_INSPECTION"):
+                    probe(serial="emulator-5554", package=PACKAGE,
+                          candidate=candidate, expected_candidate_sha256=digest,
+                          expected_owner_cert_sha256=CERT)
+
     def test_debug_candidate_is_rejected(self):
         with TemporaryDirectory() as tmp:
             candidate = Path(tmp) / "candidate.apk"
@@ -140,7 +190,7 @@ class InstalledApkProbeTests(unittest.TestCase):
             digest = hashlib.sha256(candidate.read_bytes()).hexdigest()
             def fake_inspect(path, **kwargs):
                 return ApkIdentity(PACKAGE, 11 if path == candidate else 10, CERT, path == candidate)
-            with patch("scripts.inspect_installed_apk.run_adb", side_effect=self.fake_adb), patch("scripts.inspect_installed_apk.inspect_apk", side_effect=fake_inspect):
+            with patch("scripts.inspect_installed_apk.run_adb", side_effect=AssertionError("debug candidate must not contact device")), patch("scripts.inspect_installed_apk.inspect_apk", side_effect=fake_inspect):
                 with self.assertRaisesRegex(UpgradeRejected, "CANDIDATE_IS_DEBUGGABLE"):
                     probe(serial="emulator-5554", package=PACKAGE,
                           candidate=candidate, expected_candidate_sha256=digest,
