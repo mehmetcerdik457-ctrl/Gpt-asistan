@@ -21,7 +21,11 @@ class ChatSession internal constructor(
         application,
         KralStore(application.applicationContext),
         Executors.newSingleThreadExecutor(),
-        { endpoint, model, question -> OwnerGateway.replyWithMetadata(application, endpoint, model, question) }
+        { endpoint, model, question ->
+            val owner = application.getSharedPreferences("kral_model", Application.MODE_PRIVATE)
+                .getString("owner_id", "").orEmpty()
+            SignedOwnerModelPort(endpoint, owner).reply(application, model, question)
+        }
     )
 
     data class State(
