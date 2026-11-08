@@ -2,7 +2,10 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import hashlib
+import json
+import os
 import subprocess
+import sys
 import unittest
 from unittest.mock import patch
 
@@ -17,6 +20,33 @@ OTHER_CERT = "b" * 64
 
 
 class InstalledApkProbeTests(unittest.TestCase):
+    def test_documented_direct_script_entrypoint_runs_without_pythonpath(self):
+        root = Path(__file__).resolve().parents[2]
+        env = dict(os.environ)
+        env["PYTHONPATH"] = ""
+        result = subprocess.run(
+            [sys.executable, "scripts/inspect_installed_apk.py", "--help"],
+            cwd=root, env=env, capture_output=True, text=True, timeout=15,
+        )
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("--serial", result.stdout)
+        self.assertIn("--expected-owner-cert-sha256", result.stdout)
+
+    def test_direct_cli_bad_serial_fails_closed_without_adb(self):
+        root = Path(__file__).resolve().parents[2]
+        env = dict(os.environ)
+        env["PYTHONPATH"] = ""
+        result = subprocess.run(
+            [sys.executable, "scripts/inspect_installed_apk.py",
+             "--serial", "invalid serial", "--package", PACKAGE],
+            cwd=root, env=env, capture_output=True, text=True, timeout=15,
+        )
+        self.assertEqual(2, result.returncode, result.stderr)
+        self.assertEqual(
+            {"status": "BLOCKED", "reason": "ADB_DEVICE_SERIAL_INVALID"},
+            json.loads(result.stdout),
+        )
+
     def test_single_base_is_allowed(self):
         self.assertEqual(("/data/app/sample/base.apk",), parse_pm_paths("package:/data/app/sample/base.apk\n"))
 
