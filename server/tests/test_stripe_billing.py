@@ -96,6 +96,41 @@ class Tests(unittest.TestCase):
         self.feed(event("evt_125", "customer.subscription.deleted", "active", NOW+1))
         self.assertFalse(can_access(self.db, "sub_123"))
 
+    def test_deleted_same_second_wins(self):
+        self.feed(event("evt_later", "customer.subscription.created", "active", NOW))
+        self.feed(event("evt_earlier", "customer.subscription.deleted", "active", NOW))
+        self.assertFalse(can_access(self.db, "sub_123"))
+
+    def test_deleted_not_resurrected_by_newer_event(self):
+        self.feed(event("evt_deleted", "customer.subscription.deleted", "active", NOW))
+        self.feed(event("evt_stale_update", "customer.subscription.updated", "active", NOW+1))
+        self.assertFalse(can_access(self.db, "sub_123"))
+
+    def test_live_account_mode_requires_explicit_flag(self):
+        with patch.dict(os.environ, {"STRIPE_LIVEMODE": "true"}):
+            db = connect_db(str(Path(self.temp.name) / "live.sqlite3"))
+            try:
+                item = event("evt_live_1", live=True)
+                payload = json.dumps(item).encode()
+                outcome = process_event(db, payload, sign(payload), SECRET, now=NOW)
+                self.assertTrue(outcome["received"])
+                self.assertTrue(can_access(db, "sub_123"))
+            finally:
+                db.close()
+
+    def test_live_test_db_mode_pinning(self):
+        path = str(Path(self.temp.name) / "isolated.sqlite3")
+        db = connect_db(path)
+        db.close()
+        with patch.dict(os.environ, {"STRIPE_LIVEMODE": "true"}):
+            with self.assertRaisesRegex(BillingError, "STRIPE_DB_ENVIRONMENT_MISMATCH"):
+                connect_db(path)
+
+    def test_missing_mode_fails_closed(self):
+        with patch.dict(os.environ, {}, clear=True):
+            with self.assertRaisesRegex(BillingError, "STRIPE_LIVEMODE_MUST_BE_EXPLICIT"):
+                connect_db(str(Path(self.temp.name) / "unset.sqlite3"))
+
 
 if __name__ == "__main__":
     unittest.main()
