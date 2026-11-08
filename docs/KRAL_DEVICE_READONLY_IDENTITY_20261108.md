@@ -99,7 +99,7 @@ Unsigned AAB is not a release.
 
 ## Testing and acceptance
 
-- Pure fake-ADB tests: python -m unittest server.tests.test_installed_apk_probe -v. The suite contains 18 simulated regressions, including package-path replacement, a mismatched candidate hash/certificate, a debug candidate, and file substitution. Real source-bound GitHub Actions verification remains a separate gate.
+- Pure fake-ADB tests: python -m unittest server.tests.test_installed_apk_probe -v. The suite contains 20 tests: simulated device/package regressions, mismatched candidate hash/certificate, a debug candidate, file substitution, plus two real local subprocess CLI checks. The direct-script tests deliberately clear PYTHONPATH and confirm that --help runs and an invalid serial returns a BLOCKED JSON response without starting ADB. Successful source-bound GitHub Actions execution remains a separate gate.
 - The CI Python test discovery includes these tests on a source-bound GitHub
   Actions run; a successful local mock does not mean the on-device command worked.
 - Physical phone P0 acceptance additionally requires verifying the actual
