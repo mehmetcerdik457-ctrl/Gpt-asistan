@@ -28,9 +28,9 @@ def sign(payload, stamp=NOW, secret=SECRET):
 class Tests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
-        self.db = connect_db(str(Path(self.temp.name) / "billing.sqlite3"))
         self.env = patch.dict(os.environ, {"STRIPE_LIVEMODE":"false"})
         self.env.start()
+        self.db = connect_db(str(Path(self.temp.name) / "billing.sqlite3"))
 
     def tearDown(self):
         self.env.stop()
