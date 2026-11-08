@@ -46,6 +46,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private var storageBlocked = false
     private var pendingUnlock: (() -> Unit)? = null
     private lateinit var contentRoot: LinearLayout
+    private lateinit var controlSections: KralControlSections
     private var initialState: Bundle? = null
     private val prefs by lazy { getSharedPreferences("kral_model", MODE_PRIVATE) }
 
@@ -181,38 +182,116 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         root.addView(TextView(this).apply {
             text = getString(R.string.owner_unlocked_notice)
         })
-        val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        fun button(label: String, action: () -> Unit): Button {
-            val b = Button(this).apply { text = label; setOnClickListener { action() } }
-            actions.addView(b, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            return b
-        }
-        button(getString(R.string.action_memory)) { showLocal { store.memory() } }
-        button(getString(R.string.action_tasks)) { showLocal { store.tasks() } }
-        modelButton = button(getString(R.string.action_model)) { configureModel() }
-        root.addView(actions)
-        root.addView(Button(this).apply {
-            text = getString(R.string.action_server_registration)
-            setOnClickListener { unlock { showRegistration() } }
-        })
-        root.addView(Button(this).apply {
-            text = getString(R.string.action_owner_bridge_status)
-            setOnClickListener { showLocal { OwnerStatus.readOnlyReport(this@MainActivity) } }
-        })
-        root.addView(Button(this).apply {
-            text = getString(R.string.action_voice_cihat)
-            setOnClickListener { showHandoffMenu() }
-        })
-        root.addView(Button(this).apply {
-            text = getString(R.string.action_expert_worker_tasks)
-            setOnClickListener { showExpertMenu() }
-        })
         connectionStatus = TextView(this).apply {
             text = if ((prefs.getString("endpoint", "") ?: "").isBlank())
                 getString(R.string.status_model_not_configured) else getString(R.string.status_model_unverified)
         }
         root.addView(connectionStatus)
-        root.addView(SwitchCompat(this).apply {
+        controlSections = KralControlSections(this)
+        controlSections.attach(root)
+
+        controlSections.tasks.addView(Button(this).apply {
+            text = getString(R.string.action_memory)
+            setOnClickListener {
+                showLocal { store.memory() }
+                controlSections.show(KralControlSections.Page.CHAT)
+            }
+        })
+        controlSections.tasks.addView(Button(this).apply {
+            text = getString(R.string.action_tasks)
+            setOnClickListener {
+                showLocal { store.tasks() }
+                controlSections.show(KralControlSections.Page.CHAT)
+            }
+        })
+        controlSections.tasks.addView(Button(this).apply {
+            text = getString(R.string.action_expert_worker_tasks)
+            setOnClickListener { showExpertMenu() }
+        })
+        controlSections.tasks.addView(TextView(this).apply {
+            text = getString(R.string.notice_expert_tasks)
+        })
+
+        // Integration controls stay behind device Owner unlock and fail closed.
+        controlSections.tasks.addView(TextView(this).apply {
+            text = getString(R.string.integration_panel_title)
+            textSize = 18f
+        })
+        controlSections.tasks.addView(Button(this).apply {
+            text = getString(R.string.integration_inspect_cihat)
+            setOnClickListener {
+                if (checkIntegration(KralIntegrationAction.INSPECT_CIHAT) ==
+                    KralIntegrationDecision.ALLOW_LOCAL_READ) showCihatIdentity()
+            }
+        })
+        controlSections.tasks.addView(Button(this).apply {
+            text = getString(R.string.integration_open_cihat)
+            setOnClickListener {
+                when (checkIntegration(KralIntegrationAction.OPEN_CIHAT)) {
+                    KralIntegrationDecision.ALLOW_CONFIRMED_CIHAT_HANDOFF -> openInstalledCihat()
+                    KralIntegrationDecision.DENY_CIHAT_UNVERIFIED ->
+                        connectionStatus.text = getString(R.string.status_cihat_identity_unverified)
+                    else -> Unit
+                }
+            }
+        })
+        controlSections.tasks.addView(Button(this).apply {
+            text = getString(R.string.integration_owner_status)
+            setOnClickListener {
+                if (checkIntegration(KralIntegrationAction.READ_OWNER_BRIDGE) ==
+                    KralIntegrationDecision.ALLOW_LOCAL_READ) {
+                    showLocal { OwnerStatus.readOnlyReport(this@MainActivity) }
+                    controlSections.show(KralControlSections.Page.CHAT)
+                }
+            }
+        })
+        controlSections.tasks.addView(Button(this).apply {
+            text = getString(R.string.integration_read_workers)
+            setOnClickListener {
+                if (checkIntegration(KralIntegrationAction.READ_OWNER_WORKER_STATUS) ==
+                    KralIntegrationDecision.ALLOW_SIGNED_READ_ATTEMPT) {
+                    runOwnerAction("İşçi durumu (salt okunur)", false) { app, base, _ ->
+                        val results = OwnerGateway.localWorkers(app, base, ExpertTasks.statusBatch(), 2)
+                        "Sunucu salt okunur durum yanıtı:\n${results.toString(2)}\n" +
+                            "Bu işlem OMEGA canlı yetkisini doğrulamaz."
+                    }
+                }
+            }
+        })
+        controlSections.tasks.addView(Button(this).apply {
+            text = getString(R.string.integration_omega_write_disabled)
+            isEnabled = false
+            contentDescription = getString(R.string.integration_omega_write_disabled)
+        })
+        controlSections.tasks.addView(TextView(this).apply {
+            text = getString(R.string.integration_notice)
+        })
+
+        modelButton = Button(this).apply {
+            text = getString(R.string.action_model)
+            setOnClickListener { configureModel() }
+        }
+        controlSections.system.addView(modelButton)
+        controlSections.system.addView(Button(this).apply {
+            text = getString(R.string.action_server_registration)
+            setOnClickListener { unlock { showRegistration() } }
+        })
+        controlSections.system.addView(Button(this).apply {
+            text = getString(R.string.action_owner_bridge_status)
+            setOnClickListener {
+                showLocal { OwnerStatus.readOnlyReport(this@MainActivity) }
+                controlSections.show(KralControlSections.Page.CHAT)
+            }
+        })
+        controlSections.system.addView(TextView(this).apply {
+            text = getString(R.string.notice_omega_unverified)
+        })
+
+        controlSections.chat.addView(Button(this).apply {
+            text = getString(R.string.action_voice_cihat)
+            setOnClickListener { showHandoffMenu() }
+        })
+        controlSections.system.addView(SwitchCompat(this).apply {
             text = getString(R.string.action_speak_replies)
             isChecked = prefs.getBoolean("speak_replies", false)
             setOnCheckedChangeListener { _, enabled ->
@@ -225,7 +304,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         scroller = ScrollView(this)
         transcript = TextView(this).apply { textSize = 16f }
         scroller.addView(transcript)
-        root.addView(scroller, LinearLayout.LayoutParams(-1, 0, 1f))
+        controlSections.chat.addView(scroller, LinearLayout.LayoutParams(-1, 0, 1f))
         val bottom = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         input = EditText(this).apply {
             hint = getString(R.string.hint_message)
@@ -234,6 +313,14 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             setText(savedInstanceState?.getString("draft").orEmpty())
         }
         bottom.addView(input, LinearLayout.LayoutParams(0, -2, 1f))
+        val voiceButton = Button(this).apply {
+            text = getString(R.string.action_voice_draft_short)
+            contentDescription = getString(R.string.action_voice_draft_description)
+            minHeight = (48f * resources.displayMetrics.density + 0.5f).toInt()
+            isAllCaps = false
+            setOnClickListener { requestSpeechDraft() }
+        }
+        bottom.addView(voiceButton)
         sendButton = Button(this).apply {
             text = getString(R.string.action_send)
             setOnClickListener {
@@ -242,7 +329,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             }
         }
         bottom.addView(sendButton)
-        root.addView(bottom)
+        controlSections.chat.addView(bottom)
         setContentView(root)
         session.history.observe(this) { history ->
             transcript.text = if (history.isEmpty()) getString(R.string.greeting_help, KralCore.help())
@@ -251,11 +338,41 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         }
         session.state.observe(this) { state ->
             sendButton.isEnabled = !state.busy
+            voiceButton.isEnabled = !state.busy
             modelButton.isEnabled = !state.busy
             if (state.status.isNotBlank()) connectionStatus.text = state.status
             if (appUnlocked) speakLatestReply()
         }
         tts = TextToSpeech(this, this)
+    }
+
+    private fun checkIntegration(action: KralIntegrationAction): KralIntegrationDecision {
+        val endpoint = prefs.getString("endpoint", "").orEmpty()
+        val owner = prefs.getString("owner_id", "").orEmpty()
+        val decision = KralIntegrationPolicy.decide(action, KralIntegrationContext(
+            ownerUnlocked = appUnlocked && uiReady,
+            encryptedStoreReady = !storageBlocked,
+            busy = session.state.value?.busy == true,
+            cihatIdentityVerified =
+                action == KralIntegrationAction.OPEN_CIHAT &&
+                    CihatIdentity.inspect(this).verified,
+            ownerServerConfigured =
+                OwnerGateway.validBase(endpoint) && OmegaEnvelope.validOwner(owner),
+        ))
+        when (decision) {
+            KralIntegrationDecision.DENY_OWNER_LOCKED ->
+                connectionStatus.text = getString(R.string.status_owner_locked)
+            KralIntegrationDecision.DENY_STORAGE_UNAVAILABLE ->
+                connectionStatus.text = getString(R.string.status_storage_unavailable)
+            KralIntegrationDecision.DENY_BUSY ->
+                connectionStatus.text = getString(R.string.status_unlock_and_wait)
+            KralIntegrationDecision.DENY_OWNER_SERVER_UNCONFIGURED ->
+                connectionStatus.text = getString(R.string.status_owner_server_required)
+            KralIntegrationDecision.DENY_PRIVILEGED_ACTION ->
+                connectionStatus.text = getString(R.string.status_operation_denied)
+            else -> Unit
+        }
+        return decision
     }
 
     private fun showHandoffMenu() {
@@ -351,6 +468,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 return@unlock
             }
             session.runOwnerOperation(label) { operation(app, base, model) }
+            controlSections.show(KralControlSections.Page.CHAT)
         }
     }
 

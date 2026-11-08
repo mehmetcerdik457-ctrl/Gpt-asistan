@@ -44,4 +44,18 @@
     <string name="status_model_verifying">Sahip imzası ve canlı model yanıtı doğrulanıyor…</string>
     <string name="storage_preserved_message">Şifreli depolama doğrulanamadı. Veri kaybını önlemek için erişim durduruldu. Uygulamayı silmeyin, veritabanı veya WAL dosyalarını temizlemeyin. Sahip onaylı yedek ve kurtarma işlemi gereklidir.</string>
     <string name="greeting_help">Merhaba! %1$s\n</string>
+    <string name="nav_chat">Sohbet</string>
+    <string name="nav_tasks">Görevler</string>
+    <string name="nav_system">Sistem</string>
+    <string name="notice_expert_tasks">Uzman yanıtları öneridir. Dış sistem eylemleri için ayrıca sahip onayı gerekir.</string>
+    <string name="notice_omega_unverified">OMEGA canlı bağlantısı doğrulanmadı. Kimlik doğrulamadan dış işlem yapılamaz.</string>
+    <string name="integration_panel_title">CİHAT / OMEGA — izinli görevler</string>
+    <string name="integration_inspect_cihat">CİHAT uygulama kimliğini kontrol et</string>
+    <string name="integration_open_cihat">CİHAT uygulamasını onayla ve aç</string>
+    <string name="integration_owner_status">Owner / Bridge yerel durumunu oku</string>
+    <string name="integration_read_workers">Sunucu işçi durumunu oku (imzalı)</string>
+    <string name="integration_omega_write_disabled">OMEGA dış işlemler — kapalı</string>
+    <string name="integration_notice">CİHAT sohbeti otomatik okunmaz veya yazılmaz. OMEGA canlı erişimi doğrulanmadı. İşçi durumu yalnız kayıtlı Owner sunucusuna imzalı salt okunur istektir. Hesaplara ve dosyalara yazma kapalıdır.</string>
+    <string name="action_voice_draft_short">Ses</string>
+    <string name="action_voice_draft_description">Sesle mesaj taslağı oluştur</string>
 </resources>
