@@ -44,4 +44,9 @@
     <string name="status_model_verifying">Sahip imzası ve canlı model yanıtı doğrulanıyor…</string>
     <string name="storage_preserved_message">Şifreli depolama doğrulanamadı. Veri kaybını önlemek için erişim durduruldu. Uygulamayı silmeyin, veritabanı veya WAL dosyalarını temizlemeyin. Sahip onaylı yedek ve kurtarma işlemi gereklidir.</string>
     <string name="greeting_help">Merhaba! %1$s\n</string>
+    <string name="nav_chat">Sohbet</string>
+    <string name="nav_tasks">Görevler</string>
+    <string name="nav_system">Sistem</string>
+    <string name="notice_expert_tasks">Uzman yanıtları öneridir. Dış sistem eylemleri için ayrıca sahip onayı gerekir.</string>
+    <string name="notice_omega_unverified">OMEGA canlı bağlantısı doğrulanmadı. Kimlik doğrulamadan dış işlem yapılamaz.</string>
 </resources>
