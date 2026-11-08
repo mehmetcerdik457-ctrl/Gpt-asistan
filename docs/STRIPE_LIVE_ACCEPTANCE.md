@@ -50,3 +50,18 @@ STRIPE_WEBHOOK_SECRET is a Stripe webhook endpoint signing secret, not a Stripe 
 - The live account connection is **not the same as** installed live webhook endpoint, server deployment, merchant payout readiness or billing-enabled product catalog. Do not set up a live endpoint without verifying the intended HTTPS production domain, private persistent database and owner-approved write scope.
 - Added hardening: ledger DB pins the explicit live/test mode and rejects reuse in the other environment; canceled subscription IDs never regain access due to out-of-order webhook events. Five new regression cases exercise these boundaries.
 - GitHub PR #102 remains DRAFT and the main branch is unchanged. This release candidate does not contain any live API key or webhook signing secret.
+
+
+## Further live account readiness (read-only Stripe account details)
+
+Stripe GET /v1/accounts/{id} for live account acct_1TziYq2SDmCDlVC6 returned:
+
+- country=US
+- charges_enabled=false
+- payouts_enabled=false
+- details_submitted=false
+- capabilities.card_payments=inactive and capabilities.transfers=inactive
+- requirements.disabled_reason=requirements.past_due
+- currently_due requirements include business type and description, website/URL, business sector, representative identity and date of birth, external payout account, payment statement descriptor, Stripe terms acceptance.
+
+**Critical live blocker**: Stripe account can be connected and queried but does not have active card-payment or payout capability. No attempt was made to submit legal identity, accept terms on behalf of owner, fabricate a US establishment, or bypass KYC. Provisioning webhook code cannot turn these capabilities on. Before any live-payment test or release, owner must complete accurate Stripe compliance review through the authorized process and Stripe must report charges_enabled=true.
