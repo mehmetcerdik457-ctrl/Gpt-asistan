@@ -169,7 +169,7 @@ class InstalledApkProbeTests(unittest.TestCase):
             def mutate_on_device_query(args, timeout=60):
                 if "shell" in args:
                     candidate.write_bytes(b"replaced after first hash/SDK inspection")
-                    return "package:/data/app/id/base.apk\\n"
+                    return "package:/data/app/id/base.apk\n"
                 if "pull" in args:
                     Path(args[-1]).write_bytes(b"synthetic installed APK")
                     return "pulled"
