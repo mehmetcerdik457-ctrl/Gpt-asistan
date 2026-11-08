@@ -39,3 +39,14 @@ CI verification of this exact GitHub branch must be checked separately; previous
 ## Safety
 
 STRIPE_WEBHOOK_SECRET is a Stripe webhook endpoint signing secret, not a Stripe API secret key. Key values should never appear in code or logs. A merchant's Stripe API does not list third-party payments from a different merchant's Stripe account. No live charging or subscription change is performed by this code.
+
+
+## 2026-11-09 follow-up — LIVE Stripe connection now verified
+
+- Stripe account enumeration newly includes **Mehmet Uğur cerdik**, live account acct_1TziYq2SDmCDlVC6, livemode=true, in addition to existing test account acct_1TziZ4ECdWPb8N7p.
+- Read-only **live** Stripe API list queries each returned no records with has_more=false: customers, subscriptions, invoices, payment intents, charges, balance transactions, products and prices.
+- Read-only **live** balance GET returned available USD 0, pending USD 0. Webhook endpoint listing returned 0 entries.
+- These are **merchant-side** Stripe results, not a statement about other merchants' invoices, consumer Google Play subscriptions or Apple purchases. Zero merchant records is not evidence of a working paid subscription setup.
+- The live account connection is **not the same as** installed live webhook endpoint, server deployment, merchant payout readiness or billing-enabled product catalog. Do not set up a live endpoint without verifying the intended HTTPS production domain, private persistent database and owner-approved write scope.
+- Added hardening: ledger DB pins the explicit live/test mode and rejects reuse in the other environment; canceled subscription IDs never regain access due to out-of-order webhook events. Five new regression cases exercise these boundaries.
+- GitHub PR #102 remains DRAFT and the main branch is unchanged. This release candidate does not contain any live API key or webhook signing secret.
