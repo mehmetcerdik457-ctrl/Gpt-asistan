@@ -1,0 +1,46 @@
+name: ORBA Offline Play Readiness
+
+on:
+  push:
+    branches:
+      - 'audit/orba-play-monetization-preflight-*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Isolated Python regression tests
+        run: python3 -m unittest discover -s server/tests -p test_orba_play_preflight.py -v
+      - name: Source-only preflight, no account access
+        run: python3 scripts/orba_play_preflight.py --repo-root . --output orba-preflight.json
+      - name: Fail closed on false account/revenue success
+        run: |
+          python3 - <<'PY'
+          import json
+          with open('orba-preflight.json', encoding='utf-8') as file:
+              data = json.load(file)
+          assert data['mode'] == 'READ_ONLY'
+          assert data['play_upload_approved'] is False
+          assert data['revenue_ready'] is False
+          assert data['conclusion'] == 'BLOCKED_PENDING_SIGNED_RELEASE_AND_VERIFIED_CONSOLE'
+          assert all(item['status'] == 'NOT_CHECKED' for item in data['external_evidence'])
+          PY
+      - name: Preserve sanitized evidence
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: orba-offline-play-preflight
+          path: orba-preflight.json
+          if-no-files-found: error
+          retention-days: 30
