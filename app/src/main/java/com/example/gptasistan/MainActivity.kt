@@ -313,6 +313,14 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             setText(savedInstanceState?.getString("draft").orEmpty())
         }
         bottom.addView(input, LinearLayout.LayoutParams(0, -2, 1f))
+        val voiceButton = Button(this).apply {
+            text = getString(R.string.action_voice_draft_short)
+            contentDescription = getString(R.string.action_voice_draft_description)
+            minHeight = (48f * resources.displayMetrics.density + 0.5f).toInt()
+            isAllCaps = false
+            setOnClickListener { requestSpeechDraft() }
+        }
+        bottom.addView(voiceButton)
         sendButton = Button(this).apply {
             text = getString(R.string.action_send)
             setOnClickListener {
@@ -330,6 +338,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         }
         session.state.observe(this) { state ->
             sendButton.isEnabled = !state.busy
+            voiceButton.isEnabled = !state.busy
             modelButton.isEnabled = !state.busy
             if (state.status.isNotBlank()) connectionStatus.text = state.status
             if (appUnlocked) speakLatestReply()
