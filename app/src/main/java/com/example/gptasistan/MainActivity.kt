@@ -683,6 +683,10 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 return@unlock
             }
             session.runOwnerOperation(label, onRecorded) { operation(app, base, model) }
+            // The asynchronous, owner-authorized result appears in the chat
+            // history. Do not strand the owner in a task/system-only page.
+            if (::controlSections.isInitialized)
+                controlSections.show(KralControlSections.Page.CHAT)
         }
     }
 
