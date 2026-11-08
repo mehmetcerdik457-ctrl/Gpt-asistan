@@ -3,6 +3,12 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+    inputs:
+      offline:
+        description: 'Use cached Gradle dependencies only (fails closed on cache miss)'
+        type: boolean
+        required: false
+        default: false
 permissions:
   contents: read
 concurrency:
@@ -38,6 +44,9 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
+        with:
+          # Integration pushes seed the cache; untrusted PRs only read it.
+          cache-read-only: ${{ github.event_name == 'pull_request' }}
       - uses: android-actions/setup-android@v4
         with:
           packages: platform-tools
@@ -74,7 +83,12 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p build/delivery
-          ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest :app:assembleRelease :app:bundleRelease --no-daemon --stacktrace 2>&1 | tee build/delivery/gradle.log
+          gradle_flags=()
+          if [[ "${{ inputs.offline || 'false' }}" == 'true' ]]; then
+            gradle_flags+=(--offline)
+            echo 'GRADLE_OFFLINE_CACHE_ONLY_REQUESTED' | tee -a build/delivery/gradle.log
+          fi
+          ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest :app:assembleRelease :app:bundleRelease "${gradle_flags[@]}" --no-daemon --stacktrace 2>&1 | tee -a build/delivery/gradle.log
       - name: Stage application and instrumentation APKs
         if: success()
         shell: bash
