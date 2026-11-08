@@ -94,6 +94,10 @@ def probe(
     package = checked_package(package)
     if (candidate is None) != (expected_candidate_sha256 is None):
         raise UpgradeRejected("CANDIDATE_AND_PIN_MUST_BE_SUPPLIED_TOGETHER")
+    # A file hash alone is not the owner's signing identity. Reject an
+    # otherwise plausible release candidate unless its signer is pinned.
+    if candidate is not None and expected_owner_cert_sha256 is None:
+        raise UpgradeRejected("OWNER_CERT_PIN_REQUIRED_FOR_CANDIDATE")
     if expected_owner_cert_sha256 is not None and not HEX_RE.fullmatch(expected_owner_cert_sha256):
         raise UpgradeRejected("EXPECTED_OWNER_CERT_INVALID")
 
