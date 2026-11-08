@@ -125,6 +125,14 @@ class InstalledApkProbeTests(unittest.TestCase):
             self.assertEqual("APK_IDENTITIES_COMPATIBLE_NOT_INSTALLATION_PROOF", report["status"])
             self.assertFalse(report["upgrade_performed"])
 
+    def test_candidate_requires_independent_owner_signer_pin_before_adb(self):
+        with patch("scripts.inspect_installed_apk.run_adb",
+                   side_effect=AssertionError("must not contact device")):
+            with self.assertRaisesRegex(UpgradeRejected, "OWNER_CERT_PIN_REQUIRED_FOR_CANDIDATE"):
+                probe(serial="emulator-5554", package=PACKAGE,
+                      candidate=Path("untrusted-release.apk"),
+                      expected_candidate_sha256="0" * 64)
+
     def test_debug_candidate_is_rejected(self):
         with TemporaryDirectory() as tmp:
             candidate = Path(tmp) / "candidate.apk"
@@ -135,7 +143,8 @@ class InstalledApkProbeTests(unittest.TestCase):
             with patch("scripts.inspect_installed_apk.run_adb", side_effect=self.fake_adb), patch("scripts.inspect_installed_apk.inspect_apk", side_effect=fake_inspect):
                 with self.assertRaisesRegex(UpgradeRejected, "CANDIDATE_IS_DEBUGGABLE"):
                     probe(serial="emulator-5554", package=PACKAGE,
-                          candidate=candidate, expected_candidate_sha256=digest)
+                          candidate=candidate, expected_candidate_sha256=digest,
+                          expected_owner_cert_sha256=CERT)
 
 
 if __name__ == "__main__":
