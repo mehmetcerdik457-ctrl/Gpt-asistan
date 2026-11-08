@@ -101,6 +101,24 @@ def probe(
     if expected_owner_cert_sha256 is not None and not HEX_RE.fullmatch(expected_owner_cert_sha256):
         raise UpgradeRejected("EXPECTED_OWNER_CERT_INVALID")
 
+    # Perform every possible local candidate check *before* connecting to the
+    # authorized phone. A corrupt/debug/wrong-signer APK must not even trigger
+    # a device inventory. Check the hash a second time after the inventory to
+    # reject a candidate replaced while the phone was being read.
+    candidate_digest = None
+    candidate_identity = None
+    if candidate is not None and expected_candidate_sha256 is not None:
+        candidate_digest = verify_expected_sha256(candidate, expected_candidate_sha256)
+        candidate_identity = inspect_apk(candidate, aapt=aapt, apksigner=apksigner)
+        require_file_unchanged(candidate, candidate_digest)
+        if candidate_identity.debuggable:
+            raise UpgradeRejected("CANDIDATE_IS_DEBUGGABLE")
+        if candidate_identity.package != package:
+            raise UpgradeRejected("APK_PACKAGE_ID_CHANGED")
+        if not hmac.compare_digest(
+                candidate_identity.signing_cert_sha256, expected_owner_cert_sha256.lower()):
+            raise UpgradeRejected("CANDIDATE_OWNER_CERT_MISMATCH")
+
     # Require the caller to explicitly identify the device. No adb device
     # auto-selection, no shell=True, and no APK installation path in this tool.
     paths = parse_pm_paths(run_adb([adb, "-s", serial, "shell", "pm", "path", package]))
@@ -155,19 +173,13 @@ def probe(
             "database_migration_verified": False,
             "play_accepted": False,
         }
-        if candidate is not None and expected_candidate_sha256 is not None:
-            digest = verify_expected_sha256(candidate, expected_candidate_sha256)
-            candidate_identity = inspect_apk(candidate, aapt=aapt, apksigner=apksigner)
-            require_file_unchanged(candidate, digest)
+        if candidate_identity is not None and candidate_digest is not None:
+            require_file_unchanged(candidate, candidate_digest)
             verify_upgrade(installed, candidate_identity, require_release=True)
-            if expected_owner_cert_sha256 is not None and not hmac.compare_digest(
-                    candidate_identity.signing_cert_sha256,
-                    expected_owner_cert_sha256.lower()):
-                raise UpgradeRejected("CANDIDATE_OWNER_CERT_MISMATCH")
             report.update({
                 "status": "APK_IDENTITIES_COMPATIBLE_NOT_INSTALLATION_PROOF",
                 "candidate_version_code": candidate_identity.version_code,
-                "candidate_sha256": digest,
+                "candidate_sha256": candidate_digest,
                 "candidate_nondebuggable": True,
             })
     return report
