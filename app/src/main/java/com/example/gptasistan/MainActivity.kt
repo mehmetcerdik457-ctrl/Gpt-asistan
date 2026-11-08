@@ -46,6 +46,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private var storageBlocked = false
     private var pendingUnlock: (() -> Unit)? = null
     private lateinit var contentRoot: LinearLayout
+    private lateinit var controlSections: KralControlSections
     private var initialState: Bundle? = null
     private var foreground = false
     private var otpGeneration = 0L
@@ -314,38 +315,53 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         root.addView(TextView(this).apply {
             text = getString(R.string.owner_unlocked_notice)
         })
-        val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        fun button(label: String, action: () -> Unit): Button {
-            val b = Button(this).apply { text = label; setOnClickListener { action() } }
-            actions.addView(b, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            return b
-        }
-        button(getString(R.string.action_memory)) { showMemoryMenu() }
-        button(getString(R.string.action_tasks)) { showLocalTaskMenu() }
-        modelButton = button(getString(R.string.action_model)) { configureModel() }
-        root.addView(actions)
-        root.addView(Button(this).apply {
-            text = getString(R.string.action_server_registration)
-            setOnClickListener { unlock { showRegistration() } }
-        })
-        root.addView(Button(this).apply {
-            text = getString(R.string.action_owner_bridge_status)
-            setOnClickListener { showLocal { OwnerStatus.readOnlyReport(this@MainActivity) } }
-        })
-        root.addView(Button(this).apply {
-            text = getString(R.string.action_voice_cihat)
-            setOnClickListener { showHandoffMenu() }
-        })
-        root.addView(Button(this).apply {
-            text = getString(R.string.action_expert_worker_tasks)
-            setOnClickListener { showExpertMenu() }
-        })
+        // Navigation only changes visible views. Owner authentication, local
+        // storage encryption, backups, OTP and network calls retain their
+        // original action handlers in this version.
         connectionStatus = TextView(this).apply {
             text = if ((prefs.getString("endpoint", "") ?: "").isBlank())
                 getString(R.string.status_model_not_configured) else getString(R.string.status_model_unverified)
         }
         root.addView(connectionStatus)
-        root.addView(SwitchCompat(this).apply {
+
+        controlSections = KralControlSections(this)
+        controlSections.attach(root)
+        controlSections.tasks.addView(Button(this).apply {
+            text = getString(R.string.action_memory)
+            setOnClickListener { showMemoryMenu() }
+        })
+        controlSections.tasks.addView(Button(this).apply {
+            text = getString(R.string.action_tasks)
+            setOnClickListener { showLocalTaskMenu() }
+        })
+        controlSections.tasks.addView(Button(this).apply {
+            text = getString(R.string.action_expert_worker_tasks)
+            setOnClickListener { showExpertMenu() }
+        })
+        controlSections.tasks.addView(TextView(this).apply {
+            text = getString(R.string.notice_expert_tasks)
+        })
+
+        modelButton = Button(this).apply {
+            text = getString(R.string.action_model)
+            setOnClickListener { configureModel() }
+        }
+        controlSections.system.addView(modelButton)
+        controlSections.system.addView(Button(this).apply {
+            text = getString(R.string.action_server_registration)
+            setOnClickListener { unlock { showRegistration() } }
+        })
+        controlSections.system.addView(Button(this).apply {
+            text = getString(R.string.action_owner_bridge_status)
+            setOnClickListener {
+                controlSections.show(KralControlSections.Page.CHAT)
+                showLocal { OwnerStatus.readOnlyReport(this@MainActivity) }
+            }
+        })
+        controlSections.system.addView(TextView(this).apply {
+            text = getString(R.string.notice_omega_unverified)
+        })
+        controlSections.system.addView(SwitchCompat(this).apply {
             text = getString(R.string.action_speak_replies)
             isChecked = prefs.getBoolean("speak_replies", false)
             setOnCheckedChangeListener { _, enabled ->
@@ -355,10 +371,15 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 else speakLatestReply()
             }
         })
+
+        controlSections.chat.addView(Button(this).apply {
+            text = getString(R.string.action_voice_cihat)
+            setOnClickListener { showHandoffMenu() }
+        })
         scroller = ScrollView(this)
         transcript = TextView(this).apply { textSize = 16f }
         scroller.addView(transcript)
-        root.addView(scroller, LinearLayout.LayoutParams(-1, 0, 1f))
+        controlSections.chat.addView(scroller, LinearLayout.LayoutParams(-1, 0, 1f))
         val bottom = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         input = EditText(this).apply {
             hint = getString(R.string.hint_message)
@@ -375,7 +396,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             }
         }
         bottom.addView(sendButton)
-        root.addView(bottom)
+        controlSections.chat.addView(bottom)
         setContentView(root)
         session.history.observe(this) { history ->
             transcript.text = if (history.isEmpty()) getString(R.string.greeting_help, KralCore.help())
