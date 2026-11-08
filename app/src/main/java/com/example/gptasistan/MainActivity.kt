@@ -342,6 +342,60 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             text = getString(R.string.notice_expert_tasks)
         })
 
+        controlSections.tasks.addView(TextView(this).apply {
+            text = getString(R.string.integration_panel_title)
+            textSize = 18f
+        })
+        controlSections.tasks.addView(Button(this).apply {
+            text = getString(R.string.integration_inspect_cihat)
+            setOnClickListener {
+                if (checkIntegration(KralIntegrationAction.INSPECT_CIHAT) ==
+                    KralIntegrationDecision.ALLOW_LOCAL_READ) showCihatIdentity()
+            }
+        })
+        controlSections.tasks.addView(Button(this).apply {
+            text = getString(R.string.integration_open_cihat)
+            setOnClickListener {
+                when (checkIntegration(KralIntegrationAction.OPEN_CIHAT)) {
+                    KralIntegrationDecision.ALLOW_CONFIRMED_CIHAT_HANDOFF -> openInstalledCihat()
+                    KralIntegrationDecision.DENY_CIHAT_UNVERIFIED ->
+                        connectionStatus.text = getString(R.string.status_cihat_identity_unverified)
+                    else -> Unit
+                }
+            }
+        })
+        controlSections.tasks.addView(Button(this).apply {
+            text = getString(R.string.integration_owner_status)
+            setOnClickListener {
+                if (checkIntegration(KralIntegrationAction.READ_OWNER_BRIDGE) ==
+                    KralIntegrationDecision.ALLOW_LOCAL_READ) {
+                    controlSections.show(KralControlSections.Page.CHAT)
+                    showLocal { OwnerStatus.readOnlyReport(this@MainActivity) }
+                }
+            }
+        })
+        controlSections.tasks.addView(Button(this).apply {
+            text = getString(R.string.integration_read_workers)
+            setOnClickListener {
+                if (checkIntegration(KralIntegrationAction.READ_OWNER_WORKER_STATUS) ==
+                    KralIntegrationDecision.ALLOW_SIGNED_READ_ATTEMPT) {
+                    runOwnerAction("İşçi durumu (salt okunur)", false) { app, base, _ ->
+                        val results = OwnerGateway.localWorkers(app, base, ExpertTasks.statusBatch(), 2)
+                        "Sunucu salt okunur durum yanıtı:\n${results.toString(2)}\n" +
+                            "Bu işlem OMEGA canlı yetkisini doğrulamaz."
+                    }
+                }
+            }
+        })
+        controlSections.tasks.addView(Button(this).apply {
+            text = getString(R.string.integration_omega_write_disabled)
+            isEnabled = false
+            contentDescription = getString(R.string.integration_omega_write_disabled)
+        })
+        controlSections.tasks.addView(TextView(this).apply {
+            text = getString(R.string.integration_notice)
+        })
+
         modelButton = Button(this).apply {
             text = getString(R.string.action_model)
             setOnClickListener { configureModel() }
@@ -388,6 +442,14 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             setText(savedInstanceState?.getString("draft").orEmpty())
         }
         bottom.addView(input, LinearLayout.LayoutParams(0, -2, 1f))
+        val voiceButton = Button(this).apply {
+            text = getString(R.string.action_voice_draft_short)
+            contentDescription = getString(R.string.action_voice_draft_description)
+            minHeight = (48f * resources.displayMetrics.density + 0.5f).toInt()
+            isAllCaps = false
+            setOnClickListener { requestSpeechDraft() }
+        }
+        bottom.addView(voiceButton)
         sendButton = Button(this).apply {
             text = getString(R.string.action_send)
             setOnClickListener {
@@ -405,6 +467,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         }
         session.state.observe(this) { state ->
             sendButton.isEnabled = !state.busy
+            voiceButton.isEnabled = !state.busy
             modelButton.isEnabled = !state.busy
             if (state.status.isNotBlank()) connectionStatus.text = state.status
             if (appUnlocked) speakLatestReply()
@@ -533,6 +596,35 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                     connectionStatus.text = getString(R.string.status_memory_delete_failed)
                 }
             }.setNegativeButton("Vazgeç", null).showProtected()
+    }
+
+    private fun checkIntegration(action: KralIntegrationAction): KralIntegrationDecision {
+        val endpoint = prefs.getString("endpoint", "").orEmpty()
+        val owner = prefs.getString("owner_id", "").orEmpty()
+        val decision = KralIntegrationPolicy.decide(action, KralIntegrationContext(
+            ownerUnlocked = appUnlocked && uiReady && !isFinishing && !isDestroyed,
+            encryptedStoreReady = !storageBlocked,
+            busy = session.state.value?.busy == true,
+            cihatIdentityVerified =
+                action == KralIntegrationAction.OPEN_CIHAT &&
+                    CihatIdentity.inspect(this).verified,
+            ownerServerConfigured =
+                OwnerGateway.validBase(endpoint) && OmegaEnvelope.validOwner(owner),
+        ))
+        when (decision) {
+            KralIntegrationDecision.DENY_OWNER_LOCKED ->
+                connectionStatus.text = getString(R.string.status_owner_locked)
+            KralIntegrationDecision.DENY_STORAGE_UNAVAILABLE ->
+                connectionStatus.text = getString(R.string.status_storage_unavailable)
+            KralIntegrationDecision.DENY_BUSY ->
+                connectionStatus.text = getString(R.string.status_unlock_and_wait)
+            KralIntegrationDecision.DENY_OWNER_SERVER_UNCONFIGURED ->
+                connectionStatus.text = getString(R.string.status_owner_server_required)
+            KralIntegrationDecision.DENY_PRIVILEGED_ACTION ->
+                connectionStatus.text = getString(R.string.status_operation_denied)
+            else -> Unit
+        }
+        return decision
     }
 
     private fun showHandoffMenu() {
