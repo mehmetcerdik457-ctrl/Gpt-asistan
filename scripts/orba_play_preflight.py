@@ -74,10 +74,14 @@ def inspect(root: Path, aab: Path | None = None) -> dict:
         else:
             digest = hashlib.sha256(bundle.read_bytes()).hexdigest()
             try:
-                checked = subprocess.run(["jarsigner", "-verify", "-verbose", str(bundle)],
+            # Strict mode treats signer-related warnings (including unsigned entries) as a failure.
+                checked = subprocess.run(["jarsigner", "-verify", "-strict", "-verbose", str(bundle)],
                                          text=True, capture_output=True, timeout=30, check=False)
                 combined = (checked.stdout + checked.stderr).lower()
-                valid = checked.returncode == 0 and "jar verified" in combined and "jar is unsigned" not in combined
+                valid = (checked.returncode == 0 and "jar verified" in combined
+                         and "jar is unsigned" not in combined
+                         and "unsigned entry" not in combined
+                         and "unsigned entries" not in combined)
                 findings.append(_finding("signed_aab", "JAR_VERIFIED" if valid else "BLOCKED",
                                          f"aab_sha256={digest}; JAR signature {'verified' if valid else 'not verified'}; Play signing key match NOT_CHECKED"))
             except (OSError, subprocess.TimeoutExpired):
