@@ -79,7 +79,6 @@ def connect_db(path: str) -> sqlite3.Connection:
         if pinned is None:
             db.execute("INSERT INTO stripe_environment(singleton,mode) VALUES(1,?)", (requested_mode,))
         elif pinned[0] != requested_mode:
-            db.close()
             raise BillingError("STRIPE_DB_ENVIRONMENT_MISMATCH", 403)
     db.execute("""CREATE TABLE IF NOT EXISTS stripe_events (
         event_id TEXT PRIMARY KEY,
