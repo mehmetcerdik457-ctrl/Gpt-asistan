@@ -10,10 +10,10 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 jobs:
   backend:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository || github.head_ref == 'integration/kral-1-0-10-ui-preserve-20261108'
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository || (github.head_ref == 'integration/kral-1-0-10-ui-preserve-20261108' || github.head_ref == 'feature/kral-1-0-10-safe-controls-20261108')
     uses: ./.github/workflows/ci.yml
   build:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository || github.head_ref == 'integration/kral-1-0-10-ui-preserve-20261108'
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository || (github.head_ref == 'integration/kral-1-0-10-ui-preserve-20261108' || github.head_ref == 'feature/kral-1-0-10-safe-controls-20261108')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
