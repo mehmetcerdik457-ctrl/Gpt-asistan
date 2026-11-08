@@ -20,6 +20,12 @@ import subprocess
 import sys
 from tempfile import TemporaryDirectory
 
+# Support both `python -m scripts.inspect_installed_apk` (CI/import) and the
+# documented `python scripts/inspect_installed_apk.py` (trusted local shell).
+# Python otherwise puts only the scripts/ folder, not its parent, on sys.path.
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 from scripts.check_android_upgrade import (
     UpgradeRejected,
     inspect_apk,
