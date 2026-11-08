@@ -57,6 +57,27 @@ class KralControlSectionsTest {
         assertEquals("Korunan taslak", draft.text.toString())
     }
 
+    @Test fun storedTaskResultRevealsChatWithoutChangingExistingDraft() {
+        val context = RuntimeEnvironment.getApplication()
+        val root = LinearLayout(context)
+        val tabs = KralControlSections(context)
+        val draft = EditText(context).apply { setText("Kaybolmaması gereken taslak") }
+        tabs.chat.addView(draft)
+        // A local store result is rendered in the conversation by
+        // MainActivity.showLocal after the DB write succeeds.
+        tabs.attach(root)
+        tabs.show(KralControlSections.Page.TASKS)
+        val pages = root.getChildAt(1) as FrameLayout
+        assertEquals(View.VISIBLE, pages.getChildAt(1).visibility)
+
+        tabs.show(KralControlSections.Page.CHAT)
+
+        assertEquals(View.VISIBLE, pages.getChildAt(0).visibility)
+        assertEquals(View.GONE, pages.getChildAt(1).visibility)
+        assertEquals(View.GONE, pages.getChildAt(2).visibility)
+        assertEquals("Kaybolmaması gereken taslak", draft.text.toString())
+    }
+
     @Test fun navigationIsLabeledAndHas48dpMinimumTapHeight() {
         val context = RuntimeEnvironment.getApplication()
         val tabs = KralControlSections(context)
