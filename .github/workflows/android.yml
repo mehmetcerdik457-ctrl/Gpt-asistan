@@ -3,6 +3,12 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+    inputs:
+      offline:
+        description: 'Use cached Gradle dependencies only (fails closed on cache miss)'
+        type: boolean
+        required: false
+        default: false
 permissions:
   contents: read
 concurrency:
@@ -10,10 +16,10 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 jobs:
   backend:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository || github.head_ref == 'integration/kral-1-0-10-ui-preserve-20261108'
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository || github.head_ref == 'integration/kral-1-0-10-ui-preserve-20261108' || github.head_ref == 'integration/kral-1-0-10-safe-controls-rebased-20261108'
     uses: ./.github/workflows/ci.yml
   build:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository || github.head_ref == 'integration/kral-1-0-10-ui-preserve-20261108'
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository || github.head_ref == 'integration/kral-1-0-10-ui-preserve-20261108' || github.head_ref == 'integration/kral-1-0-10-safe-controls-rebased-20261108'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -38,6 +44,9 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
+        with:
+          # Integration pushes seed the cache; untrusted PRs only read it.
+          cache-read-only: ${{ github.event_name == 'pull_request' }}
       - uses: android-actions/setup-android@v4
         with:
           packages: platform-tools
@@ -50,7 +59,19 @@ jobs:
           sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
           {
             java -version
-            ./gradlew --version
+            # GitHub's pinned Gradle distribution endpoint can return a transient
+            # HTTP 504 on cold runners. Retry only the existing verified wrapper;
+            # never use a mirror, disable the SHA256 check, or skip this gate.
+            wrapper_ready=0
+            for attempt in 1 2 3 4; do
+              if ./gradlew --version; then
+                wrapper_ready=1
+                break
+              fi
+              echo "GRADLE_WRAPPER_ATTEMPT_${attempt}_FAILED"
+              if [ "$attempt" -lt 4 ]; then sleep "$((attempt * 5))"; fi
+            done
+            test "$wrapper_ready" -eq 1 || { echo "GRADLE_WRAPPER_DOWNLOAD_FAILED"; exit 1; }
             sdkmanager --version
             cat "$ANDROID_HOME/platforms/android-36/source.properties"
             cat "$ANDROID_HOME/build-tools/36.0.0/source.properties"
@@ -62,7 +83,12 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p build/delivery
-          ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest :app:assembleRelease :app:bundleRelease --no-daemon --stacktrace 2>&1 | tee build/delivery/gradle.log
+          gradle_flags=()
+          if [[ "${{ inputs.offline || 'false' }}" == 'true' ]]; then
+            gradle_flags+=(--offline)
+            echo 'GRADLE_OFFLINE_CACHE_ONLY_REQUESTED' | tee -a build/delivery/gradle.log
+          fi
+          ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest :app:assembleRelease :app:bundleRelease "${gradle_flags[@]}" --no-daemon --stacktrace 2>&1 | tee -a build/delivery/gradle.log
       - name: Stage application and instrumentation APKs
         if: success()
         shell: bash

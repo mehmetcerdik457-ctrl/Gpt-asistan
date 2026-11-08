@@ -11,7 +11,7 @@ concurrency:
 jobs:
   test:
     # Same-repository PR heads are already tested by push; fork PRs still run.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository || github.head_ref == 'integration/kral-1-0-10-ui-preserve-20261108'
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository || github.head_ref == 'integration/kral-1-0-10-ui-preserve-20261108' || github.head_ref == 'integration/kral-1-0-10-safe-controls-rebased-20261108'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

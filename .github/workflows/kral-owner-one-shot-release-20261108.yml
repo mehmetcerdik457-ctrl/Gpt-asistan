@@ -1,0 +1,88 @@
+name: KRAL One-shot Owner Signed Release Delivery
+on:
+  push:
+    branches: ['integration/kral-1-0-10-safe-controls-rebased-20261108']
+permissions:
+  contents: read
+  actions: read
+jobs:
+  sign-existing-cloud-release:
+    if: >-
+      github.repository == 'mehmetcerdik457-ctrl/Gpt-asistan' &&
+      github.actor == 'mehmetcerdik457-ctrl' &&
+      github.event.head_commit.message == 'KRAL_OWNER_SIGN_DELIVERY_6ab7e60_20261108'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 6ab7e60e8f3459d084197f175bfaab56263a6fc7
+          persist-credentials: false
+      - name: Validate exact independently tested source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = '6ab7e60e8f3459d084197f175bfaab56263a6fc7'
+          test -z "$(git status --porcelain)"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: build-tools;36.0.0
+          log-accepted-android-sdk-licenses: false
+      - name: Fetch verified assembleRelease outputs from successful cloud run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/inputs build/release
+          gh run download 42472272150 --repo "$GH_REPO" -n kral-asistan-unsigned-release-inputs -D build/inputs
+          echo '145e6018af5f73716ae64bcee1b02d8aaed8f7b9a66e02713ec532c29e012160  build/inputs/app-release-unsigned.apk' | sha256sum -c
+          echo 'f126873e99c9571796e9849cf56c9a68295125249efffaf31275efd7750f47b5  build/inputs/app-release-unsigned.aab' | sha256sum -c
+      - name: Sign only with existing independent owner certificate pin
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/release build/pending
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          d=json.loads(Path('config/android-owner-signing.json').read_text())
+          assert d['repository']=='mehmetcerdik457-ctrl/Gpt-asistan'
+          assert d['actor']=='mehmetcerdik457-ctrl'
+          assert d['release_branch']=='main'
+          assert d['certificate_sha256']=='279084a36b7c17a1663bfba5fe1c5bdac974f8ef4ce56b21000d882493e39448'
+          missing=[n for n in ('ANDROID_KEYSTORE_BASE64','ANDROID_KEY_ALIAS','ANDROID_KEY_PASSWORD','ANDROID_STORE_PASSWORD') if not os.environ.get(n)]
+          if missing:
+              Path('build/release/signing-status.json').write_text(json.dumps({'status':'BLOCKED_OWNER_SECRETS_MISSING','missing_secret_names':missing,'owner_signing_verified':False,'source_commit':'6ab7e60e8f3459d084197f175bfaab56263a6fc7'},indent=2)+'\n')
+              raise SystemExit('BLOCKED_OWNER_SECRETS_MISSING')
+          d['release_branch']='integration/kral-1-0-10-safe-controls-rebased-20261108'
+          Path(os.environ['RUNNER_TEMP'],'kral-once-pinned-config.json').write_text(json.dumps(d))
+          PY
+          cp build/inputs/app-release-unsigned.apk build/pending/app-release.apk
+          cp build/inputs/app-release-unsigned.aab build/pending/app-release.aab
+          python3 scripts/android_owner_signing.py --config "$RUNNER_TEMP/kral-once-pinned-config.json" --release-apk build/pending/app-release.apk --bundle build/pending/app-release.aab --require-owner --apksigner "$ANDROID_HOME/build-tools/36.0.0/apksigner" --output build/release/signing-status.json
+          python3 scripts/android_release_artifact.py build/pending/app-release.apk build/pending/app-release.aab build/pending --expected-sha 6ab7e60e8f3459d084197f175bfaab56263a6fc7 --signing-report build/release/signing-status.json --sdk "$ANDROID_HOME" --build-tools 36.0.0
+          python3 scripts/check_delivery_secrets.py --apk build/pending/app-release.apk
+          mv build/pending/app-release.apk build/release/app-release.apk
+          mv build/pending/app-release.aab build/release/app-release.aab
+          cp build/pending/RELEASE-SHA256SUMS build/release/RELEASE-SHA256SUMS
+          cp build/pending/release-metadata.json build/release/release-metadata.json
+          (cd build/release && sha256sum -c RELEASE-SHA256SUMS)
+      - name: Upload only verified signed release files or BLOCKED report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kral-owner-one-shot-release-6ab7e60
+          path: build/release/
+          if-no-files-found: warn
+          retention-days: 30
