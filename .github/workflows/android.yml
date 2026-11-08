@@ -78,6 +78,30 @@ jobs:
           } > build/delivery/toolchain.txt 2>&1
       - name: Check tracked sources for credential patterns
         run: python3 scripts/check_delivery_secrets.py
+      - name: Cold-cache clean assembleDebug with verified Gradle wrapper
+        shell: bash
+        timeout-minutes: 20
+        env:
+          # A per-run Gradle home ensures an actual cold dependency fetch.
+          GRADLE_USER_HOME: ${{ runner.temp }}/kral-gradle-cold-${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p build/delivery
+          printf 'EXPECTED_SHA=%s\nGRADLE_CACHE_MODE=fresh\n' "${{ github.event.pull_request.head.sha || github.sha }}" > build/delivery/clean-build-provenance.txt
+          ok=0
+          for attempt in 1 2; do
+            echo "COLD_GRADLE_CLEAN_ASSEMBLE_ATTEMPT=${attempt}" | tee -a build/delivery/clean-assemble-debug.log
+            if ./gradlew clean :app:assembleDebug --no-daemon --refresh-dependencies --no-build-cache --stacktrace 2>&1 | tee -a build/delivery/clean-assemble-debug.log; then
+              ok=1
+              break
+            fi
+            if [ "$attempt" -lt 2 ]; then sleep 10; fi
+          done
+          test "$ok" -eq 1 || { echo "CLEAN_ASSEMBLE_DEBUG_FAILED" | tee -a build/delivery/clean-assemble-debug.log; exit 1; }
+          test -s app/build/outputs/apk/debug/app-debug.apk
+          cp app/build/outputs/apk/debug/app-debug.apk build/delivery/app-debug-clean.apk
+          (cd build/delivery && sha256sum app-debug-clean.apk > clean-apk-sha256.txt)
+          echo 'CLEAN_ASSEMBLE_DEBUG_VERIFIED' | tee -a build/delivery/clean-assemble-debug.log
       - name: Run unit tests, lint, APK and unsigned release AAB builds
         shell: bash
         run: |
@@ -94,7 +118,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cp app/build/outputs/apk/debug/app-debug.apk build/delivery/app-debug.apk
+          # Deliver the exact APK produced by the cold-cache clean assembleDebug step.
+          cp build/delivery/app-debug-clean.apk build/delivery/app-debug.apk
           mapfile -t test_apks < <(find app/build/outputs/apk/androidTest -type f -name '*androidTest.apk')
           test "${#test_apks[@]}" -eq 1 || { echo "TEST_APK_OUTPUT_AMBIGUOUS"; exit 1; }
           cp "${test_apks[0]}" build/delivery/app-debug-androidTest.apk
@@ -202,6 +227,7 @@ jobs:
           path: |
             build/delivery/
             !build/delivery/app-debug.apk
+            !build/delivery/app-debug-clean.apk
             !build/delivery/app-release-unsigned.aab
             !build/delivery/app-release-unsigned.apk
             app/build/test-results/
