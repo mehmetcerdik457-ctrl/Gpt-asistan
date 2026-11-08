@@ -42,8 +42,12 @@ INSTALLED_APK_IDENTITY_OBSERVED_NOT_UPGRADE_APPROVAL. The result includes the
 installed package ID, versionCode, SHA-256 of its pulled base APK, signing
 certificate digest, whether the base APK is debuggable, and how many split APKs
 were also inspected. All reported split APKs must match the base package, version
-and signer. Any unreadable APK, missing base, mismatched split, invalid remote
-path or missing SDK executable results in BLOCKED (exit code 2).
+and signer. The tool also re-reads the installed package path listing after
+pulling files: if the base/split set changed during inspection, the result is
+BLOCKED instead of treating mixed-version files as current. This does not prove
+Android held the package bytes atomically unchanged; real-device acceptance is
+still required. Any unreadable APK, missing base, mismatched split, invalid
+remote path or missing SDK executable results in BLOCKED (exit code 2).
 
 A supported Android OS version or an arm64-v8a build alone is **not** proof
 that an existing owner installation can be safely updated.
@@ -80,7 +84,7 @@ Unsigned AAB is not a release.
 
 ## Testing and acceptance
 
-- Pure fake-ADB tests: python -m unittest server.tests.test_installed_apk_probe -v.
+- Pure fake-ADB tests: python -m unittest server.tests.test_installed_apk_probe -v. The simulated package-change race regression is included (14 local passing tests); source-bound GitHub Actions verification is a separate required gate.
 - The CI Python test discovery includes these tests on a source-bound GitHub
   Actions run; a successful local mock does not mean the on-device command worked.
 - Physical phone P0 acceptance additionally requires verifying the actual
