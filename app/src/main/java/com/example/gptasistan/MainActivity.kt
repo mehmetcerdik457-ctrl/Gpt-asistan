@@ -829,6 +829,10 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         try {
             store.saveMessage("assistant", action())
             session.refreshHistory()
+            // Read-only memory/task/Owner results are rendered in the chat
+            // transcript. Return to it only after a successful DB write.
+            if (::controlSections.isInitialized)
+                controlSections.show(KralControlSections.Page.CHAT)
         } catch (_: Exception) {
             connectionStatus.text = getString(R.string.status_record_read_failed)
         }
