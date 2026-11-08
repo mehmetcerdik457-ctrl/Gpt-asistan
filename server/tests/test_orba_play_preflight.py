@@ -102,6 +102,33 @@ android {
         self.assertEqual(f["signed_aab"]["status"], "JAR_VERIFIED")
         self.assertFalse(report["play_upload_approved"])
 
+
+    def test_jarsigner_invoked_in_strict_mode(self):
+        bundle = self.root / "test.aab"
+        bundle.write_bytes(b"synthetic jar")
+        with patch.object(preflight.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, "jar verified.\n", "")) as runner:
+            state = self.findings(aab=bundle)["signed_aab"]["status"]
+        self.assertEqual(state, "JAR_VERIFIED")
+        command = runner.call_args.args[0]
+        self.assertIn("-strict", command)
+        self.assertIn("-verify", command)
+
+    def test_unsigned_entry_warning_blocks_even_with_zero_exit(self):
+        bundle = self.root / "test.aab"
+        bundle.write_bytes(b"partial-signature")
+        fake = subprocess.CompletedProcess([], 0, "jar verified.\nWarning: unsigned entry: base/assets/payload.txt\n", "")
+        with patch.object(preflight.subprocess, "run", return_value=fake):
+            state = self.findings(aab=bundle)["signed_aab"]["status"]
+        self.assertEqual(state, "BLOCKED")
+
+    def test_strict_signer_warning_nonzero_exit_blocks(self):
+        bundle = self.root / "test.aab"
+        bundle.write_bytes(b"bad-signature")
+        fake = subprocess.CompletedProcess([], 4, "jar verified, with signer errors.\n", "")
+        with patch.object(preflight.subprocess, "run", return_value=fake):
+            state = self.findings(aab=bundle)["signed_aab"]["status"]
+        self.assertEqual(state, "BLOCKED")
+
     def test_strict_exit_blocked(self):
         self.assertEqual(preflight.main(["--repo-root", str(self.root), "--strict"]), 2)
 
