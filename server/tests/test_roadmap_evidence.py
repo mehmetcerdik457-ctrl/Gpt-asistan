@@ -57,6 +57,23 @@ class RoadmapEvidenceTests(unittest.TestCase):
             self.assertTrue(audit["acceptance_commit_matches_target"])
             self.assertEqual(audit["product_final_acceptance"], "BLOCKED")
 
+    def test_cli_default_repository_root_is_correct(self):
+        import io
+        import sys
+        from contextlib import redirect_stdout
+        old = sys.argv
+        stream = io.StringIO()
+        try:
+            sys.argv = ["roadmap_evidence", "--target-commit", self.sha]
+            with redirect_stdout(stream):
+                self.assertEqual(roadmap_evidence.main(), 0)
+        finally:
+            sys.argv = old
+        data = json.loads(stream.getvalue())
+        self.assertEqual(data["required_manifests_present"], 11)
+        self.assertEqual(data["target_commit"], self.sha)
+        self.assertEqual(data["product_final_acceptance"], "BLOCKED")
+
     def test_unknown_acceptance_state_denied(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
