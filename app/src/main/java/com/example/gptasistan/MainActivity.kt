@@ -433,7 +433,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         controlSections.system.addView(Button(this).apply {
             text = getString(R.string.action_source_readonly)
             setOnClickListener {
-                if (!appUnlocked || !uiReady || !foreground || storageBlocked ||
+                if (!appUnlocked || !uiReady || !this@MainActivity.foreground || storageBlocked ||
                     session.state.value?.busy == true || sourceReadRunning.get()
                 ) {
                     connectionStatus.text = getString(R.string.status_unlock_and_wait)
