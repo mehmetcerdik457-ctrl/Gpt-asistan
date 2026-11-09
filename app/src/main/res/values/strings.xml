@@ -81,4 +81,10 @@
     <string name="integration_notice">CİHAT sohbeti otomatik okunmaz veya yazılmaz. OMEGA canlı erişimi doğrulanmadı. İşçi durumu yalnız kayıtlı Owner sunucusuna imzalı salt okunur istektir. Hesaplara ve dosyalara yazma kapalıdır.</string>
     <string name="action_voice_draft_short">Ses</string>
     <string name="action_voice_draft_description">Sesle mesaj taslağı oluştur</string>
+    <string name="action_source_readonly">Dosya / APK seç ve salt okunur incele</string>
+    <string name="status_source_reading">Seçilen dosya SHA-256 ile salt okunur inceleniyor…</string>
+    <string name="status_source_unavailable">Android dosya seçicisi açılamadı.</string>
+    <string name="status_source_failed">Seçilen dosya güvenle okunamadı; hiçbir dosya değiştirilmedi.</string>
+    <string name="status_source_readonly_complete">Kaynak tarandı; çalışan beceri olarak etkinleştirilmedi.</string>
+    <string name="title_source_report">Kaynak kimliği — ön inceleme</string>
 </resources>

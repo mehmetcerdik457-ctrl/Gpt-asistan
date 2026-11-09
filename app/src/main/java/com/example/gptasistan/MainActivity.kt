@@ -52,6 +52,24 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private var otpGeneration = 0L
     private var reminderPermissionPending = false
     private val visibleDialogs = mutableSetOf<AlertDialog>()
+    private val sourceReadRunning = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val sourcePicker = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null && !stopped && !isFinishing && !isDestroyed) {
+            // External document providers may have suspended/recreated this Activity.
+            // Require fresh owner credential confirmation before any content read.
+            unlock {
+                if (appUnlocked && uiReady && foreground && !storageBlocked &&
+                    !stopped && !isFinishing && !isDestroyed &&
+                    session.state.value?.busy != true
+                ) {
+                    inspectPickedSource(uri)
+                }
+            }
+        }
+    }
+
     private val prefs by lazy { getSharedPreferences("kral_model", MODE_PRIVATE) }
     private val backups by lazy {
         BackupUi(this,
@@ -412,6 +430,22 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 showLocal { OwnerStatus.readOnlyReport(this@MainActivity) }
             }
         })
+        controlSections.system.addView(Button(this).apply {
+            text = getString(R.string.action_source_readonly)
+            setOnClickListener {
+                if (!appUnlocked || !uiReady || !foreground || storageBlocked ||
+                    session.state.value?.busy == true || sourceReadRunning.get()
+                ) {
+                    connectionStatus.text = getString(R.string.status_unlock_and_wait)
+                } else {
+                    try {
+                        sourcePicker.launch(arrayOf("*/*"))
+                    } catch (_: Exception) {
+                        connectionStatus.text = getString(R.string.status_source_unavailable)
+                    }
+                }
+            }
+        })
         controlSections.system.addView(TextView(this).apply {
             text = getString(R.string.notice_omega_unverified)
         })
@@ -624,6 +658,32 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             else -> Unit
         }
         return decision
+    }
+
+    private fun inspectPickedSource(uri: android.net.Uri) {
+        if (!sourceReadRunning.compareAndSet(false, true)) return
+        connectionStatus.text = getString(R.string.status_source_reading)
+        thread(name = "kral-static-source-read") {
+            val report = runCatching {
+                SourceReadOnlyInspector.inspect(contentResolver, uri)
+            }.getOrNull()
+            sourceReadRunning.set(false)
+            runOnUiThread {
+                if (isFinishing || isDestroyed || stopped || !appUnlocked ||
+                    !uiReady || !foreground || storageBlocked
+                ) return@runOnUiThread
+                if (report == null) {
+                    connectionStatus.text = getString(R.string.status_source_failed)
+                } else {
+                    AlertDialog.Builder(this)
+                        .setTitle(getString(R.string.title_source_report))
+                        .setMessage(report.toDisplayText())
+                        .setPositiveButton(getString(R.string.action_cancel), null)
+                        .showProtected()
+                    connectionStatus.text = getString(R.string.status_source_readonly_complete)
+                }
+            }
+        }
     }
 
     private fun showHandoffMenu() {
