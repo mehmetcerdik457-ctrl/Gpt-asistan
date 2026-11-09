@@ -45,6 +45,22 @@ jobs:
         env:
           EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: python3 scripts/acceptance/run_exact_source_audit.py "$EXPECTED_SHA"
+      - name: Record exact-commit T01-T26 and 11-file roadmap audit
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          mkdir -p build/acceptance
+          python3 -m server.roadmap_evidence --target-commit "$EXPECTED_SHA" > build/acceptance/roadmap-current-head.json
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          report = json.loads(Path("build/acceptance/roadmap-current-head.json").read_text())
+          assert report["target_commit"] == os.environ["EXPECTED_SHA"]
+          assert report["required_manifests_present"] == 11
+          assert report["stored_tests_count"] == 26
+          print("ROADMAP_AUDIT_RECORDED: " + report["product_final_acceptance"])
+          PY
       - name: Upload independent acceptance evidence
         if: always()
         uses: actions/upload-artifact@v4
