@@ -4,6 +4,11 @@ on:
   push:
     branches:
       - 'audit/orba-play-entitlement-gate-*'
+  pull_request:
+    paths:
+      - 'server/play_entitlement_gate.py'
+      - 'server/tests/test_play_entitlement_gate.py'
+      - '.github/workflows/orba-play-entitlement-gate.yml'
   workflow_dispatch:
 
 permissions:
