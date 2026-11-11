@@ -6,6 +6,9 @@ on:
       - 'audit/orba-play-entitlement-gate-*'
   pull_request:
     paths:
+      - 'app/src/main/java/com/example/gptasistan/billing/**'
+      - 'app/src/test/java/com/example/gptasistan/billing/**'
+      - 'app/build.gradle.kts'
       - 'server/play_entitlement_gate.py'
       - 'server/play_google_api.py'
       - 'server/play_subscription_mapper.py'
@@ -39,3 +42,18 @@ jobs:
         run: python -m compileall -q server/play_entitlement_gate.py server/play_google_api.py server/play_subscription_mapper.py server/play_owner_binding.py server/play_account_id.py server/play_verification_service.py server/tests/test_play_entitlement_gate.py server/tests/test_play_google_api.py server/tests/test_play_subscription_mapper.py server/tests/test_play_owner_binding.py server/tests/test_play_account_id.py server/tests/test_play_verification_service.py
       - name: Run offline entitlement regressions
         run: python -m unittest -v server.tests.test_play_entitlement_gate server.tests.test_play_google_api server.tests.test_play_subscription_mapper server.tests.test_play_owner_binding server.tests.test_play_account_id server.tests.test_play_verification_service
+
+  android-purchase-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@dded0888837ed1f317902acf8a20df0ad188d165f5e # v4.7.1
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4.4.3
+      - name: Run Android purchase submission unit tests
+        run: ./gradlew :app:testDebugUnitTest --tests 'com.example.gptasistan.billing.PlayPurchaseSubmissionTest' --no-daemon
