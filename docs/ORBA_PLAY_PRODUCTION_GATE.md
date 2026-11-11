@@ -32,3 +32,24 @@ Status: **HOLD — offline verification prototype only**. This document does not
 
 ## Release decision
 **PRODUCTION HOLD** until every blocker is evidenced and explicitly approved by the owner.
+
+
+## 12 Nov 2026 — ACK-then-reverify candidate (stacked PR; not deployed)
+
+An isolated **server-only** acknowledgement adapter is provided in
+`server/play_acknowledgement.py` and a caller-gated orchestration function
+in `server/play_acknowledgement_service.py`. The candidate calls the official
+Google Play `purchases.subscriptions.acknowledge` endpoint *only after*
+a fresh, verified `subscriptionsv2.get` response matches authenticated
+owner's obfuscated account identifier, product, ACTIVE state and unexpired
+entitlement. When ACK is pending, an HTTP 200 response is **not** treated
+as a subscription grant: the provider must be fetched a second time and
+return ACKNOWLEDGED before durable owner binding.
+
+Negative tests use fully fake provider responses and assert no grants for
+pending payment, expired, owner mismatch, product mismatch, HTTP/network
+errors, lost acknowledgement confirmation or provider changes on refresh.
+Unknown acknowledgement states still deny. Android checkout start, secure
+production OAuth/session endpoints, Google license tests, RTDN, refund/hold
+lifecycle, signed release and real payment remain **NOT IMPLEMENTED /
+NOT VERIFIED**. Never expose this function as an unauthenticated route.
