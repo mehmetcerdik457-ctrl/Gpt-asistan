@@ -6,6 +6,7 @@ import com.android.billingclient.api.BillingClientStateListener
 import com.android.billingclient.api.BillingResult
 import com.android.billingclient.api.PendingPurchasesParams
 import com.android.billingclient.api.Purchase
+import com.android.billingclient.api.QueryPurchasesParams
 import com.android.billingclient.api.PurchasesUpdatedListener
 
 /**
@@ -34,7 +35,9 @@ internal class PlayBillingConnector(
     fun connect() {
         client.startConnection(object : BillingClientStateListener {
             override fun onBillingSetupFinished(result: BillingResult) {
-                if (result.responseCode != BillingClient.BillingResponseCode.OK) {
+                if (result.responseCode == BillingClient.BillingResponseCode.OK) {
+                    restoreKnownPurchases()
+                } else {
                     onFailure(result.responseCode)
                 }
             }
@@ -43,6 +46,20 @@ internal class PlayBillingConnector(
                 // Automatic reconnection is enabled; no entitlement is granted.
             }
         })
+    }
+
+    /** Reconcile subscriptions after reconnect or app start, without granting access. */
+    fun restoreKnownPurchases() {
+        val params = QueryPurchasesParams.newBuilder()
+            .setProductType(BillingClient.ProductType.SUBS)
+            .build()
+        client.queryPurchasesAsync(params) { result, purchases ->
+            if (result.responseCode == BillingClient.BillingResponseCode.OK) {
+                onPurchasesUpdated(result, purchases.toMutableList())
+            } else {
+                onFailure(result.responseCode)
+            }
+        }
     }
 
     override fun onPurchasesUpdated(result: BillingResult, purchases: MutableList<Purchase>?) {
