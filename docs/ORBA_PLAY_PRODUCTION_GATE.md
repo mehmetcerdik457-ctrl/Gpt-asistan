@@ -98,3 +98,21 @@ purchase, multi-account identity design, backend-to-Android deployed
 transport, RTDN, recovery, signed release or explicit owner deployment
 approval. These routes are single-owner-specific and are NOT a generic
 consumer identity system. No rollout or real Google API call conducted.
+
+## 12 Nov 2026 — Android signed owner Play transport
+
+Android `OmegaEnvelope` now permits signing exactly `/play/account` and
+`/play/verify` through the EXISTING AndroidKeystore dual-P256 owner and
+device keys. `OwnerGateway.playAccountId()` fetches the server-generated
+obfuscated account identifier only from the configured HTTPS endpoint;
+`OwnerGateway.verifyPlayPurchase()` sends only validated productId and
+purchaseToken with the existing signed request transport. Both methods
+require the selected base URL to equal the previously configured endpoint
+and must run off the main/UI thread. Response parsing fails closed if
+contract, hex account ID, entitlement boolean, or verification provenance
+is wrong; HTTP 200 alone does not grant subscriptions.
+
+This is an adapter, not an active purchase flow: no UI call site, real
+backend provisioning, production OAuth, RTDN or live Play license test.
+Android JVM contract tests exercise signing canonicalization and response
+parsing only; they do not invoke biometrics on physical devices.

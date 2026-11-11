@@ -9,6 +9,9 @@ on:
       - 'app/src/main/java/com/example/gptasistan/billing/**'
       - 'app/src/test/java/com/example/gptasistan/billing/**'
       - 'app/build.gradle.kts'
+      - 'app/src/main/java/com/example/gptasistan/OwnerGateway.kt'
+      - 'app/src/main/java/com/example/gptasistan/OwnerIdentity.kt'
+      - 'app/src/test/java/com/example/gptasistan/OwnerPlayGatewayTest.kt'
       - 'server/play_entitlement_gate.py'
       - 'server/play_google_api.py'
       - 'server/play_subscription_mapper.py'
@@ -64,7 +67,7 @@ jobs:
           java-version: '17'
       - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4.4.3
       - name: Run Android purchase submission unit tests
-        run: ./gradlew :app:testDebugUnitTest --tests 'com.example.gptasistan.billing.PlayPurchaseSubmissionTest' --tests 'com.example.gptasistan.billing.PlaySubscriptionCheckoutTest' --no-daemon
+        run: ./gradlew :app:testDebugUnitTest --tests 'com.example.gptasistan.billing.PlayPurchaseSubmissionTest' --tests 'com.example.gptasistan.billing.PlaySubscriptionCheckoutTest' --tests 'com.example.gptasistan.OwnerPlayGatewayTest' --no-daemon
       - name: Assemble unsigned-for-release debug APK (CI only)
         run: ./gradlew :app:assembleDebug --no-daemon
       - name: Record debug APK SHA-256

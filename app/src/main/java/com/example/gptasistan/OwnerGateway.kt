@@ -1,6 +1,7 @@
 package com.example.gptasistan
 
 import android.content.Context
+import com.example.gptasistan.billing.PlayPurchaseSubmission
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -40,6 +41,58 @@ object OwnerGateway {
     } catch (_: Exception) { false }
 
     fun clear() { registry = null }
+
+    /**
+     * Fetches the server-generated opaque Google Play billing account ID.
+     * Call on a worker thread; returns NO HMAC secret, owner ID or access token.
+     * The backend remains disabled unless separately provisioned and approved.
+     */
+    fun playAccountId(context: Context, base: String): String {
+        val owner = configuredPlayOwner(context, base)
+        return parsePlayAccountId(request(base, OmegaEnvelope.PLAY_ACCOUNT, owner, JSONObject()))
+    }
+
+    /**
+     * Submits only productId and purchaseToken via the existing dual-P256
+     * authenticated transport, with the identity derived from Android Keystore.
+     * Call on a worker thread. A 200 HTTP response alone is NEVER entitlement.
+     */
+    fun verifyPlayPurchase(
+        context: Context, base: String, purchase: PlayPurchaseSubmission
+    ): Boolean {
+        val owner = configuredPlayOwner(context, base)
+        require(purchase.validate(context.packageName)) { "PLAY_SUBMISSION_INVALID" }
+        val data = JSONObject().put("productId", purchase.productId)
+            .put("purchaseToken", purchase.purchaseToken)
+        return parsePlayEntitlement(request(base, OmegaEnvelope.PLAY_VERIFY, owner, data))
+    }
+
+    private fun configuredPlayOwner(context: Context, base: String): String {
+        val prefs = context.getSharedPreferences("kral_model", Context.MODE_PRIVATE)
+        val owner = prefs.getString("owner_id", "").orEmpty()
+        val configured = prefs.getString("endpoint", "").orEmpty()
+        if (!validBase(base) || !validBase(configured) ||
+            configured.trimEnd('/') != base.trimEnd('/') ||
+            !OmegaEnvelope.validOwner(owner))
+            throw SecurityException("PLAY_BACKEND_SCOPE_NOT_CONFIGURED")
+        return owner
+    }
+
+    internal fun parsePlayAccountId(result: JSONObject): String {
+        require(result.getString("contract") == OmegaEnvelope.CONTRACT)
+        val account = result.get("obfuscated_account_id")
+        require(account is String && account.matches(Regex("[a-f0-9]{64}")))
+        return account
+    }
+
+    internal fun parsePlayEntitlement(result: JSONObject): Boolean {
+        require(result.getString("contract") == OmegaEnvelope.CONTRACT)
+        val entitled = result.get("entitled")
+        require(entitled is Boolean)
+        val provenance = result.get("verified_by")
+        require(provenance is String && provenance == if (entitled) "server_google_play" else "denied")
+        return entitled
+    }
 
     fun verifiedModels(base: String, owner: String, now: Long = System.currentTimeMillis() / 1000): List<Model> {
         val cached = registry ?: return emptyList()

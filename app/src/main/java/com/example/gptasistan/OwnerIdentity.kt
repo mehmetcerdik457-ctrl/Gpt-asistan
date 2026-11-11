@@ -72,12 +72,14 @@ object OmegaEnvelope {
     const val TASK_STATUS = "/api/v1/owner/tasks/status"
     const val TASK_CANCEL = "/api/v1/owner/tasks/cancel"
     const val TASK_APPROVE = "/api/v1/owner/tasks/approve"
+    const val PLAY_ACCOUNT = "/api/v1/owner/play/account"
+    const val PLAY_VERIFY = "/api/v1/owner/play/verify"
     fun validOwner(value: String) = value.matches(Regex("[A-Za-z0-9_-]{1,64}"))
     fun sha256(bytes: ByteArray) = MessageDigest.getInstance("SHA-256").digest(bytes)
         .joinToString("") { "%02x".format(it.toInt() and 255) }
 
     fun canonical(path: String, body: ByteArray, timestamp: String, nonce: String, ownerId: String, deviceId: String): ByteArray {
-        require(path in setOf(CHAT, MODELS, WORKERS, TASKS, TASK_STATUS, TASK_CANCEL, TASK_APPROVE))
+        require(path in setOf(CHAT, MODELS, WORKERS, TASKS, TASK_STATUS, TASK_CANCEL, TASK_APPROVE, PLAY_ACCOUNT, PLAY_VERIFY))
         require(body.isNotEmpty() && body.size <= 65536)
         require(timestamp.matches(Regex("[0-9]{10}")))
         require(nonce.matches(Regex("[a-f0-9]{32,64}")))
