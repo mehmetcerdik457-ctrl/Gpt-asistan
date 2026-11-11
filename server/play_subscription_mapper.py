@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 import hmac
 from server.play_entitlement_gate import VerifiedPlayPurchase, PACKAGE, token_digest
 from server.play_google_api import get_subscription_v2
+from server.play_account_id import obfuscated_play_account_id
 
 
 class PlayMappingError(ValueError):
@@ -61,7 +62,7 @@ def map_verified_subscription(data: dict, *, purchase_token: str, owner_id: str,
 
 def verify_and_map_subscription(*, purchase_token: str, access_token: str,
                                 owner_id: str, product_id: str,
-                                expected_obfuscated_account_id: str, opener=None) -> VerifiedPlayPurchase:
+                                server_secret: bytes, opener=None) -> VerifiedPlayPurchase:
     """Only this server-side fetch path can assert provider provenance.
 
     Owner authentication, purchase ownership binding, OAuth token issuance,
@@ -69,6 +70,9 @@ def verify_and_map_subscription(*, purchase_token: str, access_token: str,
     """
     from dataclasses import replace
     provider_data = get_subscription_v2(purchase_token, access_token, opener=opener)
+    expected_obfuscated_account_id = obfuscated_play_account_id(
+        authenticated_owner_id=owner_id, server_secret=server_secret,
+    )
     identifiers = provider_data.get("externalAccountIdentifiers")
     actual = identifiers.get("obfuscatedExternalAccountId") if isinstance(identifiers, dict) else None
     if (not isinstance(expected_obfuscated_account_id, str)
