@@ -32,6 +32,16 @@ class Tests(unittest.TestCase):
         with self.assertRaises(PlayVerificationError): get_subscription_v2("valid", "access", opener=lambda *_args, **_kwargs: Response(b"not-json"))
     def test_missing_line_items(self):
         with self.assertRaises(PlayVerificationError): get_subscription_v2("valid", "access", opener=lambda *_args, **_kwargs: Response(b'{"subscriptionState":"ACTIVE"}'))
+    def test_empty_line_items_rejected(self):
+        raw = json.dumps({"subscriptionState": "SUBSCRIPTION_STATE_ACTIVE", "lineItems": []}).encode()
+        with self.assertRaisesRegex(PlayVerificationError, "GOOGLE_PLAY_INVALID_LINE_ITEMS"):
+            get_subscription_v2("valid", "access", opener=lambda *_args, **_kwargs: Response(raw))
+
+    def test_missing_product_id_rejected(self):
+        raw = json.dumps({"subscriptionState": "SUBSCRIPTION_STATE_ACTIVE", "lineItems": [{}]}).encode()
+        with self.assertRaisesRegex(PlayVerificationError, "GOOGLE_PLAY_INVALID_LINE_ITEMS"):
+            get_subscription_v2("valid", "access", opener=lambda *_args, **_kwargs: Response(raw))
+
     def test_oversize(self):
         with self.assertRaises(PlayVerificationError): get_subscription_v2("valid", "access", opener=lambda *_args, **_kwargs: Response(b"x"*262145))
     def test_transport_failure(self):
