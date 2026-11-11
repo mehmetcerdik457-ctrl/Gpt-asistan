@@ -53,3 +53,20 @@ Unknown acknowledgement states still deny. Android checkout start, secure
 production OAuth/session endpoints, Google license tests, RTDN, refund/hold
 lifecycle, signed release and real payment remain **NOT IMPLEMENTED /
 NOT VERIFIED**. Never expose this function as an unauthenticated route.
+
+
+## 12 Nov 2026 — Android Billing 9 checkout connector (stacked draft)
+`PlayBillingConnector` can now query fresh Google Play SUBS `ProductDetails`
+and available subscription offers; only an explicitly selected exact offer
+token is used for `launchBillingFlow`, always invoked on the Android main
+thread. `BillingFlowParams.setObfuscatedAccountId` receives a validated
+64-character lowercase HMAC-derived identifier that **must be fetched from
+a trusted authenticated backend**; no key or owner PII is embedded in APK.
+Feature availability, service readiness, stale offer and malformed checkout
+requests fail closed.
+
+**Critical:** These APIs are NOT yet wired to a customer-facing screen, a
+backend authenticated transport, real Play Console configured offers, or a
+production OAuth/ack/RTDN flow. Android JVM unit tests cover input contracts,
+not a device purchase. Launch success is not payment success, nor entitlement
+proof. Only the verified backend may grant rights. Keep PRODUCTION HOLD.
