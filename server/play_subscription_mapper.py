@@ -6,6 +6,7 @@ No client-supplied dict may be passed to this function as trusted evidence.
 """
 from datetime import datetime, timezone
 from server.play_entitlement_gate import VerifiedPlayPurchase, PACKAGE, token_digest
+from server.play_google_api import get_subscription_v2
 
 
 class PlayMappingError(ValueError):
@@ -54,5 +55,20 @@ def map_verified_subscription(data: dict, *, purchase_token: str, owner_id: str,
         expires_at_ms=expiry,
         subscription_state=state,
         acknowledged=data["acknowledgementState"] == "ACKNOWLEDGEMENT_STATE_ACKNOWLEDGED",
-        verified_by_google_api=True,
+        verified_by_google_api=False,  # Mapping untrusted dicts never establishes provenance.
     )
+
+def verify_and_map_subscription(*, purchase_token: str, access_token: str,
+                                owner_id: str, product_id: str, opener=None) -> VerifiedPlayPurchase:
+    """Only this server-side fetch path can assert provider provenance.
+
+    Owner authentication, purchase ownership binding, OAuth token issuance,
+    and secure storage remain mandatory external prerequisites.
+    """
+    from dataclasses import replace
+    provider_data = get_subscription_v2(purchase_token, access_token, opener=opener)
+    mapped = map_verified_subscription(
+        provider_data, purchase_token=purchase_token, owner_id=owner_id,
+        product_id=product_id,
+    )
+    return replace(mapped, verified_by_google_api=True)
