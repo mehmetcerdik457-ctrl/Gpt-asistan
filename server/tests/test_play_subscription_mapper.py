@@ -64,7 +64,7 @@ class MappingTests(unittest.TestCase):
             verify_and_map_subscription(
                 purchase_token="offline-test-token", access_token="server-test-oauth",
                 owner_id="owner-1", product_id="orba_pro_monthly",
-                expected_obfuscated_account_id="opaque-owner-1",
+                server_secret=SECRET,
                 opener=lambda *_args, **_kwargs: Response(),
             )
 
