@@ -15,6 +15,9 @@ on:
       - 'server/play_owner_binding.py'
       - 'server/play_account_id.py'
       - 'server/play_verification_service.py'
+      - 'server/play_acknowledgement.py'
+      - 'server/play_acknowledgement_service.py'
+      - 'server/tests/test_play_acknowledgement_service.py'
       - 'server/tests/test_play_entitlement_gate.py'
       - 'server/tests/test_play_google_api.py'
       - 'server/tests/test_play_subscription_mapper.py'
@@ -39,9 +42,9 @@ jobs:
         with:
           python-version: '3.11'
       - name: Compile decision gate
-        run: python -m compileall -q server/play_entitlement_gate.py server/play_google_api.py server/play_subscription_mapper.py server/play_owner_binding.py server/play_account_id.py server/play_verification_service.py server/tests/test_play_entitlement_gate.py server/tests/test_play_google_api.py server/tests/test_play_subscription_mapper.py server/tests/test_play_owner_binding.py server/tests/test_play_account_id.py server/tests/test_play_verification_service.py
+        run: python -m compileall -q server/play_entitlement_gate.py server/play_google_api.py server/play_subscription_mapper.py server/play_owner_binding.py server/play_account_id.py server/play_verification_service.py server/play_acknowledgement.py server/play_acknowledgement_service.py server/tests/test_play_acknowledgement_service.py server/tests/test_play_entitlement_gate.py server/tests/test_play_google_api.py server/tests/test_play_subscription_mapper.py server/tests/test_play_owner_binding.py server/tests/test_play_account_id.py server/tests/test_play_verification_service.py
       - name: Run offline entitlement regressions
-        run: python -m unittest -v server.tests.test_play_entitlement_gate server.tests.test_play_google_api server.tests.test_play_subscription_mapper server.tests.test_play_owner_binding server.tests.test_play_account_id server.tests.test_play_verification_service
+        run: python -m unittest -v server.tests.test_play_entitlement_gate server.tests.test_play_google_api server.tests.test_play_subscription_mapper server.tests.test_play_owner_binding server.tests.test_play_account_id server.tests.test_play_verification_service server.tests.test_play_acknowledgement_service
 
   android-purchase-contract:
     runs-on: ubuntu-24.04
