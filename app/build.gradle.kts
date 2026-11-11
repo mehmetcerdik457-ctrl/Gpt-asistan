@@ -39,6 +39,7 @@ kotlin {
 dependencies {
     implementation("org.jetbrains.kotlin:kotlin-stdlib:2.3.21")
     implementation("androidx.core:core-ktx:1.13.1")
+    implementation("com.android.billingclient:billing:9.1.0")
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel:2.8.4")
     implementation("androidx.lifecycle:lifecycle-livedata:2.8.4")
