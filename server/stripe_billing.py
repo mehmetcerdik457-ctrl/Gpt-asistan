@@ -141,7 +141,9 @@ def process_event(db: sqlite3.Connection, payload: bytes, header: str, secret: s
             if status not in valid_states:
                 raise BillingError("SUBSCRIPTION_STATUS_INVALID")
             cancel_at_period_end = 1 if obj.get("cancel_at_period_end") is True else 0
-            prior = db.execute("SELECT last_event_created,last_event_id,status FROM stripe_subscriptions WHERE subscription_id=?", (sid,)).fetchone()
+            prior = db.execute("SELECT last_event_created,last_event_id,status,customer_id FROM stripe_subscriptions WHERE subscription_id=?", (sid,)).fetchone()
+            if prior is not None and prior[3] != customer:
+                raise BillingError("SUBSCRIPTION_CUSTOMER_MISMATCH", 403)
             # A Stripe subscription ID cannot legitimately become active again after deletion.
             # Out-of-order deliveries and same-second events must not revive canceled access.
             is_terminal = prior is not None and prior[2] == "canceled"
