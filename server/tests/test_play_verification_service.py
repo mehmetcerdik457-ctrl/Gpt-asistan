@@ -72,6 +72,37 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(calls, [])
         self.assertEqual(self.count(), 0)
 
+    def test_google_network_failure_does_not_bind(self):
+        from urllib.error import URLError
+        from server.play_google_api import PlayVerificationError
+        def broken(*_args, **_kwargs): raise URLError("offline")
+        with self.assertRaises(PlayVerificationError):
+            verify_play_entitlement(
+                db=self.db, purchase_token="token-1", access_token="offline-oauth",
+                authenticated_owner_id="alice", product_id="orba_pro_monthly",
+                server_secret=SECRET, now_ms=NOW, opener=broken)
+        self.assertEqual(self.count(), 0)
+
+    def test_invalid_provider_response_does_not_bind(self):
+        from server.play_google_api import PlayVerificationError
+        d = provider()
+        del d["lineItems"]
+        with self.assertRaises(PlayVerificationError):
+            self.check(d)
+        self.assertEqual(self.count(), 0)
+
+    def test_wrong_product_does_not_bind(self):
+        from server.play_subscription_mapper import PlayMappingError
+        d = provider()
+        d["lineItems"][0]["productId"] = "another_product"
+        with self.assertRaises(PlayMappingError):
+            self.check(d)
+        self.assertEqual(self.count(), 0)
+
+    def test_inactive_state_does_not_bind(self):
+        self.assertFalse(self.check(provider(state="SUBSCRIPTION_STATE_ON_HOLD")))
+        self.assertEqual(self.count(), 0)
+
     def test_verified_active_binds(self):
         self.assertTrue(self.check(provider()))
         self.assertEqual(self.count(), 1)
