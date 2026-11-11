@@ -12,6 +12,12 @@ def verify_play_entitlement(*, db, purchase_token: str, access_token: str,
                             authenticated_owner_id: str, product_id: str,
                             server_secret: bytes, now_ms: int, opener=None) -> bool:
     """No owner binding is written unless provider, account and entitlement pass."""
+    if not isinstance(authenticated_owner_id, str) or not authenticated_owner_id.strip():
+        raise ValueError("INVALID_AUTHENTICATED_OWNER")
+    if not isinstance(now_ms, int) or isinstance(now_ms, bool) or now_ms < 0:
+        raise ValueError("INVALID_TIMESTAMP")
+    if not isinstance(server_secret, bytes) or len(server_secret) < 32:
+        raise ValueError("INVALID_SERVER_SECRET")
     purchase = verify_and_map_subscription(
         purchase_token=purchase_token, access_token=access_token,
         owner_id=authenticated_owner_id, product_id=product_id,
