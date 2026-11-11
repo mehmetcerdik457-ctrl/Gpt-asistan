@@ -1,0 +1,87 @@
+"""Strict Google Play subscriptionsv2 response-to-decision adapter.
+
+Call ONLY with a response obtained directly by the trusted server-side
+get_subscription_v2 client, and an independently authenticated owner binding.
+No client-supplied dict may be passed to this function as trusted evidence.
+"""
+from datetime import datetime, timezone
+import hmac
+from server.play_entitlement_gate import VerifiedPlayPurchase, PACKAGE, token_digest
+from server.play_google_api import get_subscription_v2
+from server.play_account_id import obfuscated_play_account_id
+
+
+class PlayMappingError(ValueError):
+    pass
+
+
+def _expiry_ms(value):
+    if not isinstance(value, str) or not value.endswith("Z"):
+        raise PlayMappingError("INVALID_EXPIRY")
+    try:
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise PlayMappingError("INVALID_EXPIRY") from exc
+    if dt.tzinfo is None or dt.year < 2020:
+        raise PlayMappingError("INVALID_EXPIRY")
+    return int(dt.timestamp() * 1000)
+
+
+def map_verified_subscription(data: dict, *, purchase_token: str, owner_id: str,
+                              product_id: str) -> VerifiedPlayPurchase:
+    """Map trusted provider response. Authentication and ownership are external."""
+    if not isinstance(data, dict) or not isinstance(owner_id, str) or not owner_id:
+        raise PlayMappingError("INVALID_OWNER_OR_RESPONSE")
+    if not isinstance(product_id, str) or not product_id:
+        raise PlayMappingError("INVALID_PRODUCT")
+    if data.get("acknowledgementState") not in (
+        "ACKNOWLEDGEMENT_STATE_ACKNOWLEDGED",
+        "ACKNOWLEDGEMENT_STATE_PENDING",
+    ):
+        raise PlayMappingError("INVALID_ACKNOWLEDGEMENT")
+    items = data.get("lineItems")
+    if not isinstance(items, list) or not items:
+        raise PlayMappingError("MISSING_LINE_ITEMS")
+    matches = [item for item in items if isinstance(item, dict) and item.get("productId") == product_id]
+    if len(matches) != 1:
+        raise PlayMappingError("PRODUCT_NOT_UNIQUE")
+    expiry = _expiry_ms(matches[0].get("expiryTime"))
+    state = data.get("subscriptionState")
+    if not isinstance(state, str):
+        raise PlayMappingError("INVALID_STATE")
+    return VerifiedPlayPurchase(
+        package_name=PACKAGE,
+        product_id=product_id,
+        purchase_token_sha256=token_digest(purchase_token),
+        owner_id=owner_id,
+        expires_at_ms=expiry,
+        subscription_state=state,
+        acknowledged=data["acknowledgementState"] == "ACKNOWLEDGEMENT_STATE_ACKNOWLEDGED",
+        verified_by_google_api=False,  # Mapping untrusted dicts never establishes provenance.
+    )
+
+def verify_and_map_subscription(*, purchase_token: str, access_token: str,
+                                owner_id: str, product_id: str,
+                                server_secret: bytes, opener=None) -> VerifiedPlayPurchase:
+    """Only this server-side fetch path can assert provider provenance.
+
+    Owner authentication, purchase ownership binding, OAuth token issuance,
+    and secure storage remain mandatory external prerequisites.
+    """
+    from dataclasses import replace
+    provider_data = get_subscription_v2(purchase_token, access_token, opener=opener)
+    expected_obfuscated_account_id = obfuscated_play_account_id(
+        authenticated_owner_id=owner_id, server_secret=server_secret,
+    )
+    identifiers = provider_data.get("externalAccountIdentifiers")
+    actual = identifiers.get("obfuscatedExternalAccountId") if isinstance(identifiers, dict) else None
+    if (not isinstance(expected_obfuscated_account_id, str)
+            or not expected_obfuscated_account_id
+            or not isinstance(actual, str)
+            or not hmac.compare_digest(actual, expected_obfuscated_account_id)):
+        raise PlayMappingError("PLAY_ACCOUNT_BINDING_MISMATCH")
+    mapped = map_verified_subscription(
+        provider_data, purchase_token=purchase_token, owner_id=owner_id,
+        product_id=product_id,
+    )
+    return replace(mapped, verified_by_google_api=True)
