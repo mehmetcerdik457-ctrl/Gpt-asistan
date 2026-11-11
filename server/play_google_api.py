@@ -53,4 +53,6 @@ def get_subscription_v2(purchase_token: str, access_token: str, *, opener=None) 
         raise PlayVerificationError("GOOGLE_PLAY_INVALID_RESPONSE") from exc
     if not isinstance(data, dict) or not isinstance(data.get("subscriptionState"), str) or not isinstance(data.get("lineItems"), list):
         raise PlayVerificationError("GOOGLE_PLAY_INVALID_RESPONSE")
+    if not data["lineItems"] or any(not isinstance(item, dict) or not isinstance(item.get("productId"), str) or not item["productId"] for item in data["lineItems"]):
+        raise PlayVerificationError("GOOGLE_PLAY_INVALID_LINE_ITEMS")
     return data
