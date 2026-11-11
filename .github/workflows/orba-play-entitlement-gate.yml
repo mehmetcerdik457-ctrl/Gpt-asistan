@@ -57,3 +57,5 @@ jobs:
       - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4.4.3
       - name: Run Android purchase submission unit tests
         run: ./gradlew :app:testDebugUnitTest --tests 'com.example.gptasistan.billing.PlayPurchaseSubmissionTest' --no-daemon
+      - name: Assemble unsigned-for-release debug APK (CI only)
+        run: ./gradlew :app:assembleDebug --no-daemon
