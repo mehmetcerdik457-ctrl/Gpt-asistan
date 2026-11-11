@@ -1,6 +1,7 @@
 import unittest
+import json
 from copy import deepcopy
-from server.play_subscription_mapper import map_verified_subscription, PlayMappingError
+from server.play_subscription_mapper import map_verified_subscription, verify_and_map_subscription, PlayMappingError
 from server.play_entitlement_gate import entitlement_allowed, token_digest
 
 DATA = {
@@ -21,7 +22,19 @@ class MappingTests(unittest.TestCase):
         return entitlement_allowed(mapped, owner_id="owner-1", product_id="orba_pro_monthly",
                                    token_sha256=token_digest("offline-test-token"), now_ms=NOW)
 
-    def test_active_acknowledged(self): self.assertTrue(self.allowed(self.mapping()))
+    def test_untrusted_mapping_cannot_grant(self): self.assertFalse(self.allowed(self.mapping()))
+    def test_verified_server_fetch_can_grant(self):
+        class Response:
+            status = 200
+            def __enter__(self): return self
+            def __exit__(self, *args): return False
+            def read(self, size): return json.dumps(DATA).encode()
+        mapped = verify_and_map_subscription(
+            purchase_token="offline-test-token", access_token="server-test-oauth",
+            owner_id="owner-1", product_id="orba_pro_monthly",
+            opener=lambda *_args, **_kwargs: Response(),
+        )
+        self.assertTrue(self.allowed(mapped))
     def test_pending_acknowledgement_denied(self):
         d = deepcopy(DATA); d["acknowledgementState"] = "ACKNOWLEDGEMENT_STATE_PENDING"
         self.assertFalse(self.allowed(self.mapping(d)))
