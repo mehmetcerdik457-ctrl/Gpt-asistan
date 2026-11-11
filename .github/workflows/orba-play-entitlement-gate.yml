@@ -8,8 +8,10 @@ on:
     paths:
       - 'server/play_entitlement_gate.py'
       - 'server/play_google_api.py'
+      - 'server/play_subscription_mapper.py'
       - 'server/tests/test_play_entitlement_gate.py'
       - 'server/tests/test_play_google_api.py'
+      - 'server/tests/test_play_subscription_mapper.py'
       - '.github/workflows/orba-play-entitlement-gate.yml'
   workflow_dispatch:
 
@@ -28,6 +30,6 @@ jobs:
         with:
           python-version: '3.11'
       - name: Compile decision gate
-        run: python -m compileall -q server/play_entitlement_gate.py server/play_google_api.py server/tests/test_play_entitlement_gate.py server/tests/test_play_google_api.py
+        run: python -m compileall -q server/play_entitlement_gate.py server/play_google_api.py server/play_subscription_mapper.py server/tests/test_play_entitlement_gate.py server/tests/test_play_google_api.py server/tests/test_play_subscription_mapper.py
       - name: Run offline entitlement regressions
-        run: python -m unittest -v server.tests.test_play_entitlement_gate server.tests.test_play_google_api
+        run: python -m unittest -v server.tests.test_play_entitlement_gate server.tests.test_play_google_api server.tests.test_play_subscription_mapper
