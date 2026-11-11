@@ -5,6 +5,7 @@ get_subscription_v2 client, and an independently authenticated owner binding.
 No client-supplied dict may be passed to this function as trusted evidence.
 """
 from datetime import datetime, timezone
+import hmac
 from server.play_entitlement_gate import VerifiedPlayPurchase, PACKAGE, token_digest
 from server.play_google_api import get_subscription_v2
 
@@ -59,7 +60,8 @@ def map_verified_subscription(data: dict, *, purchase_token: str, owner_id: str,
     )
 
 def verify_and_map_subscription(*, purchase_token: str, access_token: str,
-                                owner_id: str, product_id: str, opener=None) -> VerifiedPlayPurchase:
+                                owner_id: str, product_id: str,
+                                expected_obfuscated_account_id: str, opener=None) -> VerifiedPlayPurchase:
     """Only this server-side fetch path can assert provider provenance.
 
     Owner authentication, purchase ownership binding, OAuth token issuance,
@@ -67,6 +69,13 @@ def verify_and_map_subscription(*, purchase_token: str, access_token: str,
     """
     from dataclasses import replace
     provider_data = get_subscription_v2(purchase_token, access_token, opener=opener)
+    identifiers = provider_data.get("externalAccountIdentifiers")
+    actual = identifiers.get("obfuscatedExternalAccountId") if isinstance(identifiers, dict) else None
+    if (not isinstance(expected_obfuscated_account_id, str)
+            or not expected_obfuscated_account_id
+            or not isinstance(actual, str)
+            or not hmac.compare_digest(actual, expected_obfuscated_account_id)):
+        raise PlayMappingError("PLAY_ACCOUNT_BINDING_MISMATCH")
     mapped = map_verified_subscription(
         provider_data, purchase_token=purchase_token, owner_id=owner_id,
         product_id=product_id,
