@@ -39,6 +39,39 @@ class ServiceTests(unittest.TestCase):
             server_secret=SECRET, now_ms=NOW, opener=opener(data))
     def count(self):
         return self.db.execute("SELECT count(*) FROM play_token_owners").fetchone()[0]
+    def test_missing_owner_does_not_call_google(self):
+        calls = []
+        with self.assertRaises(ValueError):
+            verify_play_entitlement(
+                db=self.db, purchase_token="token-1", access_token="offline-oauth",
+                authenticated_owner_id="", product_id="orba_pro_monthly",
+                server_secret=SECRET, now_ms=NOW,
+                opener=lambda *_a, **_kw: calls.append(1))
+        self.assertEqual(calls, [])
+        self.assertEqual(self.count(), 0)
+
+    def test_invalid_secret_does_not_call_google(self):
+        calls = []
+        with self.assertRaises(ValueError):
+            verify_play_entitlement(
+                db=self.db, purchase_token="token-1", access_token="offline-oauth",
+                authenticated_owner_id="alice", product_id="orba_pro_monthly",
+                server_secret=b"short", now_ms=NOW,
+                opener=lambda *_a, **_kw: calls.append(1))
+        self.assertEqual(calls, [])
+        self.assertEqual(self.count(), 0)
+
+    def test_invalid_clock_does_not_call_google(self):
+        calls = []
+        with self.assertRaises(ValueError):
+            verify_play_entitlement(
+                db=self.db, purchase_token="token-1", access_token="offline-oauth",
+                authenticated_owner_id="alice", product_id="orba_pro_monthly",
+                server_secret=SECRET, now_ms=True,
+                opener=lambda *_a, **_kw: calls.append(1))
+        self.assertEqual(calls, [])
+        self.assertEqual(self.count(), 0)
+
     def test_verified_active_binds(self):
         self.assertTrue(self.check(provider()))
         self.assertEqual(self.count(), 1)
