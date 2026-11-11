@@ -79,6 +79,15 @@ class Tests(unittest.TestCase):
         self.feed(x)
         self.assertFalse(can_access(self.db, "sub_123"))
 
+    def test_customer_id_cannot_be_rebound(self):
+        self.feed(event())
+        item = event("evt_rebind", "customer.subscription.updated", "active", NOW + 1)
+        item["data"]["object"]["customer"] = "cus_attacker"
+        with self.assertRaisesRegex(BillingError, "SUBSCRIPTION_CUSTOMER_MISMATCH"):
+            self.feed(item)
+        self.assertEqual(self.db.execute("SELECT customer_id FROM stripe_subscriptions WHERE subscription_id=?", ("sub_123",)).fetchone()[0], "cus_123")
+        self.assertEqual(self.db.execute("SELECT COUNT(*) FROM stripe_events WHERE event_id=?", ("evt_rebind",)).fetchone()[0], 0)
+
     def test_bad_customer_rejected(self):
         x = event()
         x["data"]["object"]["customer"] = "not_cus"
