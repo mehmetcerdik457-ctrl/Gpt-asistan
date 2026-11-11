@@ -9,11 +9,11 @@ from __future__ import annotations
 
 import re
 import time
+from contextlib import closing
 
 from server.play_account_id import obfuscated_play_account_id
 from server.play_acknowledgement_service import acknowledge_then_verify_subscription
 from server.play_entitlement_gate import PRODUCT_RE
-from server.play_owner_binding import initialize
 
 
 class PlayBoundaryError(RuntimeError):
@@ -55,7 +55,8 @@ class PlayGatewayBoundary:
     def verify(self, *, authenticated_owner_id: str, product_id: str,
                purchase_token: str) -> bool:
         owner = self._owner(authenticated_owner_id)
-        if product_id not in self._products:
+        if (not isinstance(product_id, str) or
+                product_id not in self._products):
             raise PlayBoundaryError("PRODUCT_NOT_ALLOWED")
         if not isinstance(purchase_token, str) or not 1 <= len(purchase_token) <= 4096:
             raise PlayBoundaryError("INVALID_PURCHASE_TOKEN")
@@ -75,14 +76,15 @@ class PlayGatewayBoundary:
         # db_factory MUST provide an externally migrated, private durable DB.
         # Never auto-create schema on the public request path.
         try:
-            with self._db_factory() as db:
-                return bool(acknowledge_then_verify_subscription(
-                    db=db, purchase_token=purchase_token,
-                    access_token=access_token,
-                    authenticated_owner_id=owner, product_id=product_id,
-                    server_secret=self._secret, now_ms=now_ms,
-                    opener=self._opener,
-                ))
+            with closing(self._db_factory()) as db:
+                with db:
+                    return bool(acknowledge_then_verify_subscription(
+                        db=db, purchase_token=purchase_token,
+                        access_token=access_token,
+                        authenticated_owner_id=owner, product_id=product_id,
+                        server_secret=self._secret, now_ms=now_ms,
+                        opener=self._opener,
+                    ))
         except PlayBoundaryError:
             raise
         except Exception:
