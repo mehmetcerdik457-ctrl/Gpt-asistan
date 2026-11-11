@@ -22,6 +22,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from . import owner_auth_v1 as auth
+from .play_gateway_boundary import PlayBoundaryError
 from . import email_otp, kral_memory, idempotency, owner_workers, task_runtime
 
 CONTRACT = "OMEGA-OWNER-API-V1"
@@ -293,8 +294,10 @@ class Store:
 
 
 class Gateway:
-    def __init__(self, store, provider=None, otp=None):
+    def __init__(self, store, provider=None, otp=None, play_boundary=None):
         self.store = store
+        # No live credential provider is installed by default.
+        self.play_boundary = play_boundary
         self.otp = otp if otp is not None else email_otp.EmailOtp(str(store.path.with_name("kral-otp.sqlite3")))
         self.provider = provider if provider is not None else OpenAIProvider()
         self.models = {}
@@ -515,7 +518,36 @@ class Gateway:
             response_id, provider_request_id, client_request_id
         )
 
-    def route(self, path, data, *, request_deadline=None):
+    def route(self, path, data, *, request_deadline=None, authenticated_owner_id=None):
+        if path in (PREFIX + "play/account", PREFIX + "play/verify"):
+            # The outer HTTP handler verifies owner+device signatures and nonce
+            # before passing an authenticated identity. Never trust JSON owner_id.
+            if not isinstance(authenticated_owner_id, str) or not authenticated_owner_id:
+                raise Denied("OWNER_AUTH_REQUIRED", 403)
+            if os.getenv("ORBA_PLAY_BOUNDARY_ENABLED") != "YES" or self.play_boundary is None:
+                raise Denied("ORBA_PLAY_NOT_PROVISIONED", 503)
+            if path == PREFIX + "play/account":
+                if data != {}:
+                    raise Denied("PLAY_FIELDS_DENIED", 400)
+                try:
+                    return {"obfuscated_account_id": self.play_boundary.account_id(
+                        authenticated_owner_id=authenticated_owner_id)}
+                except PlayBoundaryError:
+                    raise Denied("PLAY_ACCOUNT_UNAVAILABLE", 503) from None
+            if set(data) != {"productId", "purchaseToken"}:
+                raise Denied("PLAY_FIELDS_DENIED", 400)
+            try:
+                entitled = self.play_boundary.verify(
+                    authenticated_owner_id=authenticated_owner_id,
+                    product_id=data["productId"],
+                    purchase_token=data["purchaseToken"],
+                )
+            except PlayBoundaryError as exc:
+                # Only fixed enumerated codes; no token/provider message leaks.
+                if str(exc) in ("PRODUCT_NOT_ALLOWED", "INVALID_PURCHASE_TOKEN"):
+                    raise Denied("PLAY_PURCHASE_INVALID", 400) from None
+                raise Denied("PLAY_VERIFICATION_UNAVAILABLE", 503) from None
+            return {"entitled": entitled, "verified_by": "server_google_play" if entitled else "denied"}
         if path == PREFIX + "tasks":
             if set(data) - {"input", "model", "expert", "tools", "requires_approval",
                             "idempotency_key", "client_request_id"}:
@@ -705,7 +737,7 @@ def handler_for(gateway):
             try:
                 if self.path in (email_otp.REQUEST_PATH, email_otp.VERIFY_PATH):
                     return self.handle_otp()
-                if self.path not in {PREFIX + p for p in ("chat", "models", "history", "memory", "workers", "tasks", "tasks/status", "tasks/cancel", "tasks/approve")}:
+                if self.path not in {PREFIX + p for p in ("chat", "models", "history", "memory", "workers", "tasks", "tasks/status", "tasks/cancel", "tasks/approve", "play/account", "play/verify")}:
                     raise Denied("ROUTE_NOT_FOUND", 404)
                 if self.headers.get("Transfer-Encoding") or len(self.headers.get_all("Content-Length", [])) != 1:
                     raise Denied("BODY_LENGTH_REQUIRED", 411)
@@ -731,7 +763,10 @@ def handler_for(gateway):
                 acquired = gateway.inflight.acquire(blocking=False)
                 if not acquired:
                     raise Denied("OWNER_REQUEST_BUSY", 429, retryable=True, retry_after_seconds=1)
-                result = gateway.route(self.path, data, request_deadline=request_deadline)
+                result = gateway.route(
+                    self.path, data, request_deadline=request_deadline,
+                    authenticated_owner_id=self.headers["X-Omega-Owner-Id"],
+                )
                 self.send_json(200, result)
             except Denied as exc:
                 self.send_json(exc.status, {

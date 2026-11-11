@@ -70,3 +70,31 @@ backend authenticated transport, real Play Console configured offers, or a
 production OAuth/ack/RTDN flow. Android JVM unit tests cover input contracts,
 not a device purchase. Launch success is not payment success, nor entitlement
 proof. Only the verified backend may grant rights. Keep PRODUCTION HOLD.
+
+
+## 12 Nov 2026 — Protected owner-gateway HTTP boundary, stacked DRAFT
+Adds `POST /api/v1/owner/play/account` and
+`POST /api/v1/owner/play/verify` under **existing dual-P256
+owner/device signatures, nonce replay rejection, path/body hash binding**.
+They never trust a client-provided owner, entitlement flag, Google
+response, or timestamp. The verified owner identity is passed from the
+HTTP signature gate, not parsed from JSON.
+
+The Play adapter accepts only an **explicit server-installed**
+`PlayGatewayBoundary` with a 32+ byte server-only HMAC secret, a
+specific product allowlist, a trusted OAuth supplier, and a private
+pre-migrated durable DB factory. These components and live credentials
+are **NOT INSTALLED** by the entrypoint. Every Play API path additionally
+requires explicit `ORBA_PLAY_BOUNDARY_ENABLED=YES`; otherwise it
+fails closed with HTTP 503. JWT-less direct JSON, unsigned requests,
+malformed product/token and signed nonce replay cannot access Play.
+Result bodies contain only boolean entitlement / opaque account ID.
+The genuine P-256 localhost HTTP tests exercise both signature denial
+and offline mocked Play provider flows, with zero actual payments.
+
+**Not production ready:** No Play Console API OAuth provisioning,
+rate limit persistence, public HTTPS configuration, Play-licensed device
+purchase, multi-account identity design, backend-to-Android deployed
+transport, RTDN, recovery, signed release or explicit owner deployment
+approval. These routes are single-owner-specific and are NOT a generic
+consumer identity system. No rollout or real Google API call conducted.
