@@ -103,6 +103,24 @@ class ServiceTests(unittest.TestCase):
         self.assertFalse(self.check(provider(state="SUBSCRIPTION_STATE_ON_HOLD")))
         self.assertEqual(self.count(), 0)
 
+    def test_exact_expiry_boundary_denied_without_binding(self):
+        from datetime import datetime, timezone
+        d = provider()
+        d["lineItems"][0]["expiryTime"] = datetime.fromtimestamp(
+            NOW / 1000, tz=timezone.utc).isoformat().replace("+00:00", "Z")
+        self.assertFalse(self.check(d))
+        self.assertEqual(self.count(), 0)
+
+    def test_unacknowledged_active_does_not_bind(self):
+        d = provider()
+        d["acknowledgementState"] = "ACKNOWLEDGEMENT_STATE_PENDING"
+        self.assertFalse(self.check(d))
+        self.assertEqual(self.count(), 0)
+
+    def test_canceled_subscription_does_not_bind(self):
+        self.assertFalse(self.check(provider(state="SUBSCRIPTION_STATE_CANCELED")))
+        self.assertEqual(self.count(), 0)
+
     def test_verified_active_binds(self):
         self.assertTrue(self.check(provider()))
         self.assertEqual(self.count(), 1)
