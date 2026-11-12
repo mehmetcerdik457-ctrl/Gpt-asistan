@@ -57,7 +57,7 @@ object OwnerGateway {
      * authenticated transport, with the identity derived from Android Keystore.
      * Call on a worker thread. A 200 HTTP response alone is NEVER entitlement.
      */
-    fun verifyPlayPurchase(
+    internal fun verifyPlayPurchase(
         context: Context, base: String, purchase: PlayPurchaseSubmission
     ): Boolean {
         val owner = configuredPlayOwner(context, base)
