@@ -23,6 +23,7 @@ from pathlib import Path
 
 from . import owner_auth_v1 as auth
 from .play_gateway_boundary import PlayBoundaryError
+from .play_rtdn import ENDPOINT as RTDN_PATH, RtdnDenied, RtdnRetry
 from . import email_otp, kral_memory, idempotency, owner_workers, task_runtime
 
 CONTRACT = "OMEGA-OWNER-API-V1"
@@ -294,10 +295,11 @@ class Store:
 
 
 class Gateway:
-    def __init__(self, store, provider=None, otp=None, play_boundary=None):
+    def __init__(self, store, provider=None, otp=None, play_boundary=None, rtdn_processor=None):
         self.store = store
         # No live credential provider is installed by default.
         self.play_boundary = play_boundary
+        self.rtdn_processor = rtdn_processor  # Unconfigured and disabled by default.
         self.otp = otp if otp is not None else email_otp.EmailOtp(str(store.path.with_name("kral-otp.sqlite3")))
         self.provider = provider if provider is not None else OpenAIProvider()
         self.models = {}
@@ -729,12 +731,51 @@ def handler_for(gateway):
             finally:
                 self.close_connection = True
 
+        def handle_play_rtdn(self):
+            # Google-authenticated Pub/Sub push is distinct from owner-P256.
+            # Neither the RTDN payload nor an HTTP 200 grants entitlement.
+            try:
+                if (gateway.rtdn_processor is None or
+                        os.getenv("ORBA_PLAY_RTDN_ENABLED") != "YES"):
+                    raise Denied("RTDN_NOT_CONFIGURED", 503)
+                if (self.headers.get("Transfer-Encoding") or
+                        len(self.headers.get_all("Content-Length", [])) != 1 or
+                        len(self.headers.get_all("Authorization", [])) != 1):
+                    raise Denied("RTDN_HEADERS_INVALID", 403)
+                if self.headers.get_content_type() != "application/json":
+                    raise Denied("RTDN_JSON_REQUIRED", 415)
+                length = int(self.headers.get("Content-Length", "0"))
+                if not 0 < length <= 16384:
+                    raise Denied("RTDN_BODY_INVALID", 413)
+                raw = self.rfile.read(length)
+                if len(raw) != length:
+                    raise Denied("RTDN_BODY_INVALID", 400)
+                fresh = gateway.rtdn_processor.process(
+                    authorization=self.headers["Authorization"], raw=raw)
+                self.send_json(200, {
+                    "rtdn": "AUDITED" if fresh else "DUPLICATE",
+                    "entitlement_changed": False})
+            except RtdnDenied as exc:
+                self.send_json(
+                    403 if str(exc) == "RTDN_AUTH_DENIED" else 400,
+                    {"error": str(exc)})
+            except RtdnRetry:
+                self.send_json(503, {"error": "RTDN_RETRY_REQUIRED"})
+            except Denied as exc:
+                self.send_json(exc.status, {"error": exc.code})
+            except Exception:
+                self.send_json(503, {"error": "RTDN_RETRY_REQUIRED"})
+            finally:
+                self.close_connection = True
+
         def do_POST(self):
             # The 30-second provider timeout starts only while this request is
             # still within its preparation budget (below Android's 45s read).
             request_deadline = time.monotonic() + CHAT_PREPARATION_BUDGET
             acquired = False
             try:
+                if self.path == RTDN_PATH:
+                    return self.handle_play_rtdn()
                 if self.path in (email_otp.REQUEST_PATH, email_otp.VERIFY_PATH):
                     return self.handle_otp()
                 if self.path not in {PREFIX + p for p in ("chat", "models", "history", "memory", "workers", "tasks", "tasks/status", "tasks/cancel", "tasks/approve", "play/account", "play/verify")}:

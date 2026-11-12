@@ -116,3 +116,33 @@ This is an adapter, not an active purchase flow: no UI call site, real
 backend provisioning, production OAuth, RTDN or live Play license test.
 Android JVM contract tests exercise signing canonicalization and response
 parsing only; they do not invoke biometrics on physical devices.
+
+
+## 12 November 2026 — Google Pub/Sub authenticated RTDN audit, draft only
+
+A separately authenticated POST /api/v1/play/rtdn endpoint is introduced:
+default DENIED (503) unless both ORBA_PLAY_RTDN_ENABLED=YES and a trusted
+server-injected PlayRtdnProcessor are configured. Google's OIDC signature,
+audience, email, issuer, issuer-verified email and token time are checked.
+No simple Pub/Sub JSON or client-supplied header provides authority.
+Accepts only bounded wrapped Pub/Sub messages, configured subscription,
+configured Play package and valid versioned subscription/test event.
+Subscriptions are ALWAYS re-queried through server-only
+purchases.subscriptionsv2.get; existing token-owner binding (if present)
+is verified against the provider HMAC obfuscated account ID. Audit records
+store SHA-256 digests and a bounded outcome; no payment tokens or raw
+provider responses are stored and NO ENTITLEMENT GRANTS/REVOKES are done.
+A duplicate message is idempotent; changed payload under the same
+message ID is rejected; unavailable provider returns 503 for redelivery.
+The SQLite schema migration initialize_rtdn(db) must be performed explicitly
+by a trusted installer, never by the request handler.
+
+Official references:
+https://docs.cloud.google.com/pubsub/docs/authenticate-push-subscriptions
+https://developer.android.com/google/play/billing/rtdn-reference
+https://developer.android.com/google/play/billing/getting-ready
+
+NOT PRODUCTION: no real Pub/Sub push subscription, registered service-account
+credential, Google Play Console topics, publisher OAuth, webhook deployment
+or live notification. Full refund/voided purchase lifecycle remains pending.
+The audit is NOT a durable entitlement model, and no main merge is performed.
