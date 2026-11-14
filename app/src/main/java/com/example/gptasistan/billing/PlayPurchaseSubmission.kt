@@ -16,9 +16,9 @@ internal data class PlayPurchaseSubmission(
     fun validate(expectedPackageName: String): Boolean =
         expectedPackageName.isNotBlank() &&
         packageName == expectedPackageName &&
-        productId.isNotBlank() &&
-        productId.length <= 200 &&
-        productId.all { it.isLetterOrDigit() || it == '_' || it == '.' } &&
+        productId.length in 1..100 &&
+        productId.all { it in 'A'..'Z' || it in 'a'..'z' ||
+                        it in '0'..'9' || it == '_' || it == '.' } &&
         purchaseToken.isNotBlank() &&
         purchaseToken.length <= 4096 &&
         purchaseToken.none { it.isWhitespace() }
