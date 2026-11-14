@@ -215,7 +215,7 @@ class ApkSets(unittest.TestCase):
 
     def test_sdk_mismatch_rejected(self):
         def fake(command, **kwargs):
-            if command[0] == "aapt":
+            if command[0] == "aapt" and Path(command[-1]).name == "base-master.apk":
                 return SimpleNamespace(stdout=BADGING.replace(
                     "targetSdkVersion:'36'", "targetSdkVersion:'35'"))
             return self.runner(command, **kwargs)
@@ -225,7 +225,7 @@ class ApkSets(unittest.TestCase):
 
     def test_debuggable_release_rejected(self):
         def fake(command, **kwargs):
-            if command[0] == "aapt":
+            if command[0] == "aapt" and Path(command[-1]).name == "base-master.apk":
                 return SimpleNamespace(stdout=BADGING + "application-debuggable\n")
             return self.runner(command, **kwargs)
         with self.assertRaisesRegex(a.ApkSetRejected, "DEBUGGABLE"):
