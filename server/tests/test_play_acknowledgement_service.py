@@ -217,6 +217,49 @@ class Tests(unittest.TestCase):
         self.assertEqual(self.rows(), 0)
         self.assertEqual(len(google.requests), 1)
 
+    def test_already_acked_canceled_retains_paid_time(self):
+        google = FakeGoogle(purchase(
+            state="SUBSCRIPTION_STATE_CANCELED",
+            ack="ACKNOWLEDGEMENT_STATE_ACKNOWLEDGED"))
+        self.assertTrue(self.call(google))
+        self.assertEqual([method for method, _ in google.requests], ["GET"])
+        self.assertEqual(self.rows(), 1)
+
+    def test_already_acked_grace_retains_paid_access(self):
+        google = FakeGoogle(purchase(
+            state="SUBSCRIPTION_STATE_IN_GRACE_PERIOD",
+            ack="ACKNOWLEDGEMENT_STATE_ACKNOWLEDGED"))
+        self.assertTrue(self.call(google))
+        self.assertEqual([method for method, _ in google.requests], ["GET"])
+        self.assertEqual(self.rows(), 1)
+
+    def test_unacknowledged_canceled_never_posts_ack(self):
+        google = FakeGoogle(purchase(state="SUBSCRIPTION_STATE_CANCELED"))
+        self.assertFalse(self.call(google))
+        self.assertEqual([method for method, _ in google.requests], ["GET"])
+        self.assertEqual(self.rows(), 0)
+
+    def test_unacknowledged_grace_never_posts_ack(self):
+        google = FakeGoogle(purchase(state="SUBSCRIPTION_STATE_IN_GRACE_PERIOD"))
+        self.assertFalse(self.call(google))
+        self.assertEqual([method for method, _ in google.requests], ["GET"])
+        self.assertEqual(self.rows(), 0)
+
+    def test_hold_does_not_regrant_acknowledged_purchase(self):
+        google = FakeGoogle(purchase(
+            state="SUBSCRIPTION_STATE_ON_HOLD",
+            ack="ACKNOWLEDGEMENT_STATE_ACKNOWLEDGED"))
+        self.assertFalse(self.call(google))
+        self.assertEqual([method for method, _ in google.requests], ["GET"])
+        self.assertEqual(self.rows(), 0)
+
+    def test_revoked_expired_does_not_regrant(self):
+        google = FakeGoogle(purchase(
+            state="SUBSCRIPTION_STATE_EXPIRED",
+            ack="ACKNOWLEDGEMENT_STATE_ACKNOWLEDGED"))
+        self.assertFalse(self.call(google))
+        self.assertEqual(self.rows(), 0)
+
     def test_post_ack_expiry_denied(self):
         google = FakeGoogle(purchase(), 200,
                             purchase(ack="ACKNOWLEDGEMENT_STATE_ACKNOWLEDGED",

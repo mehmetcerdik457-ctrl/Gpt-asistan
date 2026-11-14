@@ -117,8 +117,26 @@ class ServiceTests(unittest.TestCase):
         self.assertFalse(self.check(d))
         self.assertEqual(self.count(), 0)
 
-    def test_canceled_subscription_does_not_bind(self):
-        self.assertFalse(self.check(provider(state="SUBSCRIPTION_STATE_CANCELED")))
+    def test_canceled_valid_subscription_binds_until_expiry(self):
+        self.assertTrue(self.check(provider(state="SUBSCRIPTION_STATE_CANCELED")))
+        self.assertEqual(self.count(), 1)
+
+    def test_grace_period_subscription_binds_until_expiry(self):
+        self.assertTrue(self.check(provider(state="SUBSCRIPTION_STATE_IN_GRACE_PERIOD")))
+        self.assertEqual(self.count(), 1)
+
+    def test_canceled_expired_does_not_bind(self):
+        d = provider(state="SUBSCRIPTION_STATE_CANCELED")
+        d["lineItems"][0]["expiryTime"] = "2020-01-01T00:00:00Z"
+        self.assertFalse(self.check(d))
+        self.assertEqual(self.count(), 0)
+
+    def test_paused_subscription_does_not_bind(self):
+        self.assertFalse(self.check(provider(state="SUBSCRIPTION_STATE_PAUSED")))
+        self.assertEqual(self.count(), 0)
+
+    def test_expired_subscription_does_not_bind(self):
+        self.assertFalse(self.check(provider(state="SUBSCRIPTION_STATE_EXPIRED")))
         self.assertEqual(self.count(), 0)
 
     def test_verified_active_binds(self):
