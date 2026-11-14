@@ -78,3 +78,43 @@ The decoded manifest is transient CI evidence only, not a release artifact.
 Official documentation:
 https://developer.android.com/tools/bundletool
 https://github.com/google/bundletool/releases/tag/1.18.3
+
+## 14 November 2026 — PR #120: bundletool device-profile APK set simulations
+
+The previous AAB manifest verification is preserved. GitHub CI now uses
+the **same SHA-256 pinned official Google bundletool 1.18.3 jar** to run
+`build-apks --mode=default` against the unsigned release-variant bundle.
+A fresh, ephemeral **TEST-ONLY** RSA debug keystore is generated inside the
+isolated CI runner. It is removed in the same shell step and NEVER uploaded.
+Its local debug signature does NOT match or replace an authorized Google
+Play Upload Certificate or Google Play App Signing key.
+
+Four synthetic device specifications are kept under
+`ci/orba_device_profiles`:
+- API 26, arm64, Turkish/English locale, density 420;
+- API 30, x86_64, Turkish/English, density 320;
+- API 36, arm64, Turkish/English, density 480;
+- API 36, x86_64, Turkish/English, density 320.
+
+For each one `bundletool extract-apks` must create nonempty install
+splits. CI verifies the set's `toc.pb`/ZIP integrity, validates profile
+JSON, checks the compiled base package/version/SDK via real `aapt`,
+verifies all extracted APK signatures with `apksigner`, and requires a
+single consistent **ephemeral test signing certificate** across files.
+It emits a separate GitHub artifact named
+`orba-TEST-ONLY-device-apks-NOT-FOR-PLAY`, with SHA-256. It MUST NOT
+be presented as the published APK or installed over an existing app with
+a different signing key: doing so can fail or require uninstallation and
+possible local data loss.
+
+**This is device-profile extraction, NOT Android emulator execution,**
+physical device compatibility certification, Play license testing, AAB
+upload signing, store delivery, live subscription purchases or revenue.
+CI ALWAYS returns `production=HOLD`,
+`real_device_installation=NOT_TESTED`,
+`android_emulator_execution=NOT_TESTED`, and
+`real_google_play_distribution=NOT_TESTED`.
+Before claiming practical device support, separate test-track installs
+and API 26/30/36 emulator/device journeys are required.
+
+Official: https://developer.android.com/tools/bundletool
