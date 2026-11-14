@@ -11,10 +11,12 @@ import json
 import re
 import sqlite3
 import time
+from dataclasses import replace
 from contextlib import closing
 from server.play_account_id import obfuscated_play_account_id
 from server.play_entitlement_gate import PACKAGE, token_digest
 from server.play_google_api import TOKEN_RE, get_subscription_v2
+from server.play_subscription_mapper import map_verified_subscription
 
 ENDPOINT = "/api/v1/play/rtdn"
 MAX_BODY = 16384
@@ -52,7 +54,8 @@ def initialize_rtdn(db):
 class PlayRtdnProcessor:
     def __init__(self, *, audience, service_account_email, subscription,
                  allowed_products, server_secret, db_factory, oauth_supplier,
-                 verifier=None, provider_opener=None, clock=None):
+                 verifier=None, provider_opener=None, clock=None,
+                 snapshot_recorder=None):
         if not isinstance(audience, str) or not re.fullmatch(r"https://[^\s]{1,400}", audience):
             raise ValueError("RTDN_AUDIENCE_MISSING")
         if not isinstance(service_account_email, str) or not re.fullmatch(
@@ -73,6 +76,8 @@ class PlayRtdnProcessor:
             raise ValueError("RTDN_DEPENDENCIES_MISSING")
         if verifier is not None and not callable(verifier):
             raise ValueError("RTDN_VERIFIER_INVALID")
+        if snapshot_recorder is not None and not callable(snapshot_recorder):
+            raise ValueError("RTDN_SNAPSHOT_RECORDER_INVALID")
         self.audience = audience
         self.service_account_email = service_account_email
         self.subscription = subscription
@@ -83,6 +88,8 @@ class PlayRtdnProcessor:
         self.verifier = verifier or verify_google_oidc
         self.provider_opener = provider_opener
         self.clock = clock or time.time
+        # No migration or snapshot writes unless explicitly installed.
+        self.snapshot_recorder = snapshot_recorder
 
     def authenticate(self, authorization):
         if (not isinstance(authorization, str) or not authorization.startswith("Bearer ") or
@@ -143,7 +150,12 @@ class PlayRtdnProcessor:
             raise RtdnDenied("RTDN_PAYLOAD_INVALID") from None
 
     def process(self, *, authorization, raw):
-        """True if new audit entry; False if exact duplicate. Never grants access."""
+        """Audit RTDN; optionally refresh a *non-authoritative* snapshot.
+
+        A stale/canceled/expired RTDN never determines the recorded state:
+        only fresh owner-bound Play Developer API data does. A failed snapshot
+        write leads to a Pub/Sub retry without acknowledging the RTDN in audit.
+        """
         self.authenticate(authorization)
         message_id, payload, purchase_token, is_test = self.unpack(raw)
         msg_hash = hashlib.sha256(message_id.encode("utf-8")).hexdigest()
@@ -161,6 +173,10 @@ class PlayRtdnProcessor:
                     return False
                 token_hash, outcome = None, "TEST"
                 if not is_test:
+                    # Observation order is when *server-side fetch starts*.
+                    # A delayed response must not overwrite a later-started
+                    # verification of the same purchase in the snapshot ledger.
+                    checked_at_ms = int(self.clock() * 1000)
                     token_hash = token_digest(purchase_token)
                     owner = db.execute(
                         "SELECT owner_id FROM play_token_owners WHERE token_sha256=?",
@@ -183,6 +199,29 @@ class PlayRtdnProcessor:
                             if not isinstance(actual, str) or not hmac.compare_digest(actual, expected):
                                 raise ValueError()
                             outcome = "RECHECKED_BOUND"
+                            if self.snapshot_recorder is not None:
+                                # For now require exactly ONE permitted item.
+                                # Bundles must not be partially snapshotted.
+                                eligible = [
+                                    item.get("productId")
+                                    for item in provider["lineItems"]
+                                    if item.get("productId") in self.allowed_products
+                                ]
+                                if len(eligible) != 1:
+                                    raise ValueError()
+                                # map_verified_subscription alone deliberately
+                                # sets verified=False. Only the *trusted fresh
+                                # get_subscription_v2 response above* and owner
+                                # HMAC comparison authorize marking provenance.
+                                mapped = map_verified_subscription(
+                                    provider, purchase_token=purchase_token,
+                                    owner_id=owner[0], product_id=eligible[0])
+                                self.snapshot_recorder(
+                                    db, replace(mapped, verified_by_google_api=True),
+                                    server_secret=self.server_secret,
+                                    observed_at_ms=checked_at_ms)
+                                # This writes diagnostic state ONLY. The RTDN
+                                # never returns paid access or alters entitlements.
                     except Exception:
                         raise RtdnRetry("RTDN_PROVIDER_RECHECK_UNAVAILABLE") from None
                 with db:

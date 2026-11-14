@@ -263,3 +263,40 @@ signed AAB is claimed. The script is safe offline only.
 
 Google Play's latest-state guidance:
 https://developer.android.com/google/play/billing/lifecycle/subscriptions
+
+## 14 November 2026 — PR #116: RTDN-to-provider snapshot reconciliation
+
+The existing OIDC-verified Google Pub/Sub handler `PlayRtdnProcessor`
+optionally accepts `snapshot_recorder` from an explicitly authorized
+installer. Without it, historical RTDN audit behavior is unchanged. The
+recorder runs **only** for a token already bound to an authenticated KRAL
+owner; it is never called for unbound tokens or test notifications.
+A fresh `subscriptionsv2.get` request plus exact obfuscated-account HMAC
+check and one unambiguous allowlisted product is REQUIRED before mapping
+the source data and marking it provider-verified. Only then is the
+`play_verified_snapshots` private ledger updated. The observation time
+is captured at the **start of the provider fetch** so older-started checks
+cannot replace later-started snapshots; same-timestamp conflicting states
+fail closed. The RTDN notification type and eventTimeMillis are not used
+to decide access. Example: an old SUBSCRIPTION_RENEWED notice with current
+Play ON_HOLD writes a historical **DENIED** snapshot, not an ACTIVE one.
+
+This is a diagnostic-only state cache. It never gives/subtracts actual
+entitlements and is not used to authorize users. The owner-signed Play
+verification API still requires live Google checks on every paid grant.
+Snapshot failure causes retryable HTTP 503 (no successful RTDN audit).
+The signed RTDN Pub/Sub ID token, service-account identity, exact audience,
+product and package checks remain mandatory. Both explicit migrations
+`initialize_rtdn` and `initialize_snapshot` and a
+trusted `PlayRtdnProcessor(..., snapshot_recorder=record_verified_snapshot)`
+installation are mandatory; no automatic activation or credentials.
+
+This candidate intentionally rejects multiple eligible subscription items
+rather than silently writing only one item in a Play subscription bundle;
+bundle-safe atomic processing remains unimplemented. Scheduled reconciliation,
+real Play service account, Pub/Sub callback deployment, subscription API
+quota/retry operations, production OAuth and real Google payments are still
+NOT VERIFIED.
+
+Official: https://developer.android.com/google/play/billing/getting-ready
+Official: https://developer.android.com/google/play/billing/lifecycle/subscriptions
