@@ -49,3 +49,32 @@ Official guidance:
 https://developer.android.com/build/build-for-release
 https://developer.android.com/build/building-cmdline
 https://developer.android.com/studio/publish/app-signing
+
+
+## 14 Nov 2026 — official checksum-pinned bundletool decoded AAB manifest
+
+Draft PR #119 extends the unsigned AAB gate with a stronger *binary* check.
+CI retrieves Google's official bundletool-all-1.18.3.jar release asset and
+MUST validate its published GitHub SHA-256 digest:
+`a099cfa1543f55593bc2ed16a70a7c67fe54b1747bb7301f37fdfd6d91028e29`.
+A failed download/checksum aborts the gate before execution. The fixed
+dependency is only used in CI; no Android API key, service-account token or
+real Play upload certificate is needed.
+
+The verified `bundletool dump manifest --module=base` output is parsed
+and compared with five existing backend package identities and the Gradle
+source. The decoded **release AAB** package, versionCode/versionName,
+minSdk/targetSdk, INTERNET permission, and cleartext/backup/debug policy
+must match; any disagreement fails CI. This closes the prior gap where a
+valid ZIP bundle was accepted but its binary protobuf manifest was not
+decoded. Synthetic XML and command contract tests cover negative cases.
+
+This *does not* demonstrate Play Console ownership, Play App Signing
+certificate, real user installation, live purchase, device-targeted
+bundletool APK set or release eligibility. The bundle remains unsigned,
+and the successful decoded report explicitly says `production=HOLD`.
+The decoded manifest is transient CI evidence only, not a release artifact.
+
+Official documentation:
+https://developer.android.com/tools/bundletool
+https://github.com/google/bundletool/releases/tag/1.18.3
