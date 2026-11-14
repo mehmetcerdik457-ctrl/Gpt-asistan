@@ -7,6 +7,7 @@ from dataclasses import dataclass
 import hashlib
 import hmac
 import re
+from server.play_subscription_lifecycle import access_phase
 
 PACKAGE = "com.example.gptasistan.genesis"
 PRODUCT_RE = re.compile(r"^[A-Za-z0-9_.]{1,100}$")
@@ -57,4 +58,5 @@ def entitlement_allowed(purchase: VerifiedPlayPurchase, *, owner_id: str,
         return False
     if purchase.expires_at_ms <= now_ms:
         return False
-    return purchase.subscription_state == "SUBSCRIPTION_STATE_ACTIVE"
+    return access_phase(
+        purchase.subscription_state, purchase.expires_at_ms, now_ms) != "DENIED"

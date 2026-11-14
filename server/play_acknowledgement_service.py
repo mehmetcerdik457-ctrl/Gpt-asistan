@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from server.play_acknowledgement import acknowledge_subscription
 from server.play_entitlement_gate import entitlement_allowed, token_digest
+from server.play_subscription_lifecycle import access_phase
 from server.play_owner_binding import bind_or_verify_owner
 from server.play_subscription_mapper import verify_and_map_subscription
 
@@ -16,10 +17,11 @@ def acknowledge_then_verify_subscription(
         *, db, purchase_token: str, access_token: str,
         authenticated_owner_id: str, product_id: str,
         server_secret: bytes, now_ms: int, opener=None) -> bool:
-    """True only after fresh provider ACK, active entitlement and owner binding.
+    """True only after current provider verification and strict owner binding.
 
-    Pending payment, expiry, wrong account/product, failed ACK, and missing
-    provider confirmation MUST NOT create an owner binding or paid access.
+    Already-acknowledged canceled (paid-through-expiry) and grace-period
+    subscriptions retain benefits per Play policy. Only an ACTIVE purchase
+    with pending ACK can trigger a new provider acknowledgement.
     """
     if not isinstance(authenticated_owner_id, str) or not authenticated_owner_id.strip():
         raise ValueError("INVALID_AUTHENTICATED_OWNER")
@@ -33,15 +35,18 @@ def acknowledge_then_verify_subscription(
         owner_id=authenticated_owner_id, product_id=product_id,
         server_secret=server_secret, opener=opener,
     )
-    if (not before.verified_by_google_api
-            or before.subscription_state != "SUBSCRIPTION_STATE_ACTIVE"
-            or not isinstance(before.expires_at_ms, int)
-            or before.expires_at_ms <= now_ms):
+    if (not before.verified_by_google_api or
+            access_phase(before.subscription_state, before.expires_at_ms, now_ms)
+            == "DENIED"):
         return False
 
     if before.acknowledged:
         purchase = before
     else:
+        # ACK only newly ACTIVE purchases. Existing canceled/grace subscriptions
+        # may retain already-acknowledged access but must not trigger ACK POST.
+        if before.subscription_state != "SUBSCRIPTION_STATE_ACTIVE":
+            return False
         # Before ACK, only Play's known pending-ACK state may reach this path.
         # verify_and_map_subscription rejects unspecified/unknown ACK states.
         acknowledge_subscription(

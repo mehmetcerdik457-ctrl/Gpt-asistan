@@ -146,3 +146,33 @@ NOT PRODUCTION: no real Pub/Sub push subscription, registered service-account
 credential, Google Play Console topics, publisher OAuth, webhook deployment
 or live notification. Full refund/voided purchase lifecycle remains pending.
 The audit is NOT a durable entitlement model, and no main merge is performed.
+
+## 14 November 2026 — subscription lifecycle policy correction, draft PR #112
+
+The previous ACTIVE-only entitlement decision incorrectly withheld benefits
+from acknowledged, provider-verified CANCELED purchases before their recorded
+expiry and from IN_GRACE_PERIOD purchases. Google Play states that canceled
+subscriptions retain paid access until expiry and grace-period subscriptions
+retain access. The new pure `server/play_subscription_lifecycle.py` decision
+permits ACTIVE, IN_GRACE_PERIOD and CANCELED only while the provider expiry
+remains in the future. It denies ON_HOLD, PAUSED, PENDING, EXPIRED,
+PENDING_PURCHASE_CANCELED, UNKNOWN and malformed state/clock input.
+
+The existing owner-bound Play Developer API verification and mandatory
+acknowledgement checks remain unchanged. An already-acknowledged canceled/grace
+subscription may retain access after a fresh verified GET, while an
+unacknowledged canceled/grace subscription cannot trigger a new ACK POST and
+cannot obtain paid access. ACTIVE pending-ACK initial purchases still require
+a follow-up provider GET confirming acknowledgement. Historical test
+expectations denying canceled-before-expiry were corrected to match Google's
+documented policy, and explicit safety regressions were added.
+
+**This is not an entitlement storage or push-revocation deployment.** The
+existing `/play/verify` path fetches current provider status upon each check;
+RTDN remains an authenticated non-authoritative audit. Persistent subscription
+rights across app sessions, Play Console test purchase, refunds/voided purchase
+reconciliation, signed release and real merchant deployment remain unverified.
+
+References:
+https://developer.android.com/google/play/billing/lifecycle/subscriptions
+https://developers.google.com/android-publisher/api-ref/rest/v3/purchases.subscriptionsv2

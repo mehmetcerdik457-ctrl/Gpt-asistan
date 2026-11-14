@@ -24,7 +24,23 @@ class PlayGateTests(unittest.TestCase):
     def test_wrong_package(self): self.assertFalse(self.allowed(replace(self.p, package_name="fake.package")))
     def test_wrong_token(self): self.assertFalse(self.allowed(token_sha256=token_digest("other")))
     def test_expired(self): self.assertFalse(self.allowed(now_ms=NOW + 10000))
-    def test_cancelled(self): self.assertFalse(self.allowed(replace(self.p, subscription_state="SUBSCRIPTION_STATE_CANCELED")))
+    def test_cancelled_paid_through_expiry(self):
+        self.assertTrue(self.allowed(replace(self.p, subscription_state="SUBSCRIPTION_STATE_CANCELED")))
+    def test_grace_period(self):
+        self.assertTrue(self.allowed(replace(self.p, subscription_state="SUBSCRIPTION_STATE_IN_GRACE_PERIOD")))
+    def test_canceled_expired(self):
+        self.assertFalse(self.allowed(replace(self.p, subscription_state="SUBSCRIPTION_STATE_CANCELED", expires_at_ms=NOW)))
+    def test_grace_expired(self):
+        self.assertFalse(self.allowed(replace(self.p, subscription_state="SUBSCRIPTION_STATE_IN_GRACE_PERIOD", expires_at_ms=NOW)))
+    def test_paused(self):
+        self.assertFalse(self.allowed(replace(self.p, subscription_state="SUBSCRIPTION_STATE_PAUSED")))
+    def test_revoked_expired(self):
+        self.assertFalse(self.allowed(replace(self.p, subscription_state="SUBSCRIPTION_STATE_EXPIRED")))
+    def test_pending_purchase_canceled(self):
+        self.assertFalse(self.allowed(replace(self.p, subscription_state="SUBSCRIPTION_STATE_PENDING_PURCHASE_CANCELED")))
+    def test_unknown_subscription_state(self):
+        self.assertFalse(self.allowed(replace(self.p, subscription_state="SUBSCRIPTION_STATE_UNKNOWN")))
+
     def test_on_hold(self): self.assertFalse(self.allowed(replace(self.p, subscription_state="SUBSCRIPTION_STATE_ON_HOLD")))
     def test_pending(self): self.assertFalse(self.allowed(replace(self.p, subscription_state="SUBSCRIPTION_STATE_PENDING")))
     def test_bad_hash(self): self.assertFalse(self.allowed(token_sha256="bad"))
