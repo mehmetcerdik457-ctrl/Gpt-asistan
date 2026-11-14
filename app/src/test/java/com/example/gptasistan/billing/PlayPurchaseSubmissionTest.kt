@@ -38,4 +38,24 @@ class PlayPurchaseSubmissionTest {
     @Test fun oversizedProductDenied() {
         assertFalse(PlayPurchaseSubmission("x".repeat(201), "token", expected).validate(expected))
     }
+
+    @Test fun backendLimit101Denied() {
+        assertFalse(PlayPurchaseSubmission("x".repeat(101), "token", expected).validate(expected))
+    }
+
+    @Test fun exactly100AsciiAccepted() {
+        assertTrue(PlayPurchaseSubmission("x".repeat(100), "token", expected).validate(expected))
+    }
+
+    @Test fun unicodeProductLetterDenied() {
+        assertFalse(PlayPurchaseSubmission("orba_ü", "token", expected).validate(expected))
+    }
+
+    @Test fun unicodeProductDigitDenied() {
+        assertFalse(PlayPurchaseSubmission("plan_٢", "token", expected).validate(expected))
+    }
+
+    @Test fun hyphenInProductDenied() {
+        assertFalse(PlayPurchaseSubmission("orba-plan", "token", expected).validate(expected))
+    }
 }
