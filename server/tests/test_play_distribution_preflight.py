@@ -141,6 +141,32 @@ class PreflightTests(unittest.TestCase):
                 self.badging,
                 "Signer #1 certificate SHA-256 digest: bad\n", self.source)
 
+    def test_apksigner_37_v2_signer_format_accepted(self):
+        modern = "V2 Signer: certificate SHA-256 digest: " + "a" * 64 + "\n"
+        proof = preflight.debug_apk_identity(
+            self.badging, modern, self.source)
+        self.assertEqual(proof["debug_certificate_sha256"], "a" * 64)
+
+    def test_apksigner_v3_signer_format_accepted(self):
+        modern = "V3.0 Signer: certificate SHA-256 digest: " + "a" * 64 + "\n"
+        proof = preflight.debug_apk_identity(
+            self.badging, modern, self.source)
+        self.assertEqual(proof["kind"], "DEBUG_APK")
+
+    def test_multiple_scheme_signers_same_certificate_accepted(self):
+        modern = ("V2 Signer: certificate SHA-256 digest: " + "a" * 64 +
+                  "\nV3.0 Signer: certificate SHA-256 digest: " + "a" * 64 + "\n")
+        proof = preflight.debug_apk_identity(
+            self.badging, modern, self.source)
+        self.assertEqual(proof["debug_certificate_sha256"], "a" * 64)
+
+    def test_conflicting_v2_v3_signing_certificate_denied(self):
+        modern = ("V2 Signer: certificate SHA-256 digest: " + "a" * 64 +
+                  "\nV3.0 Signer: certificate SHA-256 digest: " + "b" * 64 + "\n")
+        with self.assertRaisesRegex(preflight.PreflightDenied, "SIGNATURE"):
+            preflight.debug_apk_identity(
+                self.badging, modern, self.source)
+
     def test_source_pass_always_production_hold(self):
         report=preflight.hold_report(self.source)
         self.assertEqual(report["production"], "HOLD")

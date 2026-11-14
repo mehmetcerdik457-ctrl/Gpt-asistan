@@ -102,10 +102,13 @@ def debug_apk_identity(badging, signing, source):
         raise PreflightDenied("COMPILED_APK_SDK_MISMATCH")
     if not re.search(r"(?m)^application-debuggable(?:\s|$)", badging):
         raise PreflightDenied("DEBUG_ARTIFACT_NOT_PROVEN")
+    # apksigner 37+ reports 'V2 Signer:' or 'V3.0 Signer:' rather
+    # than historical 'Signer #1'. Never accept contradictory signer keys.
     digest = re.findall(
-        r"(?im)^Signer #1 certificate SHA-256 digest:\s*([a-f0-9]{64})\s*$",
+        r"(?im)^(?:Signer #1|V[123](?:\.\d+)? Signer): "
+        r"certificate SHA-256 digest:\s*([a-f0-9]{64})\s*$",
         signing)
-    if len(digest) != 1:
+    if not digest or len({x.lower() for x in digest}) != 1:
         raise PreflightDenied("APK_SIGNATURE_NOT_PROVEN")
     return dict(kind="DEBUG_APK", debug_certificate_sha256=digest[0].lower())
 
