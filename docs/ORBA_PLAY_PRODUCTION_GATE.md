@@ -176,3 +176,25 @@ reconciliation, signed release and real merchant deployment remain unverified.
 References:
 https://developer.android.com/google/play/billing/lifecycle/subscriptions
 https://developers.google.com/android-publisher/api-ref/rest/v3/purchases.subscriptionsv2
+
+## 14 November 2026 — default-disabled server-side Google Publisher OAuth supplier
+
+New `server/play_google_oauth.py` contains an opt-in ADC token supplier
+`PlayPublisherOAuth`. It requires an explicitly configured Google service
+account email and exact `androidpublisher` scope, validates the returned
+credential identity, caches unexpired tokens, refreshes them within the last
+60 seconds and redacts all errors. End-user/unidentified credentials fail
+closed. Neither a credential JSON key nor any access token is stored in Git,
+APK, test output or provider logs. Runtime calls are blocked by default unless
+`ORBA_PLAY_OAUTH_ENABLED=YES`. The trusted deployer must explicitly
+inject the callable into the already-disabled PlayGatewayBoundary and RTDN
+processor. The application does NOT automatically install it or activate
+a live network route. Offline unit tests inject fake ADC credentials only.
+
+Before real use, an owner must authorize a scoped Cloud service account,
+enable Google Play Android Publisher API, and grant suitable app-scoped
+permissions in Play Console. Prefer workload identity over downloadable
+JSON private keys, use least privilege, and never enter secrets into issues.
+https://developers.google.com/android-publisher/getting_started
+https://developers.google.com/identity/protocols/oauth2/scopes
+https://google-auth.readthedocs.io/en/latest/reference/google.auth.html
