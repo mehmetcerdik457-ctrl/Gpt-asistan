@@ -161,18 +161,26 @@ def inspect_extractions(*, root, source, aapt, apksigner,
                 cert = s
             elif cert != s:
                 raise ApkSetRejected("APK_SET_SIGNER_CONFLICT")
-        # Every device-specific extraction must have one unqualified base
-        # master; never treat a config split as the sole installable app.
-        master = [f for f in files if f.name == "base-master.apk"]
-        standalone = [f for f in files if f.name.startswith("standalone") and
-                      f.name.endswith(".apk")]
-        if len(master) == 1:
-            base = master[0]
-        elif not master and len(standalone) == 1:
-            base = standalone[0]
-        else:
+        # bundletool may rename the output APKs. Detect the one actual
+        # unqualified BASE/standalone by its *compiled package manifest*,
+        # never a presumed filename. Config-only split has 'split=...'.
+        base_badgings = []
+        for f in files:
+            badging = _run([aapt, "dump", "badging", str(f)], runner)
+            package_line = next(
+                (line for line in badging.splitlines()
+                 if line.startswith("package: ")), "")
+            if not package_line:
+                raise ApkSetRejected("SPLIT_APK_PACKAGE_MISMATCH")
+            if not re.search(
+                    r"^package:\s+name='" + re.escape(source["package"]) +
+                    r"'(?:\s|$)", package_line):
+                raise ApkSetRejected("SPLIT_APK_PACKAGE_MISMATCH")
+            if not re.search(r"\bsplit='[^']+'", package_line):
+                base_badgings.append(badging)
+        if len(base_badgings) != 1:
             raise ApkSetRejected("PROFILE_BASE_APK_MISSING")
-        _base_badging(_run([aapt, "dump", "badging", str(base)], runner), source)
+        _base_badging(base_badgings[0], source)
         if spec["sdkVersion"] < source["min_sdk"]:
             raise ApkSetRejected("PROFILE_BELOW_MIN_SDK")
         out[profile] = {"apk_count": len(files), "sdk_version": spec["sdkVersion"],

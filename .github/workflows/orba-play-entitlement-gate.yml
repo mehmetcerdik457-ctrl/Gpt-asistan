@@ -169,6 +169,7 @@ jobs:
           BUILD_TOOLS="$(find "$SDK_ROOT/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
           test -x "$BUILD_TOOLS/aapt"
           test -x "$BUILD_TOOLS/apksigner"
+          find /tmp/orba-device-extracted -type f -name '*.apk' -printf '%P\n' | sort
           python -m server.play_apk_set_preflight \
             --repo-root . --apks /tmp/orba-ci-device-test.apks \
             --profile-dir ci/orba_device_profiles \

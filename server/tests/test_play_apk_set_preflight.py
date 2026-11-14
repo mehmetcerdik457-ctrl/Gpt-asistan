@@ -63,7 +63,11 @@ class ApkSets(unittest.TestCase):
         if command[0] == "apksigner":
             return SimpleNamespace(stdout=SIGNING)
         if command[0] == "aapt":
-            return SimpleNamespace(stdout=BADGING)
+            if Path(command[-1]).name == "base-master.apk":
+                return SimpleNamespace(stdout=BADGING)
+            return SimpleNamespace(stdout=BADGING.replace(
+                "versionName='1.0.10-genesis-candidate'",
+                "versionName='1.0.10-genesis-candidate' split='config.arm64_v8a'"))
         raise AssertionError("UNEXPECTED_TOOL")
 
     def inspect(self):
@@ -170,10 +174,33 @@ class ApkSets(unittest.TestCase):
         with self.assertRaisesRegex(a.ApkSetRejected, "PROFILE_APK_COUNT_INVALID"):
             self.inspect()
 
-    def test_missing_base_master_rejected(self):
+    def test_missing_real_base_manifest_rejected(self):
         (self.extractions / "api26-arm64" / "base-master.apk").unlink()
         with self.assertRaisesRegex(a.ApkSetRejected, "PROFILE_BASE_APK_MISSING"):
             self.inspect()
+
+    def test_base_apk_renamed_but_manifest_still_detected(self):
+        for key in a.PROFILES:
+            p = self.extractions / key / "base-master.apk"
+            p.rename(self.extractions / key / "primary-application.apk")
+        def renamed(command, **kwargs):
+            if command[0] == "aapt" and Path(command[-1]).name == "primary-application.apk":
+                return SimpleNamespace(stdout=BADGING)
+            return self.runner(command, **kwargs)
+        proof = a.inspect_extractions(
+            root=self.extractions, source=SOURCE,
+            aapt="aapt", apksigner="apksigner", runner=renamed)
+        self.assertEqual(len(proof["profiles"]), 4)
+
+    def test_two_bases_manifest_ambiguity_denied(self):
+        def two_bases(command, **kwargs):
+            if command[0] == "aapt":
+                return SimpleNamespace(stdout=BADGING)
+            return self.runner(command, **kwargs)
+        with self.assertRaisesRegex(a.ApkSetRejected, "PROFILE_BASE_APK_MISSING"):
+            a.inspect_extractions(
+                root=self.extractions, source=SOURCE,
+                aapt="aapt", apksigner="apksigner", runner=two_bases)
 
     def test_wrong_package_aapt_rejected(self):
         def fake(command, **kwargs):
