@@ -229,3 +229,37 @@ Official references:
 https://developers.google.com/android-publisher/voided-purchases
 https://developers.google.com/android-publisher/api-ref/rest/v3/purchases.voidedpurchases/list
 https://developer.android.com/google/play/billing/security
+
+
+## 14 November 2026 — provider-verified durable snapshot (draft PR #115)
+
+A separate private SQLite `play_verified_snapshots` ledger records the
+**last direct, owner-bound and verified Play Developer API GET state** for a
+subscription. Only SHA-256 purchase digests, HMAC owner IDs, product ID,
+provider state, expiry, ACK flag, historical decision and server check
+timestamp are recorded. This is *diagnostic evidence*, not an entitlement
+cache: `diagnostic_snapshot` explicitly returns
+`requires_live_google_verification=True` and no cached record can unlock
+paid capabilities. The existing P-256 authenticated
+`/api/v1/owner/play/verify` must still fetch current Google state.
+
+The trusted installer MUST create the schema via `initialize_snapshot(db)`
+and explicitly inject `record_verified_snapshot` as `snapshot_recorder`
+on the server-only `PlayGatewayBoundary`. The default is no recorder, no
+migration and no new public endpoint. With recorder enabled, each successful
+owner-verified GET records the outcome, including DENIED hold/expiry and
+PENDING-ACK. If purchase changes after ACK the post-ACK *fresh* provider
+recheck is recorded. Any snapshot write failure makes the request fail
+closed; it does not convert a denied purchase into authorization.
+Older concurrent observations cannot replace newer ones; equal timestamp
+with conflicting contents is rejected. Cross-owner token reassignment
+cannot overwrite snapshots; only exact previous observations are idempotent.
+
+RTDN continues to fetch current Google state and record audit but is not
+yet wired to update the snapshot ledger; the snapshot is NOT a background
+revocation service. No production OAuth, merchant product setup, real Play
+purchase, scheduled reconciliation, public deployment, license tests or
+signed AAB is claimed. The script is safe offline only.
+
+Google Play's latest-state guidance:
+https://developer.android.com/google/play/billing/lifecycle/subscriptions
