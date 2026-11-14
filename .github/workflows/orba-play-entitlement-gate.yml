@@ -27,6 +27,9 @@ on:
       - 'server/play_distribution_preflight.py'
       - 'server/play_bundle_preflight.py'
       - 'server/play_bundle_manifest_check.py'
+      - 'server/play_apk_set_preflight.py'
+      - 'server/tests/test_play_apk_set_preflight.py'
+      - 'ci/orba_device_profiles/**'
       - 'server/tests/test_play_bundle_manifest_check.py'
       - 'server/tests/test_play_bundle_preflight.py'
       - 'server/tests/test_play_distribution_preflight.py'
@@ -69,15 +72,15 @@ jobs:
       - name: Verify Android/server source package (production stays HOLD)
         run: python -m server.play_distribution_preflight --repo-root .
       - name: Compile decision gate
-        run: python -m compileall -q server/play_bundle_manifest_check.py server/tests/test_play_bundle_manifest_check.py server/play_bundle_preflight.py server/tests/test_play_bundle_preflight.py server/play_distribution_preflight.py server/tests/test_play_distribution_preflight.py server/play_verified_snapshot.py server/tests/test_play_verified_snapshot.py server/tests/test_play_rtdn_snapshot.py server/play_voided_audit.py server/tests/test_play_voided_audit.py server/play_google_oauth.py server/tests/test_play_google_oauth.py server/play_subscription_lifecycle.py server/tests/test_play_subscription_lifecycle.py server/play_entitlement_gate.py server/play_google_api.py server/play_subscription_mapper.py server/play_owner_binding.py server/play_account_id.py server/play_verification_service.py server/play_acknowledgement.py server/play_acknowledgement_service.py server/play_gateway_boundary.py server/play_rtdn.py server/gateway.py server/tests/test_play_gateway_boundary.py server/tests/test_play_rtdn.py server/tests/test_play_acknowledgement_service.py server/tests/test_play_entitlement_gate.py server/tests/test_play_google_api.py server/tests/test_play_subscription_mapper.py server/tests/test_play_owner_binding.py server/tests/test_play_account_id.py server/tests/test_play_verification_service.py
+        run: python -m compileall -q server/play_apk_set_preflight.py server/tests/test_play_apk_set_preflight.py server/play_bundle_manifest_check.py server/tests/test_play_bundle_manifest_check.py server/play_bundle_preflight.py server/tests/test_play_bundle_preflight.py server/play_distribution_preflight.py server/tests/test_play_distribution_preflight.py server/play_verified_snapshot.py server/tests/test_play_verified_snapshot.py server/tests/test_play_rtdn_snapshot.py server/play_voided_audit.py server/tests/test_play_voided_audit.py server/play_google_oauth.py server/tests/test_play_google_oauth.py server/play_subscription_lifecycle.py server/tests/test_play_subscription_lifecycle.py server/play_entitlement_gate.py server/play_google_api.py server/play_subscription_mapper.py server/play_owner_binding.py server/play_account_id.py server/play_verification_service.py server/play_acknowledgement.py server/play_acknowledgement_service.py server/play_gateway_boundary.py server/play_rtdn.py server/gateway.py server/tests/test_play_gateway_boundary.py server/tests/test_play_rtdn.py server/tests/test_play_acknowledgement_service.py server/tests/test_play_entitlement_gate.py server/tests/test_play_google_api.py server/tests/test_play_subscription_mapper.py server/tests/test_play_owner_binding.py server/tests/test_play_account_id.py server/tests/test_play_verification_service.py
       - name: Install P-256 test dependency for signed HTTP boundary
         run: python -m pip install -r server/requirements.txt
       - name: Run offline entitlement regressions
-        run: python -m unittest -v server.tests.test_play_bundle_manifest_check server.tests.test_play_bundle_preflight server.tests.test_play_distribution_preflight server.tests.test_play_rtdn_snapshot server.tests.test_play_verified_snapshot server.tests.test_play_voided_audit server.tests.test_play_google_oauth server.tests.test_play_subscription_lifecycle server.tests.test_play_entitlement_gate server.tests.test_play_google_api server.tests.test_play_subscription_mapper server.tests.test_play_owner_binding server.tests.test_play_account_id server.tests.test_play_verification_service server.tests.test_play_acknowledgement_service server.tests.test_play_gateway_boundary server.tests.test_gateway server.tests.test_gateway_idempotency server.tests.test_play_rtdn
+        run: python -m unittest -v server.tests.test_play_apk_set_preflight server.tests.test_play_bundle_manifest_check server.tests.test_play_bundle_preflight server.tests.test_play_distribution_preflight server.tests.test_play_rtdn_snapshot server.tests.test_play_verified_snapshot server.tests.test_play_voided_audit server.tests.test_play_google_oauth server.tests.test_play_subscription_lifecycle server.tests.test_play_entitlement_gate server.tests.test_play_google_api server.tests.test_play_subscription_mapper server.tests.test_play_owner_binding server.tests.test_play_account_id server.tests.test_play_verification_service server.tests.test_play_acknowledgement_service server.tests.test_play_gateway_boundary server.tests.test_gateway server.tests.test_gateway_idempotency server.tests.test_play_rtdn
 
   android-purchase-contract:
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -138,6 +141,50 @@ jobs:
             --module=base > /tmp/orba-aab-decoded-base-manifest.xml
           python -m server.play_bundle_manifest_check \
             --repo-root . --decoded-manifest /tmp/orba-aab-decoded-base-manifest.xml
+      - name: Generate test-only signing key and device-profile APK splits (NOT PLAY)
+        shell: bash
+        run: |
+          set -euo pipefail
+          trap 'rm -f /tmp/orba-ci-only-debug-key.jks' EXIT
+          keytool -genkeypair -noprompt -keystore /tmp/orba-ci-only-debug-key.jks \
+            -storepass orba_ci_testing_only -keypass orba_ci_testing_only \
+            -alias orba_ci_ephemeral -keyalg RSA -keysize 2048 -validity 1 \
+            -dname "CN=ORBA CI TEMPORARY TEST ONLY,O=Offline Test,C=US"
+          java -jar /tmp/orba-bundletool-1.18.3.jar build-apks \
+            --bundle=app/build/outputs/bundle/release/app-release.aab \
+            --output=/tmp/orba-ci-device-test.apks --mode=default \
+            --ks=/tmp/orba-ci-only-debug-key.jks \
+            --ks-pass=pass:orba_ci_testing_only \
+            --ks-key-alias=orba_ci_ephemeral \
+            --key-pass=pass:orba_ci_testing_only
+          mkdir -p /tmp/orba-device-extracted
+          for profile in api26-arm64 api30-x86_64 api36-arm64 api36-x86_64; do
+            java -jar /tmp/orba-bundletool-1.18.3.jar extract-apks \
+              --apks=/tmp/orba-ci-device-test.apks \
+              --device-spec="ci/orba_device_profiles/${profile}.json" \
+              --output-dir="/tmp/orba-device-extracted/${profile}"
+          done
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          test -n "$SDK_ROOT"
+          BUILD_TOOLS="$(find "$SDK_ROOT/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          test -x "$BUILD_TOOLS/aapt"
+          test -x "$BUILD_TOOLS/apksigner"
+          find /tmp/orba-device-extracted -type f -name '*.apk' -printf '%P\n' | sort
+          python -m server.play_apk_set_preflight \
+            --repo-root . --apks /tmp/orba-ci-device-test.apks \
+            --profile-dir ci/orba_device_profiles \
+            --extracts-root /tmp/orba-device-extracted \
+            --aapt "$BUILD_TOOLS/aapt" --apksigner "$BUILD_TOOLS/apksigner"
+          sha256sum /tmp/orba-ci-device-test.apks > /tmp/orba-ci-device-test.sha256
+      - name: Upload derived device-profile APK set (TEST-ONLY, NOT PLAY)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: orba-TEST-ONLY-device-apks-NOT-FOR-PLAY
+          path: |
+            /tmp/orba-ci-device-test.apks
+            /tmp/orba-ci-device-test.sha256
+          if-no-files-found: error
+          retention-days: 7
       - name: Record unsigned AAB SHA-256
         run: sha256sum app/build/outputs/bundle/release/app-release.aab | tee app/build/outputs/bundle/release/SHA256SUMS-UNSIGNED.txt
       - name: Upload unsigned AAB structural artifact (NOT FOR GOOGLE PLAY)
