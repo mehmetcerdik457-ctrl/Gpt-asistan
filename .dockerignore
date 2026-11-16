@@ -1,0 +1,12 @@
+.git
+**/__pycache__
+**/*.pyc
+.venv
+.venvs
+build
+evidence
+*.zip
+.env
+.env.*
+server/tests
+server/integration_tests

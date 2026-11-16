@@ -28,8 +28,30 @@ def _default_loader(*, scopes):
 
 
 def _default_request():
+    """Google-auth transport with an explicit finite timeout on every call.
+
+    Google-auth otherwise defaults this request adapter to 120 seconds.
+    Preserve shorter caller deadlines and all request data; never allow a
+    caller to select an unbounded or longer network wait.
+    """
+    import math
+    from google.auth.exceptions import TransportError
     from google.auth.transport.requests import Request
-    return Request()
+    request = Request()
+
+    def bounded_request(url, method="GET", body=None, headers=None,
+                        timeout=8, **kwargs):
+        if (isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or
+                timeout <= 0 or (isinstance(timeout, float) and not math.isfinite(timeout))):
+            raise ValueError("GOOGLE_TRANSPORT_TIMEOUT_INVALID")
+        try:
+            return request(url=url, method=method, body=body, headers=headers,
+                           timeout=min(timeout, 8), **kwargs)
+        except Exception:
+            # Transport exceptions can otherwise embed URLs or request data.
+            raise TransportError("GOOGLE_TRANSPORT_UNAVAILABLE") from None
+
+    return bounded_request
 
 
 class PlayPublisherOAuth:

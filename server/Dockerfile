@@ -1,10 +1,11 @@
-FROM python:3.12.12-slim
+FROM python:3.12.14-slim
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /app
 COPY server/requirements.txt /app/server/requirements.txt
+COPY server/requirements-postgres.txt /app/server/requirements-postgres.txt
 RUN --mount=type=secret,id=pip_ca \
     if [ -f /run/secrets/pip_ca ]; then export PIP_CERT=/run/secrets/pip_ca; fi; \
-    pip install --no-cache-dir -r server/requirements.txt \
+    pip install --no-cache-dir -r server/requirements.txt -r server/requirements-postgres.txt \
     && useradd --create-home --uid 10001 kral \
     && mkdir /data && chown kral:kral /data && chmod 700 /data
 COPY --chown=kral:kral server /app/server

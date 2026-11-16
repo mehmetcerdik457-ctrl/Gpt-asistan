@@ -310,6 +310,7 @@ class Gateway:
         self._probe_configuration = None
         self.calls = deque()
         self.inflight = threading.BoundedSemaphore(2)
+        self.rtdn_inflight = threading.BoundedSemaphore(4)
         self.execution_slots = threading.BoundedSemaphore(4)
         self.tasks = task_runtime.TaskManager(store, self.provider, self.execution_slots)
 
@@ -734,6 +735,7 @@ def handler_for(gateway):
         def handle_play_rtdn(self):
             # Google-authenticated Pub/Sub push is distinct from owner-P256.
             # Neither the RTDN payload nor an HTTP 200 grants entitlement.
+            acquired = False
             try:
                 if (gateway.rtdn_processor is None or
                         os.getenv("ORBA_PLAY_RTDN_ENABLED") != "YES"):
@@ -750,6 +752,9 @@ def handler_for(gateway):
                 raw = self.rfile.read(length)
                 if len(raw) != length:
                     raise Denied("RTDN_BODY_INVALID", 400)
+                acquired = gateway.rtdn_inflight.acquire(blocking=False)
+                if not acquired:
+                    raise Denied("RTDN_BUSY", 503)
                 fresh = gateway.rtdn_processor.process(
                     authorization=self.headers["Authorization"], raw=raw)
                 self.send_json(200, {
@@ -766,6 +771,8 @@ def handler_for(gateway):
             except Exception:
                 self.send_json(503, {"error": "RTDN_RETRY_REQUIRED"})
             finally:
+                if acquired:
+                    gateway.rtdn_inflight.release()
                 self.close_connection = True
 
         def do_POST(self):
@@ -833,9 +840,16 @@ def handler_for(gateway):
 
 def main():
     os.umask(0o077)
+    from .play_runtime import build_play_runtime, RuntimeConfigurationError
+    try:
+        play = build_play_runtime()
+    except RuntimeConfigurationError as exc:
+        # Configuration errors contain only fixed codes and field names.
+        raise SystemExit(str(exc)) from None
     store = Store(os.environ["OMEGA_DATA_DB"])
     address = (os.getenv("KRAL_BIND", "127.0.0.1"), int(os.getenv("PORT", "8080")))
-    server = ThreadingHTTPServer(address, handler_for(Gateway(store)))
+    server = ThreadingHTTPServer(address, handler_for(Gateway(
+        store, play_boundary=play.play_boundary, rtdn_processor=play.rtdn_processor)))
     print("KRAL gateway started; HTTPS termination and enrolled owner/device keys are required.", flush=True)
     server.serve_forever()
 

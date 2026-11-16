@@ -76,12 +76,14 @@ Conflicting observations at the same millisecond still fail closed and retry.
 Custom snapshot recorders must participate in the supplied transaction and
 must not commit it independently.
 
-The PostgreSQL owner table is separate from the existing SQLite purchase
-gateway's owner ledger. There is no automatic owner migration or new binding
-endpoint. A trusted verified-purchase service must provision ownership in the
-same database before RTDN can record an owner-bound snapshot. Unbound tokens
-are audited without binding a user or writing an owner snapshot. This adapter
-does not migrate the purchase gateway, Android billing or payment collection.
+The original RTDN-only adapter did not populate PostgreSQL ownership from the
+SQLite purchase gateway. The subsequent `PostgresPlayStore` now implements
+both verification and delivery transactions: inject that same store into
+`PlayGatewayBoundary` and `PlayRtdnProcessor`, or use the explicit runtime
+builder. A fresh provider-verified purchase registers ownership in the same
+database and transaction as its diagnostic snapshot. Existing SQLite owners
+are not silently migrated. Unbound RTDN tokens still cannot claim a user or
+write an owner snapshot. See [runtime configuration](ORBA_RUNTIME_CONFIGURATION.md).
 
 ## Verification
 

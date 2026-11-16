@@ -36,8 +36,8 @@ class RtdnRetry(RuntimeError):
 def verify_google_oidc(token, audience):
     """Production verifier checks Google signature, audience and expiry."""
     from google.oauth2 import id_token
-    from google.auth.transport import requests
-    return id_token.verify_oauth2_token(token, requests.Request(), audience=audience)
+    from server.play_google_oauth import _default_request
+    return id_token.verify_oauth2_token(token, _default_request(), audience=audience)
 
 
 def initialize_rtdn(db):
