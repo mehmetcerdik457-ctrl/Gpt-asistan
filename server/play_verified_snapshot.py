@@ -48,14 +48,9 @@ def _valid_owner(owner: str, secret: bytes) -> str:
         authenticated_owner_id=owner, server_secret=secret)
 
 
-def record_verified_snapshot(db: sqlite3.Connection, purchase: VerifiedPlayPurchase,
-                             *, server_secret: bytes, observed_at_ms: int) -> bool:
-    """Upsert only provider-verified evidence, monotonically by check start time.
-
-    Return True when a newer observation committed; False on exact replay or
-    older observation. A tie with different data fails closed rather than
-    allowing last-writer-wins access-state resurrection.
-    """
+def validated_snapshot_values(purchase: VerifiedPlayPurchase, *,
+                              server_secret: bytes, observed_at_ms: int) -> tuple:
+    """Validate evidence identically for SQLite and PostgreSQL writers."""
     if (type(purchase) is not VerifiedPlayPurchase or
             purchase.verified_by_google_api is not True or
             purchase.package_name != PACKAGE or
@@ -75,13 +70,27 @@ def record_verified_snapshot(db: sqlite3.Connection, purchase: VerifiedPlayPurch
     historical = int(entitlement_allowed(
         purchase, owner_id=purchase.owner_id, product_id=purchase.product_id,
         token_sha256=purchase.purchase_token_sha256, now_ms=observed_at_ms))
-    values = (
+    return (
         owner_hmac, purchase.subscription_state, purchase.expires_at_ms,
         int(purchase.acknowledged), historical, observed_at_ms,
     )
-    # SQLite IMMEDIATE transaction serializes concurrent writers. No partial
-    # snapshot is committed on owner conflict or same-timestamp disagreement.
-    db.execute("BEGIN IMMEDIATE")
+
+
+def record_verified_snapshot(db: sqlite3.Connection, purchase: VerifiedPlayPurchase,
+                             *, server_secret: bytes, observed_at_ms: int) -> bool:
+    """Upsert provider evidence without committing a caller-owned transaction.
+
+    Standalone calls own an IMMEDIATE transaction. RTDN calls join the delivery
+    transaction so the snapshot and success audit either both commit or neither
+    does. A savepoint also preserves caller work if the caller handles rejection.
+    """
+    values = validated_snapshot_values(
+        purchase, server_secret=server_secret, observed_at_ms=observed_at_ms)
+    owner_hmac = values[0]
+    owns_transaction = not db.in_transaction
+    if owns_transaction:
+        db.execute("BEGIN IMMEDIATE")
+    db.execute("SAVEPOINT play_verified_snapshot")
     try:
         old = db.execute(
             "SELECT owner_hmac,provider_state,expiry_ms,acknowledged,"
@@ -93,18 +102,18 @@ def record_verified_snapshot(db: sqlite3.Connection, purchase: VerifiedPlayPurch
             if not hmac.compare_digest(old[0], owner_hmac):
                 raise SnapshotRejected("SNAPSHOT_OWNER_CONFLICT")
             if observed_at_ms < old[5]:
-                db.commit()
-                return False
-            if observed_at_ms == old[5]:
+                updated = False
+            elif observed_at_ms == old[5]:
                 if tuple(old) != values:
                     raise SnapshotRejected("SNAPSHOT_CLOCK_TIE_CONFLICT")
-                db.commit()
-                return False
-            db.execute(
-                "UPDATE play_verified_snapshots SET owner_hmac=?,provider_state=?,"
-                "expiry_ms=?,acknowledged=?,historical_access=?,observed_at_ms=? "
-                "WHERE purchase_token_sha256=? AND product_id=?",
-                values + (purchase.purchase_token_sha256, purchase.product_id))
+                updated = False
+            else:
+                db.execute(
+                    "UPDATE play_verified_snapshots SET owner_hmac=?,provider_state=?,"
+                    "expiry_ms=?,acknowledged=?,historical_access=?,observed_at_ms=? "
+                    "WHERE purchase_token_sha256=? AND product_id=?",
+                    values + (purchase.purchase_token_sha256, purchase.product_id))
+                updated = True
         else:
             db.execute(
                 "INSERT INTO play_verified_snapshots "
@@ -112,11 +121,21 @@ def record_verified_snapshot(db: sqlite3.Connection, purchase: VerifiedPlayPurch
                 "historical_access,observed_at_ms,purchase_token_sha256,product_id) "
                 "VALUES(?,?,?,?,?,?,?,?)",
                 values + (purchase.purchase_token_sha256, purchase.product_id))
-        db.commit()
-        return True
+            updated = True
     except BaseException:
-        db.rollback()
+        db.execute("ROLLBACK TO SAVEPOINT play_verified_snapshot")
+        db.execute("RELEASE SAVEPOINT play_verified_snapshot")
+        if owns_transaction:
+            db.rollback()
         raise
+    db.execute("RELEASE SAVEPOINT play_verified_snapshot")
+    if owns_transaction:
+        try:
+            db.commit()
+        except BaseException:
+            db.rollback()
+            raise
+    return updated
 
 
 def diagnostic_snapshot(db: sqlite3.Connection, *, owner_id: str,
