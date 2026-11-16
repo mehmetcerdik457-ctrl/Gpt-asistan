@@ -9,11 +9,11 @@ from __future__ import annotations
 
 import re
 import time
-from contextlib import closing
 
 from server.play_account_id import obfuscated_play_account_id
 from server.play_acknowledgement_service import acknowledge_then_verify_subscription
-from server.play_entitlement_gate import PRODUCT_RE
+from server.play_entitlement_gate import PRODUCT_RE, token_digest, entitlement_allowed
+from server.play_purchase_store import SQLitePlayStore
 
 
 class PlayBoundaryError(RuntimeError):
@@ -22,8 +22,8 @@ class PlayBoundaryError(RuntimeError):
 
 class PlayGatewayBoundary:
     def __init__(self, *, server_secret: bytes, allowed_products,
-                 oauth_supplier, db_factory, opener=None, clock_ms=None,
-                 snapshot_recorder=None):
+                 oauth_supplier, db_factory=None, opener=None, clock_ms=None,
+                 snapshot_recorder=None, store=None):
         if not isinstance(server_secret, bytes) or len(server_secret) < 32:
             raise ValueError("ORBA_SERVER_SECRET_NOT_PROVISIONED")
         if (not isinstance(allowed_products, (set, frozenset))
@@ -31,12 +31,17 @@ class PlayGatewayBoundary:
                 any(not isinstance(x, str) or not PRODUCT_RE.fullmatch(x)
                     for x in allowed_products)):
             raise ValueError("ORBA_ALLOWLIST_NOT_PROVISIONED")
-        if not callable(oauth_supplier) or not callable(db_factory):
+        if (not callable(oauth_supplier) or
+                (store is None and not callable(db_factory)) or
+                (store is not None and (
+                    db_factory is not None or snapshot_recorder is not None or
+                    not callable(getattr(store, "verification", None))))):
             raise ValueError("ORBA_PROVIDER_OR_STORE_NOT_PROVISIONED")
         self._secret = server_secret
         self._products = frozenset(allowed_products)
         self._oauth = oauth_supplier
         self._db_factory = db_factory
+        self._store = store
         self._opener = opener
         if snapshot_recorder is not None and not callable(snapshot_recorder):
             raise ValueError("SNAPSHOT_RECORDER_INVALID")
@@ -80,16 +85,41 @@ class PlayGatewayBoundary:
         # db_factory MUST provide an externally migrated, private durable DB.
         # Never auto-create schema on the public request path.
         try:
-            with closing(self._db_factory()) as db:
-                with db:
-                    return bool(acknowledge_then_verify_subscription(
-                        db=db, purchase_token=purchase_token,
+            store = self._store if self._store is not None else SQLitePlayStore(self._db_factory)
+            with store.verification(token_sha256=token_digest(purchase_token),
+                                    authenticated_owner_id=owner) as transaction:
+                now_ms = transaction.observation_time_ms(self._clock_ms)
+                authorization_deadline = None
+
+                def observe_verified(purchase):
+                    nonlocal authorization_deadline
+                    started = time.monotonic()
+                    checked = transaction.observation_time_ms(self._clock_ms)
+                    if (type(checked) is not int or checked < now_ms or
+                            not entitlement_allowed(
+                                purchase, owner_id=owner, product_id=product_id,
+                                token_sha256=token_digest(purchase_token), now_ms=checked)):
+                        raise ValueError("PLAY_VERIFICATION_EXPIRED")
+                    # Conservative monotonic deadline also covers a slow commit
+                    # after the last database-clock check, without opening a
+                    # new connection or trusting a different worker wall clock.
+                    authorization_deadline = started + (purchase.expires_at_ms - checked) / 1000
+
+                recorder = (transaction.record_snapshot if self._store is not None
+                            else self._snapshot_recorder)
+                allowed = bool(acknowledge_then_verify_subscription(
+                        db=transaction.connection, purchase_token=purchase_token,
                         access_token=access_token,
                         authenticated_owner_id=owner, product_id=product_id,
                         server_secret=self._secret, now_ms=now_ms,
                         opener=self._opener,
-                        snapshot_recorder=self._snapshot_recorder,
+                        snapshot_recorder=recorder,
+                        owner_binder=transaction.bind_verified_owner,
+                        clock_ms=lambda: transaction.observation_time_ms(self._clock_ms),
+                        verified_observer=observe_verified,
                     ))
+            # Only return a grant after the ownership/snapshot commit succeeds.
+            return allowed and authorization_deadline is not None and time.monotonic() < authorization_deadline
         except PlayBoundaryError:
             raise
         except Exception:

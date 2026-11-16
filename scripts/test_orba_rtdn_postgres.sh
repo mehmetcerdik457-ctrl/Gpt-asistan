@@ -39,4 +39,6 @@ export OMEGA_ORBA_TEST_PG_DSN="postgresql://orba_test:${test_db_password}@127.0.
 cd -- "$repo_root"
 "$test_python" -m unittest -v \
   server.integration_tests.test_play_rtdn_postgres \
-  server.integration_tests.test_play_rtdn_postgres_http
+  server.integration_tests.test_play_rtdn_postgres_http \
+  server.integration_tests.test_play_purchase_postgres \
+  server.integration_tests.test_play_preflight_postgres

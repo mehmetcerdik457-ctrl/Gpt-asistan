@@ -35,15 +35,27 @@ def bind_or_verify_owner(db: sqlite3.Connection, *, purchase_token: str,
     if not isinstance(now_ms, int) or isinstance(now_ms, bool) or now_ms < 0:
         raise ValueError("INVALID_TIMESTAMP")
     digest = token_digest(purchase_token)
-    db.execute("BEGIN IMMEDIATE")
+    owns_transaction = not db.in_transaction
+    if owns_transaction:
+        db.execute("BEGIN IMMEDIATE")
+    db.execute("SAVEPOINT play_owner_binding")
     try:
         db.execute("INSERT OR IGNORE INTO play_token_owners (token_sha256,owner_id,created_at_ms) VALUES (?,?,?)",
                    (digest, authenticated_owner_id, now_ms))
         row = db.execute("SELECT owner_id FROM play_token_owners WHERE token_sha256=?", (digest,)).fetchone()
         if row is None or not hmac.compare_digest(row[0], authenticated_owner_id):
             raise OwnershipConflict("PURCHASE_TOKEN_ALREADY_BOUND")
-        db.commit()
     except BaseException:
-        db.rollback()
+        db.execute("ROLLBACK TO SAVEPOINT play_owner_binding")
+        db.execute("RELEASE SAVEPOINT play_owner_binding")
+        if owns_transaction:
+            db.rollback()
         raise
+    db.execute("RELEASE SAVEPOINT play_owner_binding")
+    if owns_transaction:
+        try:
+            db.commit()
+        except BaseException:
+            db.rollback()
+            raise
     return digest
