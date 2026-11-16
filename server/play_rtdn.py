@@ -12,11 +12,13 @@ import re
 import sqlite3
 import time
 from dataclasses import replace
-from contextlib import closing
 from server.play_account_id import obfuscated_play_account_id
 from server.play_entitlement_gate import PACKAGE, token_digest
 from server.play_google_api import TOKEN_RE, get_subscription_v2
 from server.play_subscription_mapper import map_verified_subscription
+from server.play_rtdn_store import (
+    SQLiteRtdnStore, RtdnStoreConflict, RtdnStoreUnavailable,
+)
 
 ENDPOINT = "/api/v1/play/rtdn"
 MAX_BODY = 16384
@@ -53,9 +55,9 @@ def initialize_rtdn(db):
 
 class PlayRtdnProcessor:
     def __init__(self, *, audience, service_account_email, subscription,
-                 allowed_products, server_secret, db_factory, oauth_supplier,
+                 allowed_products, server_secret, oauth_supplier, db_factory=None,
                  verifier=None, provider_opener=None, clock=None,
-                 snapshot_recorder=None):
+                 snapshot_recorder=None, store=None):
         if not isinstance(audience, str) or not re.fullmatch(r"https://[^\s]{1,400}", audience):
             raise ValueError("RTDN_AUDIENCE_MISSING")
         if not isinstance(service_account_email, str) or not re.fullmatch(
@@ -72,7 +74,10 @@ class PlayRtdnProcessor:
             any(not isinstance(x, str) or not re.fullmatch(r"[A-Za-z0-9_.]{1,100}", x)
                 for x in allowed_products)):
             raise ValueError("RTDN_PRODUCTS_MISSING")
-        if not callable(db_factory) or not callable(oauth_supplier):
+        if (not callable(oauth_supplier) or
+                (store is None and not callable(db_factory)) or
+                (store is not None and (
+                    db_factory is not None or not callable(getattr(store, "delivery", None))))):
             raise ValueError("RTDN_DEPENDENCIES_MISSING")
         if verifier is not None and not callable(verifier):
             raise ValueError("RTDN_VERIFIER_INVALID")
@@ -84,6 +89,7 @@ class PlayRtdnProcessor:
         self.allowed_products = frozenset(allowed_products)
         self.server_secret = server_secret
         self.db_factory = db_factory
+        self.store = store
         self.oauth_supplier = oauth_supplier
         self.verifier = verifier or verify_google_oidc
         self.provider_opener = provider_opener
@@ -158,29 +164,24 @@ class PlayRtdnProcessor:
         """
         self.authenticate(authorization)
         message_id, payload, purchase_token, is_test = self.unpack(raw)
-        msg_hash = hashlib.sha256(message_id.encode("utf-8")).hexdigest()
+        # Pub/Sub message IDs are not a global namespace. Keep deliveries from
+        # independently configured subscriptions separate in a shared store.
+        msg_hash = hashlib.sha256(
+            (self.subscription + "\0" + message_id).encode("utf-8")).hexdigest()
         payload_hash = hashlib.sha256(payload).hexdigest()
         try:
-            with closing(self.db_factory()) as db:
-                def previous():
-                    return db.execute(
-                        "SELECT payload_digest FROM play_rtdn_audit WHERE message_digest=?",
-                        (msg_hash,)).fetchone()
-                old = previous()
-                if old:
-                    if not hmac.compare_digest(old[0], payload_hash):
-                        raise RtdnDenied("RTDN_MESSAGE_ID_CONFLICT")
+            store = self.store if self.store is not None else SQLiteRtdnStore(self.db_factory)
+            with store.delivery(msg_hash, payload_hash) as delivery:
+                if delivery.duplicate:
                     return False
                 token_hash, outcome = None, "TEST"
                 if not is_test:
                     # Observation order is when *server-side fetch starts*.
                     # A delayed response must not overwrite a later-started
                     # verification of the same purchase in the snapshot ledger.
-                    checked_at_ms = int(self.clock() * 1000)
+                    checked_at_ms = delivery.observation_time_ms(self.clock)
                     token_hash = token_digest(purchase_token)
-                    owner = db.execute(
-                        "SELECT owner_id FROM play_token_owners WHERE token_sha256=?",
-                        (token_hash,)).fetchone()
+                    owner = delivery.owner_for(token_hash)
                     try:
                         access_token = self.oauth_supplier()
                         if (not isinstance(access_token, str) or not 1 <= len(access_token) <= 8192 or
@@ -195,7 +196,7 @@ class PlayRtdnProcessor:
                             identifiers = provider.get("externalAccountIdentifiers")
                             actual = identifiers.get("obfuscatedExternalAccountId") if isinstance(identifiers, dict) else None
                             expected = obfuscated_play_account_id(
-                                authenticated_owner_id=owner[0], server_secret=self.server_secret)
+                                authenticated_owner_id=owner, server_secret=self.server_secret)
                             if not isinstance(actual, str) or not hmac.compare_digest(actual, expected):
                                 raise ValueError()
                             outcome = "RECHECKED_BOUND"
@@ -215,26 +216,22 @@ class PlayRtdnProcessor:
                                 # HMAC comparison authorize marking provenance.
                                 mapped = map_verified_subscription(
                                     provider, purchase_token=purchase_token,
-                                    owner_id=owner[0], product_id=eligible[0])
+                                    owner_id=owner, product_id=eligible[0])
                                 self.snapshot_recorder(
-                                    db, replace(mapped, verified_by_google_api=True),
+                                    delivery.connection, replace(mapped, verified_by_google_api=True),
                                     server_secret=self.server_secret,
                                     observed_at_ms=checked_at_ms)
                                 # This writes diagnostic state ONLY. The RTDN
                                 # never returns paid access or alters entitlements.
                     except Exception:
                         raise RtdnRetry("RTDN_PROVIDER_RECHECK_UNAVAILABLE") from None
-                with db:
-                    cursor = db.execute(
-                        "INSERT OR IGNORE INTO play_rtdn_audit "
-                        "(message_digest,payload_digest,purchase_token_digest,outcome,recorded_at_ms) "
-                        "VALUES(?,?,?,?,?)",
-                        (msg_hash, payload_hash, token_hash, outcome, int(self.clock() * 1000)))
-                saved = previous()
-                if not saved or not hmac.compare_digest(saved[0], payload_hash):
-                    raise RtdnDenied("RTDN_MESSAGE_ID_CONFLICT")
-                return cursor.rowcount == 1
+                delivery.finish(token_digest=token_hash, outcome=outcome,
+                                recorded_at_ms=delivery.observation_time_ms(self.clock))
+            # The context has committed successfully before acknowledging.
+            return True
+        except RtdnStoreConflict:
+            raise RtdnDenied("RTDN_MESSAGE_ID_CONFLICT") from None
         except (RtdnDenied, RtdnRetry):
             raise
-        except (sqlite3.Error, OSError, ValueError, TypeError):
+        except (RtdnStoreUnavailable, sqlite3.Error, OSError, ValueError, TypeError):
             raise RtdnRetry("RTDN_STORE_UNAVAILABLE") from None
