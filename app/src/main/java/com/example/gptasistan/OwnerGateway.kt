@@ -41,6 +41,13 @@ object OwnerGateway {
 
     fun clear() { registry = null }
 
+    /** Read-only SUPER ADMIN snapshot; the server never returns credential values. */
+    fun adminStatus(context: Context, base: String): JSONObject {
+        val owner = context.getSharedPreferences("kral_model", Context.MODE_PRIVATE)
+            .getString("owner_id", "").orEmpty()
+        return request(base, "/api/v1/owner/admin/status", owner, JSONObject())
+    }
+
     fun verifiedModels(base: String, owner: String, now: Long = System.currentTimeMillis() / 1000): List<Model> {
         val cached = registry ?: return emptyList()
         if (cached.base != base.trimEnd('/') || cached.owner != owner) return emptyList()
