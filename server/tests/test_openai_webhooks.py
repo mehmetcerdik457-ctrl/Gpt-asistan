@@ -133,15 +133,15 @@ class OpenAIWebhookHttpTests(unittest.TestCase):
             return response.status, json.loads(response.read())
 
     def test_public_signed_endpoint_accepts_without_owner_p256_headers(self):
-        body = make_event()
+        body = make_event(event_type="response.queued")
         status, data = self.post(body, signed_headers(body, self.secret))
         self.assertEqual(status, 200)
         self.assertTrue(data["accepted"])
         self.assertFalse(data["duplicate"])
-        self.assertEqual(data["event_type"], "response.completed")
+        self.assertEqual(data["event_type"], "response.queued")
 
     def test_duplicate_delivery_is_acknowledged_once(self):
-        body = make_event()
+        body = make_event(event_type="response.queued")
         headers = signed_headers(body, self.secret)
         first = self.post(body, headers)
         second = self.post(body, headers)
@@ -153,8 +153,8 @@ class OpenAIWebhookHttpTests(unittest.TestCase):
         self.assertEqual(count, 1)
 
     def test_delivery_id_conflict_is_rejected(self):
-        first_body = make_event("evt_first")
-        second_body = make_event("evt_second")
+        first_body = make_event("evt_first", event_type="response.queued")
+        second_body = make_event("evt_second", event_type="response.queued")
         self.assertEqual(self.post(first_body, signed_headers(first_body, self.secret))[0], 200)
         status, data = self.post(
             second_body, signed_headers(second_body, self.secret, webhook_id="wh_test_001")
