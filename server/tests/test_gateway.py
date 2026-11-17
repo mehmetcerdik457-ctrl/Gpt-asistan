@@ -517,9 +517,13 @@ class ProviderTests(unittest.TestCase):
             g.OpenAIProvider().reply("requested", prompt)
             sent = json.loads(mock.return_value.open.call_args.args[0].data)
         self.assertEqual([item["role"] for item in sent["input"]], ["system", "user"])
-        self.assertIsInstance(sent["input"][0]["content"], str)
-        self.assertTrue(sent["input"][0]["content"].strip())
-        self.assertNotIn(prompt, sent["input"][0]["content"])
+        system = sent["input"][0]["content"]
+        self.assertTrue(system.startswith(
+            "You are the OpenAI task engine for this app. Follow existing app policy, "
+            "avoid side effects unless approved, and return concise results. "
+        ))
+        self.assertIn("Do not execute tools or external actions", system)
+        self.assertNotIn(prompt, system)
         self.assertEqual(sent["input"][1]["content"], prompt)
         self.assertNotIn("tools", sent)
 

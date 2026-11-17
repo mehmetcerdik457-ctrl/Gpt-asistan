@@ -16,6 +16,13 @@ allowlist, dual-P256 owner/device authorization, output bounds, `store: false`,
 and existing Android result schema. The guide's default model is an example;
 this change does not assume account access or insert it into the allowlist.
 
+The [historical `runKralAiTask` implementation](https://github.com/mehmetcerdik457-ctrl/Gpt-asistan/blob/49cc40916c5a03d7b0aec5e529d61a96b9eca41f/docs/KRAL_OPENAI_GUIDE_PARITY.md)
+records the guide's original instruction and signed chat contract. The current
+Gateway starts its default system message with that original instruction and
+adds KRAL's existing analysis-only restrictions. Expert tasks keep their
+server-owned specialist instructions. User text remains in the user message and
+local tool approval stays in the signed backend routes.
+
 Injected providers exposing `reply_with_metadata()` must accept the new
 `system_instructions` keyword. Legacy providers exposing only `reply()` retain
 their existing combined-prompt path. A failed call is not retried through another
