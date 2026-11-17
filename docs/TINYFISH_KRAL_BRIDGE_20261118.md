@@ -2,14 +2,15 @@
 
 ## Scope
 
-This change adds a checked-in hosted MCP client configuration, local CLI setup helper, secret-safe offline preflight, and integration documentation to the existing KRAL repository. It is based on the existing KRAL Gemini/OpenAI feature line; it does not create a new application.
+This change adds a checked-in hosted MCP client configuration, local CLI setup helper, secret-safe offline preflight, bounded read-only browser runner, and integration documentation to the existing KRAL repository. It is based on the existing KRAL Gemini/OpenAI feature line; it does not create a new application.
 
 ## Included
 
 - Current hosted Streamable-HTTP MCP endpoint configuration: `https://agent.tinyfish.ai/mcp`.
 - CLI install/login/status helper. Installation and login require running the script on the user's own host.
 - Offline preflight reporting Node/npm/CLI presence and only a boolean for `TINYFISH_API_KEY`.
-- Guidance for bounded read-only browser tasks and wallet metering.
+- Explicit metered-run gate for a read-only browser runner (HTTPS-only, strict mode, max 10 steps and 60 seconds).
+- Guidance for wallet metering.
 - Explicit separation between hosted Gemma API access and actual local inference.
 
 ## Not claimed / not done
@@ -29,4 +30,4 @@ This change adds a checked-in hosted MCP client configuration, local CLI setup h
 3. Run `bash scripts/tinyfish_setup.sh --login` and complete authentication in the provider's own flow.
 4. Run `bash scripts/tinyfish_setup.sh --status` and confirm local authentication.
 5. Configure the remote MCP endpoint in the intended MCP client; review client config changes before accepting.
-6. Only after confirming the actual wallet balance and an explicit per-task spend ceiling, run a narrowly scoped read-only browser test.
+6. Only after confirming the actual wallet balance and an explicit per-task spend ceiling, run the bounded read-only runner on an authorized HTTPS page.
