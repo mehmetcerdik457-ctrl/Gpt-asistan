@@ -26,7 +26,13 @@ class WebhookError(ValueError):
 
 
 def _header(headers, name: str, maximum: int) -> str:
-    value = headers.get(name)
+    if hasattr(headers, "get_all"):
+        values = headers.get_all(name)
+        if values is None or len(values) != 1:
+            raise WebhookError("WEBHOOK_HEADERS_INVALID")
+        value = values[0]
+    else:
+        value = headers.get(name)
     if not isinstance(value, str):
         raise WebhookError("WEBHOOK_HEADERS_INVALID")
     value = value.strip()
