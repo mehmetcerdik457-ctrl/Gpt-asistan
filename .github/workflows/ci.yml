@@ -10,8 +10,8 @@ concurrency:
   cancel-in-progress: true
 jobs:
   test:
-    # Same-repository PR heads are already tested by push; fork PRs still run.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    # Run exact-head tests for same-repository and fork pull requests alike.
+    # This prevents PR checks from appearing green/skipped without executing tests.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
