@@ -634,6 +634,26 @@ class Gateway:
 
     def receive_openai_webhook(self, raw_body, headers):
         event, webhook_id = openai_webhooks.verify_and_parse(raw_body, headers)
+        # Process only response events that belong to a known KRAL background task.
+        # Do this before recording the delivery so a transient retrieval failure is retried.
+        if event["type"] in ("response.completed", "response.failed", "response.incomplete"):
+            response_id = event["data"].get("id")
+            task = self.tasks.task_for_response(response_id)
+            if task is None:
+                raise openai_webhooks.WebhookError("WEBHOOK_RESPONSE_NOT_MATCHED", 503)
+            if event["type"] == "response.completed" and task["status"] == "background_pending":
+                try:
+                    answer, actual_model, provider_meta = self.provider.retrieve_background(response_id)
+                    if not self.tasks.complete_background(response_id, answer, actual_model, provider_meta):
+                        raise openai_webhooks.WebhookError("WEBHOOK_TASK_NOT_READY", 503)
+                except Denied as exc:
+                    raise openai_webhooks.WebhookError("WEBHOOK_RESPONSE_RETRIEVAL_FAILED", 503) from None
+                except ValueError:
+                    raise openai_webhooks.WebhookError("WEBHOOK_RESPONSE_INVALID", 400) from None
+            elif event["type"] == "response.failed":
+                self.tasks.fail_background(response_id, "PROVIDER_BACKGROUND_FAILED")
+            elif event["type"] == "response.incomplete":
+                self.tasks.fail_background(response_id, "PROVIDER_BACKGROUND_INCOMPLETE")
         digest = hashlib.sha256(raw_body).hexdigest()
         with self.store.connect() as db:
             db.execute("BEGIN IMMEDIATE")
@@ -655,20 +675,23 @@ class Gateway:
 
     def route(self, path, data, *, request_deadline=None):
         if path == PREFIX + "tasks":
-            if set(data) - {"input", "model", "expert", "tools", "requires_approval",
+            if set(data) - {"input", "model", "expert", "tools", "requires_approval", "background",
                             "idempotency_key", "client_request_id"}:
                 raise Denied("TASK_FIELDS_DENIED")
             prompt, model = data.get("input"), data.get("model")
             expert, tools = data.get("expert"), data.get("tools", [])
             approval = data.get("requires_approval", False)
+            background = data.get("background", False)
             if not isinstance(prompt, str) or not prompt.strip() or len(prompt) > 8000:
                 raise Denied("TASK_INPUT_INVALID")
             if not isinstance(model, str) or not isinstance(expert, str) or not isinstance(tools, list):
                 raise Denied("TASK_FIELDS_INVALID")
             if tools:
                 raise Denied("TASK_TOOL_CAPABILITY_DENIED", 403)
-            if not isinstance(approval, bool):
+            if not isinstance(approval, bool) or not isinstance(background, bool):
                 raise Denied("TASK_APPROVAL_FLAG_INVALID")
+            if background and approval:
+                raise Denied("TASK_BACKGROUND_APPROVAL_CONFLICT")
             if any(field in data and data[field] is None
                    for field in ("idempotency_key", "client_request_id")):
                 raise Denied("TASK_IDEMPOTENCY_KEY_INVALID")
@@ -678,7 +701,7 @@ class Gateway:
                 # Retrieval is not a new model call. Accepted submissions remain
                 # discoverable after restart/expiry/rate or capacity exhaustion.
                 existing = self.tasks.lookup_submission(key, model, expert, prompt,
-                                                        approval_required=approval)
+                                                        approval_required=approval, background=background)
                 if existing is not None:
                     return existing
             except task_runtime.TaskIdempotencyConflict as exc:
@@ -702,7 +725,7 @@ class Gateway:
                     self.calls.append(now)
             try:
                 return self.tasks.submit(model, row[1], expert, prompt, approval_required=approval,
-                                         idempotency_key=key)
+                                         background=background, idempotency_key=key)
             except task_runtime.TaskIdempotencyConflict as exc:
                 raise Denied(str(exc), 409) from None
             except task_runtime.TaskIdempotencyUnavailable as exc:
