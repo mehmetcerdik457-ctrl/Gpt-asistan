@@ -324,7 +324,7 @@ class OpenAIProvider:
 class GeminiProvider:
     """Google Gemini Interactions API adapter; credentials remain server-side."""
     name = "gemini"
-    endpoint = "https://generativelanguage.googleapis.com/v1beta/interactions"
+    endpoint = "https://generativelanguage.googleapis.com/v1/interactions"
 
     def configured(self):
         return bool(os.getenv("GEMINI_API_KEY", "").strip())
