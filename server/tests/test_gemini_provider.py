@@ -64,7 +64,7 @@ class GeminiProviderTests(unittest.TestCase):
         key = "synthetic-gemini-secret"
         transport = Mock()
         transport.open.side_effect = urllib.error.HTTPError(
-            GeminiProvider.endpoint, 403, "hidden", {}, BytesIO(key.encode())
+            "https://generativelanguage.googleapis.com/v1beta/interactions", 403, "hidden", {}, BytesIO(key.encode())
         )
         with patch.dict(os.environ, {"GEMINI_API_KEY": key}, clear=True), \
              patch("server.gateway.urllib.request.build_opener", return_value=transport):
