@@ -17,7 +17,7 @@ Set these only in the private backend environment:
 - `GEMINI_ALLOWED_MODELS` — comma-separated explicit model allowlist; no model is assumed.
 - `GEMINI_MODEL_PREFERRED` — optional preference that must also appear in the allowlist.
 
-The provider calls `POST https://generativelanguage.googleapis.com/v1beta/interactions` with the `x-goog-api-key` header. Google documents Interactions as its recommended interface for new Gemini integrations; model IDs and project access still need to be verified against the actual configured project.
+The provider calls the stable `POST https://generativelanguage.googleapis.com/v1/interactions` endpoint with the `x-goog-api-key` header. Use a current Gemini authorization API key from the intended Google AI Studio/Cloud project; do not use an unrestricted legacy standard key. The model-verification request is a real provider request and may incur usage charges. Google documents Interactions as its recommended interface for new Gemini integrations; model IDs and project access still need to be verified against the actual configured project.
 
 Gemini background task/webhook support is deliberately rejected in this slice. Existing OpenAI background Responses and webhook processing remain OpenAI-only. Gemini requests are synchronous and only run after the existing model-verification flow.
 
