@@ -109,12 +109,16 @@ class OpenAIProvider:
         return text, returned_model, elapsed
 
     def reply_with_metadata(self, model, message, *, probe=False,
-                            request_metadata=None, client_request_id=None):
+                            request_metadata=None, client_request_id=None, instructions=None):
         key = os.getenv("OPENAI_API_KEY", "").strip()
         if not key:
             raise Denied("PROVIDER_NOT_CONFIGURED", 503)
         payload = {"model": model, "input": message,
                    "max_output_tokens": 64 if probe else 1024, "store": False}
+        if instructions is not None:
+            if not isinstance(instructions, str) or not 1 <= len(instructions) <= 4000:
+                raise Denied("PROVIDER_INSTRUCTIONS_INVALID", 400)
+            payload["instructions"] = instructions
         if request_metadata is not None:
             if (not isinstance(request_metadata, dict) or len(request_metadata) > 16 or
                     any(not isinstance(k, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", k)
