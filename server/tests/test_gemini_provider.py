@@ -125,6 +125,8 @@ class GeminiProviderTests(unittest.TestCase):
         self.assertFalse(result["credential_values_exposed"])
         self.assertFalse(result["external_actions_enabled"])
         self.assertEqual(result["google_drive"], "NOT_CONFIGURED_IN_KRAL_BACKEND")
+        gemini = next(row for row in result["providers"] if row["id"] == "gemini")
+        self.assertEqual(gemini["api_version"], "v1beta")
         self.assertNotIn("api_key", json.dumps(result).lower())
 
 
