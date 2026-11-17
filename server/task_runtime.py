@@ -489,11 +489,11 @@ class TaskManager:
                     row = db.execute(
                         "SELECT status,cancel_requested FROM owner_tasks WHERE task_id=?", (task_id,)
                     ).fetchone()
-                    if row is not None and row[0] in ("queued", "running"):
+                    if row is not None and row[0] in ("queued", "running", "background_queued", "background_running"):
                         db.execute(
                             "UPDATE owner_tasks SET status=?, error_code=?, response_id=?, provider_request_id=?, "
                             "provider_http_status=?, provider_error_code=?, retryable=?, retry_after_seconds=?, "
-                            "updated_at=? WHERE task_id=? AND status IN ('queued','running')",
+                            "updated_at=? WHERE task_id=? AND status IN ('queued','running','background_queued','background_running')",
                             ("cancelled" if row[1] else "failed",
                              "TASK_CANCELLED" if row[1] else failure[0], *failure[1:],
                              int(time.time()), task_id)
