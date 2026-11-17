@@ -124,10 +124,13 @@ class TaskManager:
 
     @staticmethod
     def _submission_digest(model, expert, prompt, approval_required, background=False):
+        payload = {"model": model, "expert": expert, "input": prompt,
+                   "requires_approval": approval_required}
+        # Preserve the pre-background fingerprint for existing synchronous keys.
+        if background:
+            payload["background"] = True
         return hashlib.sha256(json.dumps(
-            {"model": model, "expert": expert, "input": prompt,
-             "requires_approval": approval_required, "background": background},
-            ensure_ascii=False, sort_keys=True, separators=(",", ":")
+            payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
         ).encode("utf-8")).hexdigest()
 
     @staticmethod
