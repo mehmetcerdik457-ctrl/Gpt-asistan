@@ -22,7 +22,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from . import owner_auth_v1 as auth
-from . import email_otp, kral_memory, idempotency, owner_workers, task_runtime
+from . import email_otp, kral_memory, idempotency, owner_workers, task_runtime, openai_webhooks
 
 CONTRACT = "OMEGA-OWNER-API-V1"
 PREFIX = "/api/v1/owner/"
@@ -226,6 +226,13 @@ class Store:
                 CREATE TABLE IF NOT EXISTS owner_binding (
                     singleton INTEGER PRIMARY KEY CHECK(singleton=1),
                     owner_id TEXT NOT NULL, public_key_sha256 TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS openai_webhook_events (
+                    webhook_id TEXT PRIMARY KEY,
+                    event_id TEXT NOT NULL,
+                    event_type TEXT NOT NULL,
+                    received_at INTEGER NOT NULL,
+                    body_sha256 TEXT NOT NULL
+                );
             """)
             kral_memory.initialize(db)
             idempotency.initialize(db)
@@ -515,6 +522,27 @@ class Gateway:
             response_id, provider_request_id, client_request_id
         )
 
+    def receive_openai_webhook(self, raw_body, headers):
+        event, webhook_id = openai_webhooks.verify_and_parse(raw_body, headers)
+        digest = hashlib.sha256(raw_body).hexdigest()
+        with self.store.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            cursor = db.execute(
+                "INSERT OR IGNORE INTO openai_webhook_events "
+                "(webhook_id,event_id,event_type,received_at,body_sha256) VALUES(?,?,?,?,?)",
+                (webhook_id, event["id"], event["type"], int(time.time()), digest),
+            )
+            duplicate = cursor.rowcount == 0
+            if duplicate:
+                existing = db.execute(
+                    "SELECT event_id,event_type,body_sha256 FROM openai_webhook_events WHERE webhook_id=?",
+                    (webhook_id,),
+                ).fetchone()
+                if existing is None or existing != (event["id"], event["type"], digest):
+                    raise openai_webhooks.WebhookError("WEBHOOK_ID_CONFLICT", 409)
+        return {"accepted": True, "duplicate": duplicate,
+                "event_id": event["id"], "event_type": event["type"]}
+
     def route(self, path, data, *, request_deadline=None):
         if path == PREFIX + "tasks":
             if set(data) - {"input", "model", "expert", "tools", "requires_approval",
@@ -677,6 +705,30 @@ def handler_for(gateway):
                 raise Denied("JSON_OBJECT_REQUIRED")
             return data
 
+        def handle_openai_webhook(self):
+            try:
+                if (self.headers.get("Transfer-Encoding")
+                        or len(self.headers.get_all("Content-Length", [])) != 1):
+                    raise openai_webhooks.WebhookError("WEBHOOK_BODY_LENGTH_REQUIRED", 411)
+                if self.headers.get_content_type() != "application/json":
+                    raise openai_webhooks.WebhookError("WEBHOOK_JSON_REQUIRED", 415)
+                length = int(self.headers.get("Content-Length", "0"))
+                if not 0 < length <= openai_webhooks.MAX_WEBHOOK_BODY:
+                    raise openai_webhooks.WebhookError("WEBHOOK_BODY_INVALID", 413)
+                raw = self.rfile.read(length)
+                if len(raw) != length:
+                    raise openai_webhooks.WebhookError("WEBHOOK_BODY_INCOMPLETE")
+                result = gateway.receive_openai_webhook(raw, self.headers)
+                self.send_json(200, result)
+            except openai_webhooks.WebhookError as exc:
+                self.send_json(exc.status, {"error": exc.code})
+            except (ValueError, UnicodeError):
+                self.send_json(400, {"error": "WEBHOOK_REQUEST_INVALID"})
+            except sqlite3.Error:
+                self.send_json(503, {"error": "PERSISTENT_STORE_UNAVAILABLE"})
+            finally:
+                self.close_connection = True
+
         def handle_otp(self):
             # Pre-login endpoints: the code goes only to the configured owner e-mail.
             try:
@@ -703,6 +755,8 @@ def handler_for(gateway):
             request_deadline = time.monotonic() + CHAT_PREPARATION_BUDGET
             acquired = False
             try:
+                if self.path == "/webhooks/openai":
+                    return self.handle_openai_webhook()
                 if self.path in (email_otp.REQUEST_PATH, email_otp.VERIFY_PATH):
                     return self.handle_otp()
                 if self.path not in {PREFIX + p for p in ("chat", "models", "history", "memory", "workers", "tasks", "tasks/status", "tasks/cancel", "tasks/approve")}:
