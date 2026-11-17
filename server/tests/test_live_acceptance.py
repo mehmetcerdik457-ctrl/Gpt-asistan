@@ -165,6 +165,26 @@ class AcceptanceTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertEqual(report["errors"], ["CONFIGURED_MODEL_NOT_LISTED"])
 
+    def test_project_readiness_reports_presence_without_disclosing_id(self):
+        project = "proj_kralFixture"
+        with patch.dict(os.environ, {"OPENAI_PROJECT_ID": project}):
+            code, report = self.invoke()
+        self.assertEqual(code, 0)
+        self.assertTrue(report["project_header_configured"])
+        self.assertNotIn(project, json.dumps(report))
+
+        with patch.dict(os.environ, {"OPENAI_PROJECT_ID": "invalid project"}), \
+             patch.object(acceptance, "read_project_catalog") as catalog, \
+             patch.object(acceptance.OpenAIProvider, "reply_with_metadata") as provider:
+            for args in (("--list-models",), ("--live", "--approve-paid", "--model", "model-fixture")):
+                with self.subTest(args=args):
+                    code, report = self.invoke(*args)
+                    self.assertEqual(code, 1)
+                    self.assertEqual(report["errors"], ["OPENAI_PROJECT_CONFIGURATION_INVALID"])
+                    self.assertEqual(report["responses_attempted"], 0)
+            catalog.assert_not_called()
+            provider.assert_not_called()
+
     def test_catalog_checks_exact_target_even_before_it_is_allowlisted(self):
         model = "model-fixture"
         for listed in (True, False):

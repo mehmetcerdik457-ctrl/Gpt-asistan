@@ -94,6 +94,39 @@ class OpenAIConfigurationTests(unittest.TestCase):
         self.assertFalse(catalog["account_entitlement_fully_verified"])
         self.assertNotIn("synthetic-alias-token", json.dumps({"offline": offline, "catalog": catalog}))
 
+    def test_explicit_project_targets_catalog_and_responses(self):
+        project = "proj_kralFixture"
+        values = {"KRAL_OPENAI_API_KEY": "synthetic-alias-token", "OPENAI_PROJECT_ID": project}
+        catalog_response = io.BytesIO(gateway.json_bytes({"object": "list", "data": []}))
+        catalog_response.status = 200
+        with patch.dict(os.environ, values, clear=True), \
+             patch("server.gateway.urllib.request.build_opener") as transport:
+            transport.return_value.open.side_effect = [catalog_response, self.response()]
+            catalog = collect_inventory(check_api=True)
+            *_, evidence = gateway.OpenAIProvider().reply_with_metadata("fixture-model", "Fixture task")
+            requests = [call.args[0] for call in transport.return_value.open.call_args_list]
+        self.assertEqual([(r.get_method(), r.full_url) for r in requests], [
+            ("GET", "https://api.openai.com/v1/models"),
+            ("POST", "https://api.openai.com/v1/responses"),
+        ])
+        self.assertEqual([r.get_header("Openai-project") for r in requests], [project, project])
+        self.assertNotIn(project, json.dumps({"catalog": catalog, "responses": evidence}))
+
+    def test_invalid_project_value_fails_before_either_transport(self):
+        key = "synthetic-alias-token"
+        for project in ("wrong-project", "proj_fixture\nX-Extra: value", "proj_" + key):
+            with self.subTest(project=project), \
+                 patch.dict(os.environ, {"KRAL_OPENAI_API_KEY": key, "OPENAI_PROJECT_ID": project}, clear=True), \
+                 patch("server.gateway.urllib.request.build_opener") as transport:
+                catalog = collect_inventory(check_api=True)
+                with self.assertRaises(gateway.Denied) as caught:
+                    gateway.OpenAIProvider().reply("fixture-model", "Fixture task")
+                self.assertEqual(catalog["catalog_result"], "OPENAI_PROJECT_CONFIGURATION_INVALID")
+                self.assertEqual((caught.exception.code, caught.exception.status),
+                                 ("OPENAI_PROJECT_CONFIGURATION_INVALID", 503))
+                self.assertNotIn(key, json.dumps(catalog))
+                transport.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

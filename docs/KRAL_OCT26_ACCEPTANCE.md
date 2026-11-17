@@ -131,6 +131,12 @@ The report records exact catalog membership and gateway allowlist membership.
 An absent target returns `SELECTED_MODEL_NOT_LISTED`. This check uses a single
 `GET /v1/models` and records zero Responses attempts.
 
+Set `OPENAI_PROJECT_ID` to the verified project ID when the server needs explicit
+project selection. The model catalog and Responses requests use the same
+`OpenAI-Project` header. Acceptance evidence records whether this header is
+configured. The ID is omitted from the report. A malformed project setting
+blocks the request before either API endpoint is contacted.
+
 To finish stage C, set the approved model allowlist. Then obtain explicit owner
 approval for one synthetic request to an explicitly chosen allowlisted model.
 Only after that approval may the following one-shot runner be used:

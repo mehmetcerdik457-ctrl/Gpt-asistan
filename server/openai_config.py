@@ -1,5 +1,10 @@
-"""Server-only credential selection, including the managed proxy binding alias."""
+"""Server-only OpenAI authentication and project configuration."""
 import os
+import re
+
+
+class ProjectConfigurationError(ValueError):
+    pass
 
 
 def api_key(environ=None):
@@ -21,3 +26,16 @@ def contains_credential(value, environ=None):
         if isinstance(key, str) and key.strip() and key.strip() in value:
             return True
     return False
+
+
+def project_headers(environ=None):
+    """Optionally select the same OpenAI project for catalog and model requests."""
+    values = os.environ if environ is None else environ
+    project = values.get("OPENAI_PROJECT_ID", "")
+    if isinstance(project, str):
+        project = project.strip()
+        if not project:
+            return {}
+        if re.fullmatch(r"proj_[A-Za-z0-9_-]{1,128}", project) and not contains_credential(project, values):
+            return {"OpenAI-Project": project}
+    raise ProjectConfigurationError("OPENAI_PROJECT_CONFIGURATION_INVALID")

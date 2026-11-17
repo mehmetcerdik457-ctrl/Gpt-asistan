@@ -152,6 +152,10 @@ class OpenAIProvider:
         headers = {
             "Authorization": "Bearer " + key, "Content-Type": "application/json",
             "User-Agent": "kral-owner-gateway/1.0"}
+        try:
+            headers.update(openai_config.project_headers())
+        except openai_config.ProjectConfigurationError as error:
+            raise Denied(str(error), 503) from None
         if client_request_id is not None:
             if (not isinstance(client_request_id, str) or not client_request_id.isascii()
                     or not 1 <= len(client_request_id) <= 512):

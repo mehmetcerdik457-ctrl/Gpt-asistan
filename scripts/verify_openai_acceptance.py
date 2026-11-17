@@ -14,7 +14,7 @@ import re
 import uuid
 
 from server.gateway import Denied, MODEL_ID, OpenAIProvider
-from server.openai_config import api_key, contains_credential
+from server.openai_config import ProjectConfigurationError, api_key, contains_credential, project_headers
 from server.openai_model_inventory import CatalogError, read_project_catalog
 
 
@@ -29,7 +29,7 @@ _SAFE_ERRORS = frozenset({
     "PROVIDER_RESPONSE_INVALID", "API_KEY_NOT_CONFIGURED", "API_KEY_ACCESS_DENIED",
     "API_PROJECT_PERMISSION_DENIED", "API_RATE_LIMITED", "API_CATALOG_HTTP_ERROR",
     "API_NETWORK_UNAVAILABLE", "API_REDIRECT_DENIED", "API_CATALOG_SIZE_INVALID",
-    "API_CATALOG_INVALID",
+    "API_CATALOG_INVALID", "OPENAI_PROJECT_CONFIGURATION_INVALID",
 })
 
 
@@ -47,6 +47,7 @@ def run_acceptance(*, list_models=False, live=False, approve_paid=False, model=N
         "mode": mode, "status": "BLOCKED",
         "observed_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "key_present": bool(key), "allowlist_valid": False, "configured_models": [],
+        "project_header_configured": False,
         "account_access": "NOT_VERIFIED", "model_access": "NOT_VERIFIED",
         "catalog_status": "NOT_CHECKED", "responses_attempted": 0, "errors": [],
     }
@@ -56,6 +57,11 @@ def run_acceptance(*, list_models=False, live=False, approve_paid=False, model=N
         report["configured_models"] = list(allowed)
     except Exception as error:
         report["errors"].append(_error_code(error))
+        return report, 1 if live or list_models else 0
+    try:
+        report["project_header_configured"] = bool(project_headers())
+    except ProjectConfigurationError as error:
+        report["errors"].append(str(error))
         return report, 1 if live or list_models else 0
 
     if live and not approve_paid:
