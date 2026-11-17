@@ -336,7 +336,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             text = "SUPER ADMIN / Bağlantı durumu"
             setOnClickListener {
                 runOwnerAction("SUPER ADMIN durumu", false) { app, base, _ ->
-                    OwnerGateway.adminStatus(app, base).toString(2)
+                    OwnerGateway.adminStatusReport(app, base)
                 }
             }
         })
