@@ -107,7 +107,7 @@ class OpenAIWebhookHttpTests(unittest.TestCase):
         self.httpd.shutdown()
         self.httpd.server_close()
         self.thread.join(timeout=3)
-        self.gateway.tasks.close()
+        self.gateway.tasks.pool.shutdown(wait=True, cancel_futures=True)
         self.env.stop()
         self.tmp.cleanup()
 
