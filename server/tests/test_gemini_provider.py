@@ -46,7 +46,7 @@ class GeminiProviderTests(unittest.TestCase):
             )
         request = transport.open.call_args.args[0]
         payload = json.loads(request.data)
-        self.assertEqual(request.full_url, GeminiProvider.endpoint)
+        self.assertEqual(request.full_url, GeminiProvider.endpoint_base + "/v1beta/interactions")
         self.assertEqual(request.get_method(), "POST")
         self.assertEqual(request.get_header("X-goog-api-key"), key)
         self.assertEqual(payload, {
@@ -89,6 +89,16 @@ class GeminiProviderTests(unittest.TestCase):
         }, clear=True):
             with self.assertRaisesRegex(Denied, "GEMINI_MODEL_CONFIGURATION_INVALID"):
                 GeminiProvider().candidates()
+
+    def test_api_version_defaults_to_v1beta_and_rejects_unknown_values(self):
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(
+                GeminiProvider().endpoint_url(),
+                "https://generativelanguage.googleapis.com/v1beta/interactions",
+            )
+        with patch.dict(os.environ, {"GEMINI_API_VERSION": "v2"}, clear=True):
+            with self.assertRaisesRegex(Denied, "GEMINI_API_VERSION_INVALID"):
+                GeminiProvider().endpoint_url()
 
     def test_gemini_background_mode_fails_closed(self):
         with self.assertRaisesRegex(Denied, "GEMINI_BACKGROUND_UNSUPPORTED"):
