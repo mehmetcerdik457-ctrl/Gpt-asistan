@@ -19,10 +19,12 @@ The receiver verifies the exact raw body bytes against the `webhook-id`, `webhoo
 
 After signature and event-shape validation, KRAL durably records the delivery ID, event ID/type, receive time, and body SHA-256 in the existing SQLite database. A duplicate delivery with identical content is acknowledged with HTTP 200 and `duplicate: true`. Reuse of a delivery ID with different content is rejected with HTTP 409.
 
-The receiver deliberately does not execute tools, call the Responses API, retrieve response content, mutate tasks, or perform external actions. Current KRAL Responses tasks remain synchronous. This webhook receiver is a verified, durable event-ingress foundation; background Responses orchestration is a separate future change and must not be claimed as implemented.
+Tasks remain synchronous unless the owner explicitly sets `background: true` on the existing authenticated `POST /api/v1/owner/tasks` route. Background task submission uses the fixed OpenAI Responses endpoint with `background: true` and `store: false`; KRAL persists the response ID and waits for a signed `response.completed`, `response.failed`, or `response.incomplete` webhook. On completion, KRAL retrieves only the response ID already bound to that task, validates the returned model and output, and commits the result to the existing task record. Webhook processing occurs before the delivery receipt is committed so transient retrieval failures receive a non-2xx response and can be retried.
+
+Background responses are temporarily stored by OpenAI for roughly 10 minutes to support polling and webhook retrieval. KRAL explicitly sets `store: false`; it does not opt into 30-day response storage. KRAL does not execute model tools, shell commands, GitHub writes, or other external actions. A cancelled task discards any later webhook result. Background mode is opt-in per task; existing task submissions retain synchronous behavior.
 
 ## Verification
 
-Run the repository's server test suite, including `server/tests/test_openai_webhooks.py`. Tests use synthetic signing secrets and events; they do not contact OpenAI or prove that a production webhook endpoint has been configured.
+Run the repository's server test suite, including `server/tests/test_openai_webhooks.py`. Tests use synthetic signing secrets, fake providers, and synthetic response events; they do not contact OpenAI or prove that a production webhook endpoint has been configured. Background mode must not be enabled in production until the project webhook is configured with the matching private signing secret.
 
 For local endpoint testing, use OpenAI's dashboard test delivery or the documented test endpoint. Do not expose a development server without HTTPS and an explicit access boundary.
