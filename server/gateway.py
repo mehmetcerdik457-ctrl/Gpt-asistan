@@ -839,12 +839,15 @@ class Gateway:
             except Denied as exc:
                 candidates = []
                 configuration = exc.code
-            providers.append({
+            provider_row = {
                 "id": getattr(provider, "name", "custom"),
                 "configuration": configuration,
                 "candidate_count": len(candidates),
                 "credential_value_exposed": False,
-            })
+            }
+            if isinstance(provider, GeminiProvider):
+                provider_row["api_version"] = os.getenv("GEMINI_API_VERSION", "v1beta").strip()
+            providers.append(provider_row)
         now = time.time()
         snapshot = self._model_snapshot(now)
         return {
