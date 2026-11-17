@@ -33,7 +33,8 @@ class GeminiProviderTests(unittest.TestCase):
             "id": "v1_test_interaction_01",
             "model": "gemini-test-flash",
             "steps": [{"type": "model_output", "content": [
-                {"type": "text", "text": "Merhaba KRAL"}
+                {"type": "text", "text": "Merhaba"},
+                {"type": "text", "text": "KRAL"}
             ]}],
         }).encode()
         transport = Mock()
@@ -54,7 +55,7 @@ class GeminiProviderTests(unittest.TestCase):
             "input": "Yalnızca Merhaba yaz.",
             "store": False,
         })
-        self.assertEqual((text, model), ("Merhaba KRAL", "gemini-test-flash"))
+        self.assertEqual((text, model), ("Merhaba\nKRAL", "gemini-test-flash"))
         self.assertGreaterEqual(elapsed, 0)
         self.assertEqual(metadata["response_id"], "v1_test_interaction_01")
         self.assertIsNone(metadata["request_id"])
