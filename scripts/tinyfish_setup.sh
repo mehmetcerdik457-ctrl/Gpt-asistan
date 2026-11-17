@@ -8,6 +8,7 @@ TinyFish CLI bootstrap (runs only on the machine where this script is executed).
 Usage:
   bash scripts/tinyfish_setup.sh --install   Install @tiny-fish/cli globally
   bash scripts/tinyfish_setup.sh --login     Start the official interactive login
+  bash scripts/tinyfish_setup.sh --status    Check local CLI authentication state
 
 This script never launches an agent, browser automation, monitor, dataset, or research run.
 USAGE
@@ -19,6 +20,15 @@ if [[ $# -ne 1 ]]; then
 fi
 
 ACTION="$1"
+
+if [[ "$ACTION" == "--status" ]]; then
+  if ! command -v tinyfish >/dev/null 2>&1; then
+    echo "BLOCKED: tinyfish CLI is not installed."
+    exit 1
+  fi
+  tinyfish auth status
+  exit $?
+fi
 
 if ! command -v node >/dev/null 2>&1; then
   echo "BLOCKED: Node.js is not installed."
