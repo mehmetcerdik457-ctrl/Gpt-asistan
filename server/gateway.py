@@ -397,7 +397,7 @@ class GeminiProvider:
                 for part in step.get("content", []):
                     if isinstance(part, dict) and part.get("type") == "text" and isinstance(part.get("text"), str):
                         chunks.append(part["text"])
-            answer = "\\n".join(chunks).strip()
+            answer = "\n".join(chunks).strip()
             if not answer or len(answer) > 16000 or key in answer:
                 raise Denied("PROVIDER_TEXT_INVALID", 502, provider_http_status=200)
             elapsed = max(0, round((time.monotonic() - started) * 1000))
