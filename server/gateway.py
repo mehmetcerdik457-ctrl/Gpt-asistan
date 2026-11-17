@@ -303,7 +303,7 @@ class OpenAIProvider:
                       and item.get("type") == "message" for part in item.get("content", [])
                       if isinstance(part, dict) and part.get("type") == "output_text"
                       and isinstance(part.get("text"), str)]
-            answer = "\\n".join(chunks).strip()
+            answer = "\n".join(chunks).strip()
             if not answer or len(answer) > 16000 or key in answer:
                 raise Denied("PROVIDER_TEXT_INVALID", 502)
             return answer, actual, {
