@@ -120,8 +120,18 @@ Environment configuration draft changes were saved for `api.github.com`,
 key or publish the environment. The current running policy still blocks GitHub
 REST with CONNECT 403, so PR creation is blocked until those settings are applied.
 
-To finish stage C, use an existing authorized backend/key, set its approved model
-allowlist, and run the read-only model catalog check. Then obtain explicit owner
+To check a specific model before adding it to the server allowlist, run the
+read-only check from the authorized server with its existing project key:
+
+```sh
+.venv/bin/python -m scripts.verify_openai_acceptance --list-models --model TARGET_MODEL_ID --output NEW_CATALOG_EVIDENCE_PATH
+```
+
+The report records exact catalog membership and gateway allowlist membership.
+An absent target returns `SELECTED_MODEL_NOT_LISTED`. This check uses a single
+`GET /v1/models` and records zero Responses attempts.
+
+To finish stage C, set the approved model allowlist. Then obtain explicit owner
 approval for one synthetic request to an explicitly chosen allowlisted model.
 Only after that approval may the following one-shot runner be used:
 

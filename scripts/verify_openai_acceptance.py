@@ -13,8 +13,8 @@ from pathlib import Path
 import re
 import uuid
 
-from server.gateway import Denied, OpenAIProvider
-from server.openai_config import api_key
+from server.gateway import Denied, MODEL_ID, OpenAIProvider
+from server.openai_config import api_key, contains_credential
 from server.openai_model_inventory import CatalogError, read_project_catalog
 
 
@@ -66,6 +66,9 @@ def run_acceptance(*, list_models=False, live=False, approve_paid=False, model=N
         report["errors"].append("EXPLICIT_MODEL_REQUIRED")
     elif live and model not in allowed:
         report["errors"].append("SELECTED_MODEL_NOT_ALLOWLISTED")
+    if list_models and model is not None and (
+            not isinstance(model, str) or not MODEL_ID.fullmatch(model) or contains_credential(model)):
+        report["errors"].append("SELECTED_MODEL_INVALID")
     if not key:
         report["errors"].append("PROVIDER_NOT_CONFIGURED")
     if not allowed and not list_models:
@@ -84,8 +87,15 @@ def run_acceptance(*, list_models=False, live=False, approve_paid=False, model=N
             report["configured_models_listed"] = {name: name in catalog for name in allowed}
             report["account_access"] = "READ_ONLY_CATALOG_ACCESS_VERIFIED"
             report["model_access"] = "CATALOG_PRESENCE_ONLY_NOT_RESPONSES_VERIFIED"
+            if model is not None:
+                report["requested_model"] = model
+                report["requested_model_allowlisted"] = model in allowed
+                report["requested_model_listed"] = model in catalog
+                if not report["requested_model_listed"]:
+                    report["errors"].append("SELECTED_MODEL_NOT_LISTED")
             if not all(report["configured_models_listed"].values()):
                 report["errors"].append("CONFIGURED_MODEL_NOT_LISTED")
+            if report["errors"]:
                 return report, 1
             report["status"] = "CATALOG_CHECK_PASSED"
             return report, 0
@@ -137,7 +147,7 @@ def main(argv=None):
     modes.add_argument("--list-models", action="store_true", help="Read-only GET /v1/models; no Responses calls")
     modes.add_argument("--live", action="store_true", help="One paid synthetic Responses probe; explicit consent required first")
     parser.add_argument("--approve-paid", action="store_true", help="Required with --live; does not replace explicit user consent")
-    parser.add_argument("--model", help="Explicit allowlisted model for --live; never guessed or replaced")
+    parser.add_argument("--model", help="Exact catalog target with --list-models, or required allowlisted model with --live")
     parser.add_argument("--output", help="Create a new redacted JSON evidence file; existing files are preserved")
     args = parser.parse_args(argv)
     evidence = None

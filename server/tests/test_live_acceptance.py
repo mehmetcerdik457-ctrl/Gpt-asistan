@@ -165,6 +165,40 @@ class AcceptanceTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertEqual(report["errors"], ["CONFIGURED_MODEL_NOT_LISTED"])
 
+    def test_catalog_checks_exact_target_even_before_it_is_allowlisted(self):
+        model = "model-fixture"
+        for listed in (True, False):
+            catalog_models = {model} if listed else {model + "-snapshot"}
+            with self.subTest(listed=listed), patch.dict(os.environ, {"OPENAI_ALLOWED_MODELS": ""}), \
+                 patch.object(acceptance, "read_project_catalog", return_value=catalog_models) as catalog, \
+                 patch.object(acceptance.OpenAIProvider, "reply_with_metadata") as provider:
+                code, report = self.invoke("--list-models", "--model", model)
+            self.assertEqual(code, 0 if listed else 1)
+            self.assertEqual(report["status"], "CATALOG_CHECK_PASSED" if listed else "BLOCKED")
+            self.assertEqual(report["requested_model"], model)
+            self.assertEqual(report["requested_model_listed"], listed)
+            self.assertFalse(report["requested_model_allowlisted"])
+            self.assertEqual(report["errors"], [] if listed else ["SELECTED_MODEL_NOT_LISTED"])
+            self.assertEqual(report["responses_attempted"], 0)
+            catalog.assert_called_once_with("synthetic-private-key")
+            provider.assert_not_called()
+
+    def test_invalid_catalog_target_cannot_reflect_credentials_or_start_network(self):
+        alias = "synthetic-secondary-key"
+        cases = ("bad model", "synthetic-private-key", "model_" + alias)
+        for model in cases:
+            with self.subTest(model=model), patch.dict(os.environ, {"KRAL_OPENAI_API_KEY": alias}), \
+                 patch.object(acceptance, "read_project_catalog") as catalog, \
+                 patch.object(acceptance.OpenAIProvider, "reply_with_metadata") as provider:
+                code, report = self.invoke("--list-models", "--model=" + model)
+            self.assertEqual(code, 1)
+            self.assertEqual(report["errors"], ["SELECTED_MODEL_INVALID"])
+            self.assertNotIn(model, json.dumps(report))
+            self.assertNotIn("requested_model", report)
+            self.assertEqual(report["responses_attempted"], 0)
+            catalog.assert_not_called()
+            provider.assert_not_called()
+
     def test_approved_live_check_calls_adapter_once_and_records_safe_evidence(self):
         with patch.object(acceptance.OpenAIProvider, "reply_with_metadata", return_value=self.success()) as provider, \
              patch.object(acceptance, "read_project_catalog") as catalog:
