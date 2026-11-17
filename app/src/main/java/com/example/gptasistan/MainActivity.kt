@@ -333,6 +333,14 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             setOnClickListener { showLocal { OwnerStatus.readOnlyReport(this@MainActivity) } }
         })
         root.addView(Button(this).apply {
+            text = "SUPER ADMIN / Bağlantı durumu"
+            setOnClickListener {
+                runOwnerAction("SUPER ADMIN durumu", false) { app, base, _ ->
+                    OwnerGateway.adminStatus(app, base).toString(2)
+                }
+            }
+        })
+        root.addView(Button(this).apply {
             text = getString(R.string.action_voice_cihat)
             setOnClickListener { showHandoffMenu() }
         })
