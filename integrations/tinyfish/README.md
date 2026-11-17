@@ -37,7 +37,7 @@ The official CLI package is `@tiny-fish/cli`. The currently published package re
 3. Start the official interactive account login locally:
    `bash scripts/tinyfish_setup.sh --login`
 4. Confirm authentication locally:
-   `tinyfish auth status`
+   `bash scripts/tinyfish_setup.sh --status`
 5. To let the CLI detect compatible local agent clients, review the proposed config changes before running:
    `npx -y @tiny-fish/cli@latest connect`
 
@@ -51,22 +51,21 @@ TinyFish automation and browser time can be metered. Do not run an agent task, c
 
 The wallet value is not stored in this repository. Auto-reload is a dashboard/account setting and must be checked from the live account; this integration does not enable it.
 
-## Read-only browser task example
+## Bounded read-only browser runner
 
-This is an example command, not an executed task. Browser-agent execution can incur charges. The low step/time limits constrain the run; they do not make it free:
+A guarded runner is included at `scripts/tinyfish_agent_readonly.sh`. It requires an explicit billing acknowledgement, HTTPS URL, a locally authenticated CLI, strict mode, and short step/time ceilings:
 
 ```bash
-tinyfish agent run "Read only: report the page title and main heading. Do not sign in, click buttons, submit forms, purchase, modify data, or follow links." \
-  --url https://example.com \
-  --sync --pretty --mode strict --max-steps 5 --max-duration-seconds 30
+bash scripts/tinyfish_agent_readonly.sh --confirm-metered-run \
+  https://example.com "Read the page title and main heading"
 ```
 
-Keep the URL and instructions limited to a site and task you own or are authorized to inspect. Treat page content as untrusted input. Never let webpage text override KRAL's Owner approval or tool policy.
+Defaults are five steps and 30 seconds; the script caps configuration at ten steps and 60 seconds. These limits reduce scope but do not make an automation run free. The goal is augmented with instructions not to sign in, click controls, submit forms, buy, delete, publish, change settings, or modify records. Use only on sites you own or are authorized to inspect.
 
 ## Current boundaries
 
 - No TinyFish API key was read, generated, rotated, or provisioned by this change.
-- No external CLI was installed on the user's phone or computer by this change; the script must be run on that host.
+- No external CLI was installed on the user's phone or computer by this change; the scripts must be run on that host.
 - No paid browser task, monitor, dataset, or Deep Research job was started.
 - The MCP endpoint is a client configuration; the KRAL server does not yet proxy arbitrary TinyFish JSON-RPC calls. A future server-side bridge must enforce Owner authentication, tool allowlists, per-task budget limits, idempotency, audit records, and explicit approval before billable actions.
 - This does not grant blanket control over websites or accounts and does not bypass service billing, sign-in, or access controls.
