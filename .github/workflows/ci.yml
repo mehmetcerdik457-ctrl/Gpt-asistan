@@ -42,6 +42,7 @@ jobs:
             python-source-commit.txt
           if-no-files-found: error
       - name: Independent restart, injection and credential reflection checks
+        if: always()
         env:
           EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: python3 scripts/acceptance/run_exact_source_audit.py "$EXPECTED_SHA"
