@@ -19,6 +19,16 @@ from server import openai_webhooks
 
 class UnusedProvider:
     name = "openai"
+    def start_background(self, model, prompt, *, request_metadata=None, client_request_id=None):
+        return {"response_id": "resp_test_001", "request_id": "req_background_test",
+                "http_status": 200, "status": "in_progress"}
+    def retrieve_background(self, response_id):
+        if response_id != "resp_test_001":
+            raise AssertionError("unexpected response id")
+        return "synthetic webhook answer", "model-fixture", {
+            "response_id": response_id, "request_id": "req_retrieve_test",
+            "http_status": 200, "retryable": False,
+        }
 
 
 def make_event(event_id="evt_test_001"):
@@ -150,6 +160,37 @@ class OpenAIWebhookHttpTests(unittest.TestCase):
             second_body, signed_headers(second_body, self.secret, webhook_id="wh_test_001")
         )
         self.assertEqual((status, data["error"]), (409, "WEBHOOK_ID_CONFLICT"))
+
+    def test_response_completed_webhook_updates_matching_background_task(self):
+        task = self.gateway.tasks.submit(
+            "model-fixture", "model-fixture", "test-engineer",
+            "Webhook-backed task", background=True
+        )
+        deadline = time.time() + 3
+        while time.time() < deadline:
+            current = self.gateway.tasks.get(task["task_id"])
+            if current["status"] == "background_pending":
+                break
+            time.sleep(0.01)
+        self.assertEqual(current["status"], "background_pending")
+        body = make_event()
+        headers = signed_headers(body, self.secret)
+        status, data = self.post(body, headers)
+        self.assertEqual(status, 200)
+        self.assertTrue(data["accepted"])
+        completed = self.gateway.tasks.get(task["task_id"])
+        self.assertEqual(completed["status"], "completed")
+        self.assertEqual(completed["result"], "synthetic webhook answer")
+        self.assertEqual(completed["response_id"], "resp_test_001")
+
+    def test_unmatched_response_webhook_is_not_acknowledged_or_recorded(self):
+        body = make_event()
+        status, data = self.post(body, signed_headers(body, self.secret))
+        self.assertEqual(status, 503)
+        self.assertEqual(data["error"], "WEBHOOK_RESPONSE_NOT_MATCHED")
+        with self.gateway.store.connect() as db:
+            count = db.execute("SELECT COUNT(*) FROM openai_webhook_events").fetchone()[0]
+        self.assertEqual(count, 0)
 
     def test_invalid_signature_is_rejected(self):
         body = make_event()
