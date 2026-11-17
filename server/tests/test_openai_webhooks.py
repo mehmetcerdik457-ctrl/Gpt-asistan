@@ -31,11 +31,11 @@ class UnusedProvider:
         }
 
 
-def make_event(event_id="evt_test_001"):
+def make_event(event_id="evt_test_001", event_type="response.completed"):
     return json.dumps({
         "object": "event",
         "id": event_id,
-        "type": "response.completed",
+        "type": event_type,
         "created_at": 1760000000,
         "data": {"id": "resp_test_001"},
     }, separators=(",", ":")).encode("utf-8")
