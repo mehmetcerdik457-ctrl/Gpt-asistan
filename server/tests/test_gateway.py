@@ -457,6 +457,24 @@ class ProviderTests(unittest.TestCase):
             self.assertEqual(error.retryable, expected_retryable)
             self.assertNotIn("private", str(error))
 
+    def test_trusted_instructions_separate_from_untrusted_input(self):
+        payload = {"id": "resp_synthetic_boundary", "status": "completed",
+                   "model": "actual-snapshot", "output": [
+                       {"type": "message", "content": [
+                           {"type": "output_text", "text": "Safe result"}]}]}
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "synthetic-test-key"}), \
+             patch("urllib.request.build_opener") as mock:
+            mock.return_value.open.return_value = self.response(payload)
+            result = g.OpenAIProvider().reply_with_metadata(
+                "requested", "untrusted user request",
+                instructions="Trusted system policy",
+                request_metadata={"request_id": "synthetic-request-1"})
+            sent = json.loads(mock.return_value.open.call_args.args[0].data)
+        self.assertEqual(sent["instructions"], "Trusted system policy")
+        self.assertEqual(sent["input"], "untrusted user request")
+        self.assertEqual(sent["metadata"]["request_id"], "synthetic-request-1")
+        self.assertEqual(result[3]["response_id"], "resp_synthetic_boundary")
+
     def test_invalid_request_metadata_is_rejected_before_network(self):
         with patch.dict(os.environ, {"OPENAI_API_KEY": "synthetic-test-key"}), \
              patch("urllib.request.build_opener") as mock:
