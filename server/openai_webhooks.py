@@ -14,8 +14,8 @@ import time
 
 MAX_WEBHOOK_BODY = 65536
 DEFAULT_TOLERANCE_SECONDS = 300
-_ID = re.compile(r"[A-Za-z0-9_=-]{1,200}\\Z")
-_TYPE = re.compile(r"[A-Za-z0-9_.-]{1,120}\\Z")
+_ID = re.compile(r"[A-Za-z0-9_=-]{1,200}\Z")
+_TYPE = re.compile(r"[A-Za-z0-9_.-]{1,120}\Z")
 
 
 class WebhookError(ValueError):
