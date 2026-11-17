@@ -211,6 +211,116 @@ class OpenAIProvider:
             raise Denied("PROVIDER_RESPONSE_INVALID", 502) from None
 
 
+    def start_background(self, model, message, *, request_metadata=None, client_request_id=None):
+        """Start a Responses background job with temporary-only storage."""
+        key = os.getenv("OPENAI_API_KEY", "").strip()
+        if not key:
+            raise Denied("PROVIDER_NOT_CONFIGURED", 503)
+        payload = {
+            "model": model, "input": message, "max_output_tokens": 1024,
+            "background": True, "store": False,
+        }
+        if request_metadata is not None:
+            if (not isinstance(request_metadata, dict) or len(request_metadata) > 16 or
+                    any(not isinstance(k, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", k)
+                        or not isinstance(v, str) or len(v) > 512
+                        for k, v in request_metadata.items())):
+                raise Denied("PROVIDER_METADATA_INVALID", 400)
+            payload["metadata"] = request_metadata
+        headers = {
+            "Authorization": "Bearer " + key, "Content-Type": "application/json",
+            "User-Agent": "kral-owner-gateway/1.0",
+        }
+        if client_request_id is not None:
+            if (not isinstance(client_request_id, str) or not client_request_id.isascii()
+                    or not 1 <= len(client_request_id) <= 512):
+                raise Denied("PROVIDER_CLIENT_REQUEST_ID_INVALID", 400)
+            headers["X-Client-Request-Id"] = client_request_id
+        req = urllib.request.Request(
+            "https://api.openai.com/v1/responses", data=json_bytes(payload),
+            method="POST", headers=headers,
+        )
+        try:
+            with urllib.request.build_opener(NoRedirect()).open(req, timeout=30) as response:
+                status = getattr(response, "status", 200)
+                request_id = self._safe_header(getattr(response, "headers", {}) or {},
+                                                "x-request-id", secret=key)
+                raw = response.read(MAX_RESPONSE + 1)
+            if status not in (200, 201, 202) or len(raw) > MAX_RESPONSE:
+                raise Denied("PROVIDER_BACKGROUND_START_FAILED", 502,
+                             provider_http_status=status, provider_request_id=request_id)
+            data = json.loads(raw)
+            response_id = data.get("id") if isinstance(data, dict) else None
+            returned_model = data.get("model") if isinstance(data, dict) else None
+            state = data.get("status") if isinstance(data, dict) else None
+            if (not isinstance(response_id, str)
+                    or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", response_id)
+                    or returned_model != model
+                    or state not in ("queued", "in_progress", "completed")):
+                raise Denied("PROVIDER_BACKGROUND_RESPONSE_INVALID", 502,
+                             provider_http_status=status, provider_request_id=request_id)
+            return {"response_id": response_id, "request_id": request_id,
+                    "http_status": status, "status": state}
+        except urllib.error.HTTPError as exc:
+            request_id = self._safe_header(exc.headers or {}, "x-request-id", secret=key)
+            raise Denied("PROVIDER_BACKGROUND_START_FAILED", 502,
+                         provider_http_status=exc.code, provider_request_id=request_id) from None
+        except (urllib.error.URLError, TimeoutError, OSError):
+            raise Denied("PROVIDER_CONNECTION_FAILED", 502, retryable=True) from None
+        except (ValueError, TypeError, KeyError):
+            raise Denied("PROVIDER_RESPONSE_INVALID", 502) from None
+
+    def retrieve_background(self, response_id):
+        """Retrieve one known KRAL background response; never accepts an arbitrary URL."""
+        key = os.getenv("OPENAI_API_KEY", "").strip()
+        if not key:
+            raise Denied("PROVIDER_NOT_CONFIGURED", 503)
+        if not isinstance(response_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", response_id):
+            raise Denied("PROVIDER_RESPONSE_ID_INVALID", 400)
+        req = urllib.request.Request(
+            "https://api.openai.com/v1/responses/" + response_id,
+            method="GET",
+            headers={"Authorization": "Bearer " + key, "User-Agent": "kral-owner-gateway/1.0"},
+        )
+        try:
+            with urllib.request.build_opener(NoRedirect()).open(req, timeout=20) as response:
+                status = getattr(response, "status", 200)
+                request_id = self._safe_header(getattr(response, "headers", {}) or {},
+                                                "x-request-id", secret=key)
+                raw = response.read(MAX_RESPONSE + 1)
+            if status != 200 or len(raw) > MAX_RESPONSE:
+                raise Denied("PROVIDER_BACKGROUND_RETRIEVE_FAILED", 502,
+                             provider_http_status=status, provider_request_id=request_id)
+            data = json.loads(raw)
+            if not isinstance(data, dict) or data.get("id") != response_id:
+                raise Denied("PROVIDER_BACKGROUND_RESPONSE_INVALID", 502)
+            if data.get("status") != "completed":
+                raise Denied("PROVIDER_BACKGROUND_NOT_COMPLETED", 409)
+            actual = data.get("model")
+            if not isinstance(actual, str) or not MODEL_ID.fullmatch(actual) or key in actual:
+                raise Denied("PROVIDER_MODEL_MISSING", 502)
+            chunks = [part["text"] for item in data.get("output", []) if isinstance(item, dict)
+                      and item.get("type") == "message" for part in item.get("content", [])
+                      if isinstance(part, dict) and part.get("type") == "output_text"
+                      and isinstance(part.get("text"), str)]
+            answer = "\\n".join(chunks).strip()
+            if not answer or len(answer) > 16000 or key in answer:
+                raise Denied("PROVIDER_TEXT_INVALID", 502)
+            return answer, actual, {
+                "response_id": response_id, "request_id": request_id,
+                "http_status": status, "provider_error_code": None,
+                "retryable": False, "retry_after_seconds": None,
+            }
+        except urllib.error.HTTPError as exc:
+            request_id = self._safe_header(exc.headers or {}, "x-request-id", secret=key)
+            raise Denied("PROVIDER_BACKGROUND_RETRIEVE_FAILED", 502,
+                         provider_http_status=exc.code, provider_request_id=request_id) from None
+        except (urllib.error.URLError, TimeoutError, OSError):
+            raise Denied("PROVIDER_CONNECTION_FAILED", 502, retryable=True) from None
+        except (ValueError, TypeError, KeyError):
+            raise Denied("PROVIDER_RESPONSE_INVALID", 502) from None
+
+
 class Store:
     def __init__(self, path):
         self.path = Path(path)
