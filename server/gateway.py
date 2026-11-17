@@ -321,6 +321,146 @@ class OpenAIProvider:
             raise Denied("PROVIDER_RESPONSE_INVALID", 502) from None
 
 
+class GeminiProvider:
+    """Google Gemini Interactions API adapter; credentials remain server-side."""
+    name = "gemini"
+    endpoint = "https://generativelanguage.googleapis.com/v1beta/interactions"
+
+    def configured(self):
+        return bool(os.getenv("GEMINI_API_KEY", "").strip())
+
+    def candidates(self):
+        models = [m.strip() for m in os.getenv("GEMINI_ALLOWED_MODELS", "").split(",") if m.strip()]
+        if len(models) > 4 or any(
+                not MODEL_ID.fullmatch(m) or not m.startswith("gemini-") for m in models):
+            raise Denied("GEMINI_MODEL_CONFIGURATION_INVALID", 503)
+        ordered = list(dict.fromkeys(models))
+        preferred = os.getenv("GEMINI_MODEL_PREFERRED", "").strip()
+        if preferred and preferred in ordered:
+            ordered.remove(preferred)
+            ordered.insert(0, preferred)
+        return tuple(ordered)
+
+    def reply(self, model, message, *, probe=False):
+        text, actual, elapsed, _metadata = self.reply_with_metadata(model, message, probe=probe)
+        return text, actual, elapsed
+
+    def reply_with_metadata(self, model, message, *, probe=False,
+                            request_metadata=None, client_request_id=None):
+        key = os.getenv("GEMINI_API_KEY", "").strip()
+        if not key:
+            raise Denied("PROVIDER_NOT_CONFIGURED", 503)
+        if not isinstance(model, str) or not model.startswith("gemini-") or not MODEL_ID.fullmatch(model):
+            raise Denied("GEMINI_MODEL_INVALID", 400)
+        if not isinstance(message, str) or not message.strip() or len(message) > 16000:
+            raise Denied("MESSAGE_INVALID", 400)
+        if client_request_id is not None and (
+                not isinstance(client_request_id, str) or not client_request_id.isascii()
+                or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", client_request_id)):
+            raise Denied("PROVIDER_CLIENT_REQUEST_ID_INVALID", 400)
+        payload = {"model": model, "input": message, "store": False}
+        body = json_bytes(payload)
+        req = urllib.request.Request(
+            self.endpoint, data=body, method="POST",
+            headers={"x-goog-api-key": key, "Content-Type": "application/json",
+                     "User-Agent": "kral-owner-gateway/1.0"},
+        )
+        started = time.monotonic()
+        try:
+            with urllib.request.build_opener(NoRedirect()).open(
+                    req, timeout=MODEL_PROBE_TIMEOUT_SECONDS if probe else 30) as response:
+                status = getattr(response, "status", 200)
+                raw = response.read(MAX_RESPONSE + 1)
+            if status != 200 or len(raw) > MAX_RESPONSE:
+                raise Denied("GEMINI_RESPONSE_INVALID", 502, provider_http_status=status)
+            data = json.loads(raw)
+            if not isinstance(data, dict) or data.get("object") != "interaction" or data.get("status") != "completed":
+                raise Denied("GEMINI_RESPONSE_INCOMPLETE", 502, provider_http_status=200)
+            actual = data.get("model")
+            response_id = data.get("id")
+            if not isinstance(actual, str) or actual != model or key in actual:
+                raise Denied("PROVIDER_MODEL_CHANGED", 502, provider_http_status=200)
+            if not isinstance(response_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", response_id) or key in response_id:
+                raise Denied("PROVIDER_RESPONSE_ID_INVALID", 502, provider_http_status=200)
+            chunks = []
+            for step in data.get("steps", []):
+                if not isinstance(step, dict) or step.get("type") != "model_output":
+                    continue
+                for part in step.get("content", []):
+                    if isinstance(part, dict) and part.get("type") == "text" and isinstance(part.get("text"), str):
+                        chunks.append(part["text"])
+            answer = "\\n".join(chunks).strip()
+            if not answer or len(answer) > 16000 or key in answer:
+                raise Denied("PROVIDER_TEXT_INVALID", 502, provider_http_status=200)
+            elapsed = max(0, round((time.monotonic() - started) * 1000))
+            return answer, actual, elapsed, {
+                "response_id": response_id, "request_id": None, "http_status": 200,
+                "provider_error_code": None, "retryable": False, "retry_after_seconds": None,
+            }
+        except urllib.error.HTTPError as exc:
+            status = exc.code
+            exc.close()
+            code = ("PROVIDER_AUTH_DENIED" if status == 401 else
+                    "PROVIDER_MODEL_OR_PERMISSION_DENIED" if status == 403 else
+                    "PROVIDER_MODEL_NOT_AVAILABLE" if status == 404 else
+                    "PROVIDER_QUOTA_OR_RATE_LIMIT" if status == 429 else
+                    "PROVIDER_HTTP_FAILURE")
+            raise Denied(code, 502, provider_http_status=status,
+                         retryable=status in (429, 500, 502, 503, 504)) from None
+        except (urllib.error.URLError, TimeoutError, OSError):
+            raise Denied("PROVIDER_CONNECTION_FAILED", 502, retryable=True) from None
+        except (ValueError, TypeError, KeyError):
+            raise Denied("PROVIDER_RESPONSE_INVALID", 502) from None
+
+    def start_background(self, *_args, **_kwargs):
+        raise Denied("GEMINI_BACKGROUND_UNSUPPORTED", 409)
+
+    def retrieve_background(self, *_args, **_kwargs):
+        raise Denied("GEMINI_BACKGROUND_UNSUPPORTED", 409)
+
+
+class CompositeProvider:
+    """Deterministic provider dispatch; no implicit cross-provider fallback."""
+    name = "multi"
+
+    def __init__(self):
+        self.openai = OpenAIProvider()
+        self.gemini = GeminiProvider()
+
+    def provider_for(self, model):
+        if isinstance(model, str) and model.startswith("gemini-"):
+            return self.gemini
+        return self.openai
+
+    def provider_name(self, model):
+        return self.provider_for(model).name
+
+    def configured(self):
+        return self.openai.configured() or self.gemini.configured()
+
+    def candidates(self):
+        models = []
+        if self.openai.configured():
+            models.extend(self.openai.candidates())
+        if self.gemini.configured():
+            models.extend(self.gemini.candidates())
+        if len(models) > 4 or len(set(models)) != len(models):
+            raise Denied("MODEL_CONFIGURATION_INVALID", 503)
+        return tuple(models)
+
+    def reply(self, model, message, *, probe=False):
+        return self.provider_for(model).reply(model, message, probe=probe)
+
+    def reply_with_metadata(self, model, message, **kwargs):
+        return self.provider_for(model).reply_with_metadata(model, message, **kwargs)
+
+    def start_background(self, model, message, **kwargs):
+        return self.provider_for(model).start_background(model, message, **kwargs)
+
+    def retrieve_background(self, response_id, *, model=None):
+        return self.provider_for(model).retrieve_background(response_id)
+
+
 class Store:
     def __init__(self, path):
         self.path = Path(path)
@@ -413,7 +553,7 @@ class Gateway:
     def __init__(self, store, provider=None, otp=None):
         self.store = store
         self.otp = otp if otp is not None else email_otp.EmailOtp(str(store.path.with_name("kral-otp.sqlite3")))
-        self.provider = provider if provider is not None else OpenAIProvider()
+        self.provider = provider if provider is not None else CompositeProvider()
         self.models = {}
         self.lock = threading.Lock()
         self.probe_at = 0.0
@@ -474,7 +614,8 @@ class Gateway:
                 text, actual, elapsed = provider.reply(candidate, "Yalnızca Merhaba yaz.", probe=True)
                 if not text.strip() or not MODEL_ID.fullmatch(actual):
                     raise Denied("PROVIDER_RESPONSE_INVALID", 502)
-                row = {"id": actual, "provider": provider.name,
+                provider_name = provider.provider_name(candidate) if callable(getattr(provider, "provider_name", None)) else provider.name
+                row = {"id": actual, "provider": provider_name,
                        "verified_at": int(time.time()), "latency_ms": elapsed}
                 return (actual, row, candidate), None
             except Denied as exc:
@@ -567,6 +708,8 @@ class Gateway:
                 raise Denied("IDEMPOTENCY_KEY_CONFLICT", 409) from None
             except RuntimeError:
                 raise Denied("IDEMPOTENCY_REQUEST_IN_PROGRESS", 409) from None
+        selected_provider = self.provider.provider_for(model) if callable(getattr(self.provider, "provider_for", None)) else self.provider
+        provider_name = selected_provider.name
         provider_attempted = False
         slot_acquired = False
         try:
@@ -585,7 +728,7 @@ class Gateway:
             provider_meta = {}
             if time.monotonic() >= deadline:
                 raise Denied("CHAT_PREPARATION_TIMEOUT", 503, retryable=True, retry_after_seconds=1)
-            reply_with_metadata = getattr(self.provider, "reply_with_metadata", None)
+            reply_with_metadata = getattr(selected_provider, "reply_with_metadata", None)
             provider_attempted = True
             if callable(reply_with_metadata):
                 answer, actual, elapsed, provider_meta = reply_with_metadata(
@@ -593,7 +736,7 @@ class Gateway:
                     client_request_id=client_request_id,
                 )
             else:
-                answer, actual, elapsed = self.provider.reply(row[1], prompt)
+                answer, actual, elapsed = selected_provider.reply(row[1], prompt)
             if actual != model or not isinstance(answer, str) or not answer.strip():
                 raise Denied("PROVIDER_MODEL_CHANGED", 409)
             if not isinstance(provider_meta, dict):
@@ -622,13 +765,13 @@ class Gateway:
             if slot_acquired:
                 self.execution_slots.release()
         if idem_key is None:
-            chat_id = self.store.add_chat(message, answer, actual, self.provider.name)
-            return {"text": answer, "model": actual, "provider": self.provider.name,
+            chat_id = self.store.add_chat(message, answer, actual, provider_name)
+            return {"text": answer, "model": actual, "provider": provider_name,
                     "latency_ms": elapsed, "conversation_id": str(chat_id),
                     "response_id": response_id, "provider_request_id": provider_request_id,
                     "client_request_id": client_request_id}
         return self.store.add_chat_idempotent(
-            message, answer, actual, self.provider.name, idem_key, request_hash, elapsed,
+            message, answer, actual, provider_name, idem_key, request_hash, elapsed,
             response_id, provider_request_id, client_request_id
         )
 
@@ -643,7 +786,8 @@ class Gateway:
                 raise openai_webhooks.WebhookError("WEBHOOK_RESPONSE_NOT_MATCHED", 503)
             if event["type"] == "response.completed" and task["status"] == "background_pending":
                 try:
-                    answer, actual_model, provider_meta = self.provider.retrieve_background(response_id)
+                    selected_provider = self.provider.provider_for(task["model"]) if callable(getattr(self.provider, "provider_for", None)) else self.provider
+                    answer, actual_model, provider_meta = selected_provider.retrieve_background(response_id)
                     if not self.tasks.complete_background(response_id, answer, actual_model, provider_meta):
                         raise openai_webhooks.WebhookError("WEBHOOK_TASK_NOT_READY", 503)
                 except Denied as exc:
@@ -673,7 +817,47 @@ class Gateway:
         return {"accepted": True, "duplicate": duplicate,
                 "event_id": event["id"], "event_type": event["type"]}
 
+    def admin_status(self):
+        """Read-only owner control-plane snapshot; never returns credential material."""
+        provider_objects = ([self.provider.openai, self.provider.gemini]
+                            if isinstance(self.provider, CompositeProvider) else [self.provider])
+        providers = []
+        for provider in provider_objects:
+            configured = bool(provider.configured())
+            try:
+                candidates = list(provider.candidates()) if configured else []
+                configuration = "CONFIGURED" if configured and candidates else (
+                    "CONFIGURED_NO_ALLOWLIST" if configured else "NOT_CONFIGURED")
+            except Denied as exc:
+                candidates = []
+                configuration = exc.code
+            providers.append({
+                "id": getattr(provider, "name", "custom"),
+                "configuration": configuration,
+                "candidate_count": len(candidates),
+                "credential_value_exposed": False,
+            })
+        now = time.time()
+        snapshot = self._model_snapshot(now)
+        return {
+            "role": "SUPER_ADMIN",
+            "authorization": "DUAL_P256_OWNER_DEVICE",
+            "providers": providers,
+            "verified_models": snapshot["models"],
+            "provider_errors": snapshot["errors"],
+            "google_cloud": "NOT_CONFIGURED_IN_KRAL_BACKEND",
+            "google_drive": "NOT_CONFIGURED_IN_KRAL_BACKEND",
+            "github_actions": "NOT_CONFIGURED_IN_KRAL_BACKEND",
+            "external_actions_enabled": False,
+            "model_tools_enabled": False,
+            "credential_values_exposed": False,
+        }
+
     def route(self, path, data, *, request_deadline=None):
+        if path == PREFIX + "admin/status":
+            if data:
+                raise Denied("ADMIN_STATUS_FIELDS_DENIED")
+            return self.admin_status()
         if path == PREFIX + "tasks":
             if set(data) - {"input", "model", "expert", "tools", "requires_approval", "background",
                             "idempotency_key", "client_request_id"}:
@@ -892,7 +1076,7 @@ def handler_for(gateway):
                     return self.handle_openai_webhook()
                 if self.path in (email_otp.REQUEST_PATH, email_otp.VERIFY_PATH):
                     return self.handle_otp()
-                if self.path not in {PREFIX + p for p in ("chat", "models", "history", "memory", "workers", "tasks", "tasks/status", "tasks/cancel", "tasks/approve")}:
+                if self.path not in {PREFIX + p for p in ("chat", "models", "history", "memory", "workers", "tasks", "tasks/status", "tasks/cancel", "tasks/approve", "admin/status")}:
                     raise Denied("ROUTE_NOT_FOUND", 404)
                 if self.headers.get("Transfer-Encoding") or len(self.headers.get_all("Content-Length", [])) != 1:
                     raise Denied("BODY_LENGTH_REQUIRED", 411)
