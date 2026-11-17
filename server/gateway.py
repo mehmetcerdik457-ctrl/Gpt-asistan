@@ -324,7 +324,15 @@ class OpenAIProvider:
 class GeminiProvider:
     """Google Gemini Interactions API adapter; credentials remain server-side."""
     name = "gemini"
-    endpoint = "https://generativelanguage.googleapis.com/v1/interactions"
+    endpoint_base = "https://generativelanguage.googleapis.com"
+
+    def endpoint_url(self):
+        # Google documents v1beta as the default Interactions API surface;
+        # stable v1 can be selected explicitly for models supported there.
+        version = os.getenv("GEMINI_API_VERSION", "v1beta").strip()
+        if version not in ("v1beta", "v1"):
+            raise Denied("GEMINI_API_VERSION_INVALID", 503)
+        return self.endpoint_base + "/" + version + "/interactions"
 
     def configured(self):
         return bool(os.getenv("GEMINI_API_KEY", "").strip())
@@ -361,7 +369,7 @@ class GeminiProvider:
         payload = {"model": model, "input": message, "store": False}
         body = json_bytes(payload)
         req = urllib.request.Request(
-            self.endpoint, data=body, method="POST",
+            self.endpoint_url(), data=body, method="POST",
             headers={"x-goog-api-key": key, "Content-Type": "application/json",
                      "User-Agent": "kral-owner-gateway/1.0"},
         )
