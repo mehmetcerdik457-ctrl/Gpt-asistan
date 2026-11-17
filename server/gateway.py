@@ -340,7 +340,7 @@ class GeminiProvider:
     def candidates(self):
         models = [m.strip() for m in os.getenv("GEMINI_ALLOWED_MODELS", "").split(",") if m.strip()]
         if len(models) > 4 or any(
-                not MODEL_ID.fullmatch(m) or not m.startswith("gemini-") for m in models):
+                not MODEL_ID.fullmatch(m) or not m.startswith(("gemini-", "gemma-")) for m in models):
             raise Denied("GEMINI_MODEL_CONFIGURATION_INVALID", 503)
         ordered = list(dict.fromkeys(models))
         preferred = os.getenv("GEMINI_MODEL_PREFERRED", "").strip()
@@ -358,7 +358,7 @@ class GeminiProvider:
         key = os.getenv("GEMINI_API_KEY", "").strip()
         if not key:
             raise Denied("PROVIDER_NOT_CONFIGURED", 503)
-        if not isinstance(model, str) or not model.startswith("gemini-") or not MODEL_ID.fullmatch(model):
+        if not isinstance(model, str) or not model.startswith(("gemini-", "gemma-")) or not MODEL_ID.fullmatch(model):
             raise Denied("GEMINI_MODEL_INVALID", 400)
         if not isinstance(message, str) or not message.strip() or len(message) > 16000:
             raise Denied("MESSAGE_INVALID", 400)
@@ -436,7 +436,7 @@ class CompositeProvider:
         self.gemini = GeminiProvider()
 
     def provider_for(self, model):
-        if isinstance(model, str) and model.startswith("gemini-"):
+        if isinstance(model, str) and model.startswith(("gemini-", "gemma-")):
             return self.gemini
         return self.openai
 
