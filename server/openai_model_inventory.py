@@ -15,6 +15,7 @@ import re
 import sys
 import urllib.error
 import urllib.request
+from . import openai_config
 
 API_MODELS_URL = "https://api.openai.com/v1/models"
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
@@ -94,7 +95,7 @@ def collect_inventory(environ=None, *, check_api: bool = False, opener=None) -> 
     env = os.environ if environ is None else environ
     allowed = tuple(x.strip() for x in env.get("OPENAI_ALLOWED_MODELS", "").split(",") if x.strip())
     allowlist_valid = len(allowed) <= 4 and all(ID.fullmatch(x) for x in allowed)
-    key = env.get("OPENAI_API_KEY", "")
+    key = openai_config.api_key(env)
     configured = bool(isinstance(key, str) and key.strip())
     listed = None
     catalog_result = "NOT_CHECKED"

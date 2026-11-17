@@ -132,6 +132,11 @@ jobs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install the existing gateway dependencies for synthetic HTTPS acceptance
+        run: python -m pip install -r server/requirements.txt
       - name: Install canonical APK and check owner lock screen
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -145,7 +150,10 @@ jobs:
           heap-size: 256M
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
-          script: bash scripts/android_instrumentation_smoke.sh && bash scripts/android_emulator_smoke.sh
+          script: |
+            bash scripts/android_instrumentation_smoke.sh
+            python -m scripts.run_android_gateway_acceptance --app-apk build/emulator/apk/app-debug.apk --test-apk build/emulator/apk/app-debug-androidTest.apk --evidence-dir build/emulator/evidence/openai-guide
+            bash scripts/android_emulator_smoke.sh
       - name: Upload emulator installation and launch evidence
         if: always()
         uses: actions/upload-artifact@v4
