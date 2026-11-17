@@ -2,7 +2,7 @@
 
 ## What this branch adds
 
-- A server-only Gemini adapter using the Google Gemini Interactions API.
+- A server-only Google AI adapter using the Gemini Interactions API for Gemini and supported Gemma model IDs.
 - Deterministic provider selection: `gemini-*` model IDs route to Gemini; other configured model IDs route to OpenAI.
 - A shared maximum of four configured model candidates. Provider failure does not silently fall back to another provider.
 - Gemini requests send `store: false`; the API key is read only from `GEMINI_API_KEY` in the private server environment.
@@ -15,7 +15,7 @@ Set these only in the private backend environment:
 
 - `GEMINI_API_KEY`
 - `GEMINI_API_VERSION` — `v1beta` by default; choose `v1` only after verifying that the selected model is available on stable v1.
-- `GEMINI_ALLOWED_MODELS` — comma-separated explicit model allowlist; no model is assumed.
+- `GEMINI_ALLOWED_MODELS` — comma-separated explicit `gemini-*` / supported `gemma-*` model allowlist; no model is assumed.
 - `GEMINI_MODEL_PREFERRED` — optional preference that must also appear in the allowlist.
 
 The provider calls `POST https://generativelanguage.googleapis.com/{GEMINI_API_VERSION}/interactions` with the `x-goog-api-key` header. It defaults to `v1beta`, the version shown by Google's default Interactions API reference; stable `v1` is available but model support can differ. The version is constrained to `v1beta` or `v1`. Use a current Gemini authorization API key from the intended Google AI Studio/Cloud project; do not use an unrestricted legacy standard key. The model-verification request is a real provider request and may incur usage charges. Google documents Interactions as its recommended interface for new Gemini integrations; model IDs and project access still need to be verified against the actual configured project.
