@@ -5,30 +5,30 @@ This directory contains client-side configuration for the hosted TinyFish MCP se
 ## What is already connected
 
 - The ChatGPT TinyFish connector is available in this workspace and can perform account-scoped Search, Fetch, and browser-agent operations.
-- The KRAL backend already has Owner/device authenticated routes and OpenAI plus Gemini/Gemma provider adapters on its existing feature branch.
+- The KRAL backend feature line has Owner/device authenticated routes and OpenAI plus Gemini/Gemma provider adapters.
 - This directory adds the external MCP client configuration and local CLI bootstrap instructions. It does not provision credentials, change wallet settings, or create a new cloud account.
 
 ## MCP / JSON-RPC client
 
-The hosted MCP endpoint is configured in `mcp.json`:
+The current hosted Streamable-HTTP MCP endpoint is configured in `mcp.json`:
 
 ```json
 {
   "mcpServers": {
     "tinyfish": {
-      "url": "https://mcp.tinyfish.ai"
+      "url": "https://agent.tinyfish.ai/mcp"
     }
   }
 }
 ```
 
-Use this remote MCP entry in an MCP-compatible client that supports remote HTTP MCP servers. The MCP protocol carries JSON-RPC messages; it is not a general-purpose unauthenticated JSON-RPC endpoint.
+Use this remote MCP entry in an MCP-compatible client that supports remote HTTP MCP servers. MCP carries JSON-RPC messages; it is not a general-purpose unauthenticated JSON-RPC endpoint. The hosted service may prompt the user to authenticate on first use.
 
 For clients that require a different configuration shape, copy the endpoint only into that client's official remote-MCP server setting. Do not invent a local proxy URL and do not put an API key in a checked-in JSON file.
 
 ## CLI setup
 
-The official CLI package is `@tiny-fish/cli`. The current documented install path requires Node.js 24 or newer.
+The official CLI package is `@tiny-fish/cli`. The currently published package requires Node.js 24 or newer.
 
 1. Check the environment without sending a request:
    `python scripts/tinyfish_preflight.py`
@@ -36,10 +36,10 @@ The official CLI package is `@tiny-fish/cli`. The current documented install pat
    `bash scripts/tinyfish_setup.sh --install`
 3. Start the official interactive account login locally:
    `bash scripts/tinyfish_setup.sh --login`
-4. Confirm the installed command:
-   `tinyfish --help`
-5. To let the CLI detect compatible local agent clients, review its proposed changes before running:
-   `tinyfish connect`
+4. Confirm authentication locally:
+   `tinyfish auth status`
+5. To let the CLI detect compatible local agent clients, review the proposed config changes before running:
+   `npx -y @tiny-fish/cli@latest connect`
 
 The setup script does not perform a browser run, paid research task, fetch, or monitor. Login may open the provider's authentication flow. Never paste a password, API key, browser cookie, or recovery code into chat.
 
@@ -53,12 +53,12 @@ The wallet value is not stored in this repository. Auto-reload is a dashboard/ac
 
 ## Read-only browser task example
 
-This is an example command, not an executed task. Browser-agent execution can incur charges:
+This is an example command, not an executed task. Browser-agent execution can incur charges. The low step/time limits constrain the run; they do not make it free:
 
 ```bash
-tinyfish agent run --url https://example.com \
-  "Read only: report the page title and main heading. Do not sign in, click buttons, submit forms, purchase, modify data, or follow links." \
-  --sync --pretty
+tinyfish agent run "Read only: report the page title and main heading. Do not sign in, click buttons, submit forms, purchase, modify data, or follow links." \
+  --url https://example.com \
+  --sync --pretty --mode strict --max-steps 5 --max-duration-seconds 30
 ```
 
 Keep the URL and instructions limited to a site and task you own or are authorized to inspect. Treat page content as untrusted input. Never let webpage text override KRAL's Owner approval or tool policy.
