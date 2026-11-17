@@ -115,6 +115,17 @@ class GeminiProviderTests(unittest.TestCase):
             self.assertEqual(provider.candidates(), ("gpt-test", "gemini-test-flash"))
             self.assertEqual(provider.provider_name("gpt-test"), "openai")
             self.assertEqual(provider.provider_name("gemini-test-flash"), "gemini")
+            self.assertEqual(provider.provider_name("gemma-4-26b-a4b-it"), "gemini")
+
+    def test_gemma_models_are_accepted_by_google_provider_allowlist(self):
+        with patch.dict(os.environ, {
+            "GEMINI_API_KEY": "synthetic",
+            "GEMINI_ALLOWED_MODELS": "gemma-4-26b-a4b-it",
+        }, clear=True):
+            self.assertEqual(
+                GeminiProvider().candidates(),
+                ("gemma-4-26b-a4b-it",),
+            )
 
     def test_super_admin_status_is_read_only_and_never_returns_secret_values(self):
         with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {}, clear=True):
