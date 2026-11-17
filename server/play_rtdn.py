@@ -8,6 +8,7 @@ import binascii
 import hashlib
 import hmac
 import json
+import math
 import re
 import sqlite3
 import time
@@ -22,7 +23,49 @@ from server.play_rtdn_store import (
 
 ENDPOINT = "/api/v1/play/rtdn"
 MAX_BODY = 16384
+MAX_JSON_DEPTH = 32
 ISSUERS = frozenset(("accounts.google.com", "https://accounts.google.com"))
+SUBSCRIPTION_TYPES = frozenset((*range(1, 14), 17, 18, 19, 20, 22))
+
+
+def _unique_json_object(pairs):
+    value = {}
+    for key, item in pairs:
+        if key in value:
+            raise ValueError("duplicate JSON member")
+        value[key] = item
+    return value
+
+
+def _invalid_json_number(_value):
+    raise ValueError("non-finite JSON number")
+
+
+def _finite_json_number(value):
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError("non-finite JSON number")
+    return number
+
+
+def _strict_json(raw):
+    # Pub/Sub's wrapped envelope and RTDN data are UTF-8 JSON. Reject ambiguous
+    # object members and non-JSON numeric constants throughout each document.
+    value = json.loads(raw.decode("utf-8"), object_pairs_hook=_unique_json_object,
+                       parse_constant=_invalid_json_number,
+                       parse_float=_finite_json_number)
+    # JSON decoder recursion behavior differs across supported Python builds.
+    # Enforce our own bound, including ignored attributes, without recursion.
+    pending = [(value, 1)]
+    while pending:
+        item, depth = pending.pop()
+        if depth > MAX_JSON_DEPTH:
+            raise ValueError("JSON nesting bound")
+        if isinstance(item, dict):
+            pending.extend((child, depth + 1) for child in item.values())
+        elif isinstance(item, list):
+            pending.extend((child, depth + 1) for child in item)
+    return value
 
 
 class RtdnDenied(ValueError):
@@ -106,14 +149,22 @@ class PlayRtdnProcessor:
         except Exception:
             raise RtdnDenied("RTDN_AUTH_DENIED") from None
         if (not isinstance(claims, dict) or
+            not isinstance(claims.get("iss"), str) or
             claims.get("iss") not in ISSUERS or
             claims.get("aud") != self.audience or
             claims.get("email") != self.service_account_email or
-            claims.get("email_verified") not in (True, "true") or
+            claims.get("email_verified") is not True or
             type(claims.get("iat")) is not int or
             type(claims.get("exp")) is not int):
             raise RtdnDenied("RTDN_AUTH_DENIED")
-        now = int(self.clock())
+        try:
+            clock_value = self.clock()
+            if (type(clock_value) not in (int, float) or
+                    not math.isfinite(clock_value) or clock_value < 0):
+                raise ValueError()
+            now = int(clock_value)
+        except Exception:
+            raise RtdnDenied("RTDN_AUTH_DENIED") from None
         if not claims["iat"] <= now < claims["exp"] or claims["iat"] < now - 3600:
             raise RtdnDenied("RTDN_AUTH_DENIED")
 
@@ -121,21 +172,33 @@ class PlayRtdnProcessor:
         if not isinstance(raw, bytes) or not 0 < len(raw) <= MAX_BODY:
             raise RtdnDenied("RTDN_PAYLOAD_INVALID")
         try:
-            envelope = json.loads(raw)
+            envelope = _strict_json(raw)
             if not isinstance(envelope, dict) or envelope.get("subscription") != self.subscription:
                 raise ValueError()
             msg = envelope["message"]
+            if not isinstance(msg, dict):
+                raise ValueError()
+            if ("messageId" in msg and "message_id" in msg and
+                    msg["messageId"] != msg["message_id"]):
+                raise ValueError()
             message_id = msg.get("messageId", msg.get("message_id"))
             if not isinstance(message_id, str) or not re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", message_id):
                 raise ValueError()
-            data = base64.b64decode(msg["data"], validate=True)
-            if not 0 < len(data) <= MAX_BODY:
+            encoded = msg["data"]
+            if not isinstance(encoded, str):
                 raise ValueError()
-            event = json.loads(data)
+            data = base64.b64decode(encoded, validate=True)
+            if (not 0 < len(data) <= MAX_BODY or
+                    base64.b64encode(data).decode("ascii") != encoded):
+                raise ValueError()
+            event = _strict_json(data)
             if (not isinstance(event, dict) or event.get("version") != "1.0" or
                 event.get("packageName") != PACKAGE or
                 not isinstance(event.get("eventTimeMillis"), str) or
                 not re.fullmatch(r"[0-9]{1,17}", event["eventTimeMillis"])):
+                raise ValueError()
+            kinds = [key for key in event if key.endswith("Notification")]
+            if len(kinds) != 1:
                 raise ValueError()
             if "testNotification" in event:
                 if (not isinstance(event["testNotification"], dict) or
@@ -146,13 +209,14 @@ class PlayRtdnProcessor:
             n = event["subscriptionNotification"]
             if (not isinstance(n, dict) or n.get("version") != "1.0" or
                 type(n.get("notificationType")) is not int or
-                not 1 <= n["notificationType"] <= 99):
+                n["notificationType"] not in SUBSCRIPTION_TYPES):
                 raise ValueError()
             token = n["purchaseToken"]
             if not isinstance(token, str) or len(token) > 4096 or not TOKEN_RE.fullmatch(token):
                 raise ValueError()
             return message_id, data, token, False
-        except (ValueError, TypeError, KeyError, AttributeError, UnicodeError, binascii.Error):
+        except (ValueError, TypeError, KeyError, AttributeError, UnicodeError,
+                binascii.Error, RecursionError):
             raise RtdnDenied("RTDN_PAYLOAD_INVALID") from None
 
     def process(self, *, authorization, raw):

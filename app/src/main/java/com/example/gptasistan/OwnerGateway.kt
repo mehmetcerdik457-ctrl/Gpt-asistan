@@ -2,6 +2,8 @@ package com.example.gptasistan
 
 import android.content.Context
 import com.example.gptasistan.billing.PlayPurchaseSubmission
+import com.example.gptasistan.billing.PlayAccountConfiguration
+import com.example.gptasistan.billing.PlaySubscriptionCheckout
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -52,6 +54,11 @@ object OwnerGateway {
         return parsePlayAccountId(request(base, OmegaEnvelope.PLAY_ACCOUNT, owner, JSONObject()))
     }
 
+    internal fun playAccountConfiguration(context: Context, base: String): PlayAccountConfiguration {
+        val owner = configuredPlayOwner(context, base)
+        return parsePlayAccountConfiguration(request(base, OmegaEnvelope.PLAY_ACCOUNT, owner, JSONObject()))
+    }
+
     /**
      * Submits only productId and purchaseToken via the existing dual-P256
      * authenticated transport, with the identity derived from Android Keystore.
@@ -83,6 +90,18 @@ object OwnerGateway {
         val account = result.get("obfuscated_account_id")
         require(account is String && account.matches(Regex("[a-f0-9]{64}")))
         return account
+    }
+
+    internal fun parsePlayAccountConfiguration(result: JSONObject): PlayAccountConfiguration {
+        val account = parsePlayAccountId(result)
+        val values = result.getJSONArray("products")
+        require(values.length() in 1..32)
+        val products = (0 until values.length()).map { index ->
+            val product = values.get(index)
+            require(product is String && PlaySubscriptionCheckout.isValidProductId(product))
+            product
+        }
+        return PlayAccountConfiguration(account, products).also { require(it.validate()) }
     }
 
     internal fun parsePlayEntitlement(result: JSONObject): Boolean {

@@ -48,4 +48,19 @@ class PlaySubscriptionCheckoutTest {
     @Test fun productValidatorAcceptsExactSubscriptionId() {
         assertTrue(PlaySubscriptionCheckout.isValidProductId("orba_pro_monthly"))
     }
+
+    @Test fun nonWhitespaceControlAndUnicodeOfferDenied() {
+        for (offer in listOf("token\u0000", "token\u007f", "caf\u00e9"))
+            assertFalse(checkout(offer = offer).validate())
+    }
+
+    @Test fun pricePhasesUseActualPricePeriodAndRenewalTerms() {
+        val phase = PlayPricingPhase("₺49,99", "P1M", 0, 1)
+        assertTrue(phase.validate())
+        assertTrue(phase.description().contains("₺49,99 / 1 ay"))
+        assertTrue(phase.description().contains("otomatik yenilenir"))
+        assertFalse(phase.copy(formattedPrice = "").validate())
+        assertFalse(phase.copy(billingPeriod = "not-a-period").validate())
+        assertFalse(phase.copy(recurrenceMode = 2, billingCycleCount = 0).validate())
+    }
 }

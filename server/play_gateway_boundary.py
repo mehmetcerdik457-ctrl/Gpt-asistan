@@ -61,6 +61,18 @@ class PlayGatewayBoundary:
         return obfuscated_play_account_id(authenticated_owner_id=owner,
                                            server_secret=self._secret)
 
+    def account_configuration(self, *, authenticated_owner_id: str) -> dict:
+        """Return only authenticated checkout input, never an entitlement.
+
+        Google Play remains the source of eligible offers and displayed prices;
+        the server allowlist prevents the Android UI inventing product IDs.
+        """
+        return {
+            "obfuscated_account_id": self.account_id(
+                authenticated_owner_id=authenticated_owner_id),
+            "products": sorted(self._products),
+        }
+
     def verify(self, *, authenticated_owner_id: str, product_id: str,
                purchase_token: str) -> bool:
         owner = self._owner(authenticated_owner_id)

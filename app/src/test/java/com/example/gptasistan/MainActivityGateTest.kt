@@ -22,6 +22,31 @@ import org.robolectric.shadows.ShadowDialog
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28])
 class MainActivityGateTest {
+    @Test fun purchaseReturnIntentCannotBypassFreshOwnerUnlockOrLaunchBillingWhileLocked() {
+        val controller = Robolectric.buildActivity(MainActivity::class.java).create().start().resume().visible()
+        val activity = controller.get()
+        val returnIntent = MainActivity::class.java.getDeclaredField("returnToPlayStatus").apply { isAccessible = true }
+        val billing = MainActivity::class.java.getDeclaredField("playBillingUi").apply { isAccessible = true }
+        val keyguard = activity.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+        shadowOf(keyguard).setIsDeviceSecure(true)
+        try {
+            returnIntent.setBoolean(activity, true) // Nonsecret accepted-checkout recovery marker only.
+            controller.pause().stop().start().resume().visible()
+            assertTrue(allText(activity.window.decorView).contains("Kilidi aç"))
+            assertNull(billing.get(activity))
+            assertNull(shadowOf(activity).nextStartedActivityForResult)
+            allViews(activity.window.decorView).filterIsInstance<Button>()
+                .single { it.id == R.id.unlock_button }.performClick()
+            val credential = shadowOf(activity).nextStartedActivityForResult
+            assertNotNull(credential)
+            assertEquals(4701, credential.requestCode)
+            shadowOf(activity).receiveResult(credential.intent, Activity.RESULT_CANCELED, null)
+            assertNull(billing.get(activity))
+            assertTrue(returnIntent.getBoolean(activity))
+            assertTrue(allText(activity.window.decorView).contains("Kilidi aç"))
+        } finally { controller.pause().stop().destroy() }
+    }
+
     @Test fun reminderTapRelocksAnExistingForegroundSessionWithoutRequiringOnStop() {
         val controller = Robolectric.buildActivity(MainActivity::class.java).create().start().resume().visible()
         val activity = controller.get()

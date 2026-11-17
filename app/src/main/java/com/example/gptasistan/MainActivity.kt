@@ -27,6 +27,8 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.ViewModelProvider
 import java.util.Locale
 import java.util.UUID
+import com.example.gptasistan.billing.PlayBillingUi
+import com.example.gptasistan.billing.PlayUiScope
 
 class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private lateinit var store: KralStore
@@ -51,6 +53,9 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private var otpGeneration = 0L
     private var reminderPermissionPending = false
     private val visibleDialogs = mutableSetOf<AlertDialog>()
+    private var playBillingUi: PlayBillingUi? = null
+    // No purchase token or offer is persisted. Returning only restores status after fresh unlock.
+    private var returnToPlayStatus = false
     private val prefs by lazy { getSharedPreferences("kral_model", MODE_PRIVATE) }
     private val backups by lazy {
         BackupUi(this,
@@ -106,7 +111,13 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         ) as LinearLayout
         applySystemBarInsets(locked, 24, 48, 24, 24)
         locked.findViewById<Button>(R.id.unlock_button).setOnClickListener {
-            unlock { if (!uiReady) buildContent(initialState) else setContentView(contentRoot) }
+            unlock {
+                if (!uiReady) buildContent(initialState) else setContentView(contentRoot)
+                if (returnToPlayStatus) {
+                    returnToPlayStatus = false
+                    showPlaySubscriptions()
+                }
+            }
         }
         locked.addView(Button(this).apply {
             text = "E-posta ile doğrula"
@@ -339,6 +350,10 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         root.addView(Button(this).apply {
             text = getString(R.string.action_expert_worker_tasks)
             setOnClickListener { showExpertMenu() }
+        })
+        root.addView(Button(this).apply {
+            text = "Google Play aboneliği"
+            setOnClickListener { unlock { showPlaySubscriptions() } }
         })
         connectionStatus = TextView(this).apply {
             text = if ((prefs.getString("endpoint", "") ?: "").isBlank())
@@ -958,6 +973,31 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             }.setNegativeButton("Vazgeç", null).showProtected()
     }
 
+    private fun playScope(): PlayUiScope? {
+        if (!appUnlocked || !foreground || storageBlocked || !uiReady || isFinishing || isDestroyed) return null
+        val base = prefs.getString("endpoint", "").orEmpty().trimEnd('/')
+        val owner = prefs.getString("owner_id", "").orEmpty()
+        return if (OwnerGateway.validBase(base) && OmegaEnvelope.validOwner(owner)) PlayUiScope(base, owner) else null
+    }
+
+    private fun showPlaySubscriptions() {
+        val scope = playScope() ?: run {
+            notice("Abonelik için önce sahip sunucusu bağlantısını doğrula.")
+            return
+        }
+        playBillingUi?.close()
+        try {
+            playBillingUi = PlayBillingUi(this, scope, ::playScope,
+                showProtected = { builder, dismissed -> builder.showProtected(dismissed) },
+                checkoutAccepted = { returnToPlayStatus = true })
+            playBillingUi?.show()
+        } catch (_: Exception) {
+            playBillingUi?.close()
+            playBillingUi = null
+            notice("Google Play abonelik ekranı açılamadı. Daha sonra tekrar deneyebilirsin.")
+        }
+    }
+
     private fun refreshModels(base: String, identity: String) {
         modelButton.isEnabled = false
         sendButton.isEnabled = false
@@ -1001,6 +1041,8 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     override fun onStop() {
         foreground = false
+        playBillingUi?.close()
+        playBillingUi = null
         otpGeneration++
         visibleDialogs.toList().forEach { it.dismiss() }
         appUnlocked = false
@@ -1032,6 +1074,8 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     override fun onDestroy() {
         stopped = true
+        playBillingUi?.close()
+        playBillingUi = null
         tts?.stop()
         tts?.shutdown()
         if (uiReady) store.close()

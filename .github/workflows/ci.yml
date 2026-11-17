@@ -13,6 +13,7 @@ jobs:
     # Same-repository PR heads are already tested by push; fork PRs still run.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
         with:
@@ -52,4 +53,13 @@ jobs:
           name: kral-independent-acceptance
           path: |
             build/acceptance/
+          if-no-files-found: error
+      - name: Run one million frozen Play boundary property cases
+        run: python scripts/acceptance/canonical_play_properties.py --source . --cases 1000000 --seed 20261117 --output build/play-stress/final-million.json
+      - name: Upload Play boundary stress evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kral-play-boundary-stress
+          path: build/play-stress/
           if-no-files-found: error

@@ -13,16 +13,18 @@ import com.android.billingclient.api.QueryProductDetailsParams
 import com.android.billingclient.api.BillingFlowParams
 
 /**
- * Isolated BillingClient 9 adapter. It does NOT initiate a checkout or grant
- * entitlements. Caller must provide an authenticated server transport before
- * wiring purchase updates to the verification service.
+ * BillingClient 9 adapter. Checkout starts only after an explicit guarded call;
+ * this adapter never grants entitlements. The purchase UI supplies an
+ * authenticated server transport for purchase/restore verification.
  *
  * Do not log purchase tokens or use purchase state alone as proof of access.
  */
 internal class PlayBillingConnector(
     context: Context,
     private val onPurchased: (PlayPurchaseSubmission) -> Unit,
-    private val onFailure: (Int) -> Unit
+    private val onFailure: (Int) -> Unit,
+    private val onPending: () -> Unit = {},
+    private val onCanceled: () -> Unit = {}
 ) : PurchasesUpdatedListener {
 
     private val packageName = context.packageName
@@ -35,13 +37,13 @@ internal class PlayBillingConnector(
         .enableAutoServiceReconnection()
         .build()
 
-    fun connect() {
+    fun connect(onReady: (Int) -> Unit) {
         client.startConnection(object : BillingClientStateListener {
             override fun onBillingSetupFinished(result: BillingResult) {
                 if (result.responseCode == BillingClient.BillingResponseCode.OK) {
-                    restoreKnownPurchases()
+                    onReady(result.responseCode)
                 } else {
-                    onFailure(result.responseCode)
+                    onReady(result.responseCode)
                 }
             }
 
@@ -52,15 +54,20 @@ internal class PlayBillingConnector(
     }
 
     /** Reconcile subscriptions after reconnect or app start, without granting access. */
-    fun restoreKnownPurchases() {
+    fun restoreKnownPurchases(onComplete: (Int, Int) -> Unit) {
+        if (!client.isReady) {
+            onComplete(BillingClient.BillingResponseCode.SERVICE_DISCONNECTED, 0)
+            return
+        }
         val params = QueryPurchasesParams.newBuilder()
             .setProductType(BillingClient.ProductType.SUBS)
             .build()
         client.queryPurchasesAsync(params) { result, purchases ->
             if (result.responseCode == BillingClient.BillingResponseCode.OK) {
                 onPurchasesUpdated(result, purchases.toMutableList())
+                onComplete(result.responseCode, purchases.size)
             } else {
-                onFailure(result.responseCode)
+                onComplete(result.responseCode, 0)
             }
         }
     }
@@ -69,7 +76,7 @@ internal class PlayBillingConnector(
         if (result.responseCode != BillingClient.BillingResponseCode.OK) {
             if (result.responseCode != BillingClient.BillingResponseCode.USER_CANCELED) {
                 onFailure(result.responseCode)
-            }
+            } else onCanceled()
             return
         }
         if (purchases == null) {
@@ -77,6 +84,10 @@ internal class PlayBillingConnector(
             return
         }
         purchases.forEach { purchase ->
+            if (purchase.purchaseState == Purchase.PurchaseState.PENDING) {
+                onPending()
+                return@forEach
+            }
             if (purchase.purchaseState != Purchase.PurchaseState.PURCHASED) return@forEach
             purchase.products.forEach { productId ->
                 val submission = PlayPurchaseSubmission(
@@ -123,9 +134,13 @@ internal class PlayBillingConnector(
                 .filter { it.productId == productId }
                 .flatMap { detail ->
                     detail.subscriptionOfferDetails.orEmpty().map { offer ->
-                        PlaySubscriptionOffer(offer.basePlanId, offer.offerId, offer.offerToken)
+                        PlaySubscriptionOffer(detail.productId, detail.name, offer.basePlanId,
+                            offer.offerId, offer.offerToken, offer.pricingPhases.pricingPhaseList.map { phase ->
+                                PlayPricingPhase(phase.formattedPrice, phase.billingPeriod,
+                                    phase.billingCycleCount, phase.recurrenceMode)
+                            })
                     }
-                }
+                }.filter { it.validate() }
             onResult(
                 if (offers.isNotEmpty()) BillingClient.BillingResponseCode.OK
                 else BillingClient.BillingResponseCode.ITEM_UNAVAILABLE,
@@ -145,9 +160,10 @@ internal class PlayBillingConnector(
     fun launchSelectedSubscription(
         activity: Activity,
         checkout: PlaySubscriptionCheckout,
+        authorizeLaunch: () -> Boolean,
         onResult: (Int) -> Unit
     ) {
-        if (!checkout.validate()) {
+        if (!checkout.validate() || !authorizeLaunch()) {
             onResult(BillingClient.BillingResponseCode.DEVELOPER_ERROR)
             return
         }
@@ -181,6 +197,10 @@ internal class PlayBillingConnector(
                 return@queryProductDetailsAsync
             }
             activity.runOnUiThread {
+                if (!authorizeLaunch() || activity.isFinishing || activity.isDestroyed) {
+                    onResult(BillingClient.BillingResponseCode.DEVELOPER_ERROR)
+                    return@runOnUiThread
+                }
                 val productParams = BillingFlowParams.ProductDetailsParams.newBuilder()
                     .setProductDetails(product)
                     .setOfferToken(offer.offerToken)

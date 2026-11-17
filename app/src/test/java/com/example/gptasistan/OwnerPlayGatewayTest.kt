@@ -47,6 +47,26 @@ class OwnerPlayGatewayTest {
         assertEquals("a".repeat(64), OwnerGateway.parsePlayAccountId(p))
     }
 
+    @Test fun parsesActualServerProductCatalogAndRejectsMissingDuplicateOrClientObjects() {
+        val payload = JSONObject().put("contract", prefix).put("obfuscated_account_id", "a".repeat(64))
+            .put("products", org.json.JSONArray().put("orba_pro_monthly"))
+        val account = OwnerGateway.parsePlayAccountConfiguration(payload)
+        assertEquals(listOf("orba_pro_monthly"), account.products)
+        assertEquals("a".repeat(64), account.obfuscatedAccountId)
+        for (bad in listOf(org.json.JSONArray(), org.json.JSONArray().put("x").put("x"),
+                org.json.JSONArray().put(JSONObject().put("productId", "x")),
+                org.json.JSONArray().put("caf\u00e9"))) {
+            try {
+                OwnerGateway.parsePlayAccountConfiguration(JSONObject(payload.toString()).put("products", bad))
+                throw AssertionError("malformed catalog accepted")
+            } catch (_: IllegalArgumentException) { }
+        }
+        try {
+            OwnerGateway.parsePlayAccountConfiguration(JSONObject(payload.toString()).apply { remove("products") })
+            throw AssertionError("missing server catalog accepted")
+        } catch (_: org.json.JSONException) { }
+    }
+
     @Test fun rejectsRawOwnerEmailAsPlayAccountId() {
         val p = JSONObject().put("contract", prefix)
             .put("obfuscated_account_id", "owner@example.com")

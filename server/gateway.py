@@ -533,8 +533,8 @@ class Gateway:
                 if data != {}:
                     raise Denied("PLAY_FIELDS_DENIED", 400)
                 try:
-                    return {"obfuscated_account_id": self.play_boundary.account_id(
-                        authenticated_owner_id=authenticated_owner_id)}
+                    return self.play_boundary.account_configuration(
+                        authenticated_owner_id=authenticated_owner_id)
                 except PlayBoundaryError:
                     raise Denied("PLAY_ACCOUNT_UNAVAILABLE", 503) from None
             if set(data) != {"productId", "purchaseToken"}:

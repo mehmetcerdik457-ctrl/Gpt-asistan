@@ -49,10 +49,23 @@ class PlayBoundaryHttpTests(unittest.TestCase):
         response, body = self.post("play/account", {})
         self.assertEqual(response, 200)
         self.assertEqual(len(body["obfuscated_account_id"]), 64)
+        self.assertEqual(body["products"], [PRODUCT])
+        self.assertEqual(set(body), {"obfuscated_account_id", "products", "contract"})
         self.assertEqual(self.oauth_calls, 0)
         unsigned, denied = self.post(
             "play/account", {}, headers={"Content-Type": "application/json"})
         self.assertEqual((unsigned, denied["error"]), (403, "OWNER_AUTH_REQUIRED"))
+
+    def test_checkout_catalog_comes_only_from_configured_allowlist(self):
+        self.boundary._products = frozenset({PRODUCT, "orba_yearly"})
+        status, body = self.post("play/account", {})
+        self.assertEqual(status, 200)
+        self.assertEqual(body["products"], sorted({PRODUCT, "orba_yearly"}))
+        self.assertNotIn("entitled", body)
+        self.assertEqual(self.oauth_calls, 0)
+        # A signed caller cannot inject a product catalog into this route.
+        denied, payload = self.post("play/account", {"products": ["other_product"]})
+        self.assertEqual((denied, payload["error"]), (400, "PLAY_FIELDS_DENIED"))
 
     def test_account_id_cannot_accept_client_owner_id(self):
         status, data = self.post("play/account", {"owner_id": "other"})

@@ -48,9 +48,13 @@ def entitlement_allowed(purchase: VerifiedPlayPurchase, *, owner_id: str,
         return False
     if not isinstance(now_ms, int) or isinstance(now_ms, bool) or now_ms < 0:
         return False
-    if not purchase.verified_by_google_api or not purchase.acknowledged:
+    # A truthy string/integer is not trusted provenance or acknowledgement.
+    if purchase.verified_by_google_api is not True or purchase.acknowledged is not True:
         return False
     if purchase.package_name != PACKAGE or purchase.product_id != product_id:
+        return False
+    if (not isinstance(purchase.purchase_token_sha256, str) or
+            not re.fullmatch(r"[a-f0-9]{64}", purchase.purchase_token_sha256)):
         return False
     if purchase.owner_id != owner_id or not hmac.compare_digest(purchase.purchase_token_sha256, token_sha256):
         return False

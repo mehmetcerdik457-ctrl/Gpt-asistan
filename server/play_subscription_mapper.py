@@ -78,6 +78,8 @@ def verify_and_map_subscription(*, purchase_token: str, access_token: str,
     if (not isinstance(expected_obfuscated_account_id, str)
             or not expected_obfuscated_account_id
             or not isinstance(actual, str)
+            or not actual.isascii()
+            or len(actual) != len(expected_obfuscated_account_id)
             or not hmac.compare_digest(actual, expected_obfuscated_account_id)):
         raise PlayMappingError("PLAY_ACCOUNT_BINDING_MISMATCH")
     mapped = map_verified_subscription(

@@ -16,12 +16,12 @@ internal data class PlayPurchaseSubmission(
     fun validate(expectedPackageName: String): Boolean =
         expectedPackageName.isNotBlank() &&
         packageName == expectedPackageName &&
-        productId.isNotBlank() &&
-        productId.length <= 200 &&
-        productId.all { it.isLetterOrDigit() || it == '_' || it == '.' } &&
-        purchaseToken.isNotBlank() &&
-        purchaseToken.length <= 4096 &&
-        purchaseToken.none { it.isWhitespace() }
+        PlaySubscriptionCheckout.isValidProductId(productId) &&
+        purchaseToken.length in 1..4096 &&
+        purchaseToken.all { it in 'A'..'Z' || it in 'a'..'z' || it in '0'..'9' ||
+                            it == '.' || it == '_' || it == '~' || it == '%' || it == '-' }
+
+    override fun toString() = "PlayPurchaseSubmission(productId=$productId, purchaseToken=<redacted>, packageName=$packageName)"
 }
 
 /**
@@ -29,6 +29,14 @@ internal data class PlayPurchaseSubmission(
  * Implementations must not log tokens, persist them in plaintext, or treat
  * HTTP success as a grant of entitlement.
  */
-internal fun interface AuthenticatedPlayPurchaseTransport {
-    suspend fun submit(submission: PlayPurchaseSubmission): Boolean
+internal interface AuthenticatedPlayPurchaseTransport {
+    /** Both operations are blocking and must run on a worker thread. */
+    fun account(): PlayAccountConfiguration
+    fun submit(submission: PlayPurchaseSubmission): Boolean
+}
+
+internal data class PlayAccountConfiguration(val obfuscatedAccountId: String, val products: List<String>) {
+    fun validate() = obfuscatedAccountId.matches(Regex("[a-f0-9]{64}")) &&
+        products.size in 1..32 && products.distinct().size == products.size &&
+        products.all { PlaySubscriptionCheckout.isValidProductId(it) }
 }
