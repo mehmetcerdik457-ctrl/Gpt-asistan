@@ -1,0 +1,39 @@
+name: KRAL OpenAI test environment presence
+on:
+  push:
+    branches:
+      - audit/kral-oct26-openai-catalog-20261117
+    paths:
+      - .github/workflows/kral-oct26-test-environment-presence.yml
+permissions: {}
+jobs:
+  presence:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    strategy:
+      fail-fast: false
+      matrix:
+        test_environment: [dev, staging]
+    environment: ${{ matrix.test_environment }}
+    steps:
+      - name: Check only presence flags
+        shell: bash
+        env:
+          KRAL_PROBE_KEY: ${{ secrets.OPENAI_API_KEY }}
+          KRAL_PROBE_ALIAS: ${{ secrets.KRAL_OPENAI_API_KEY }}
+          KRAL_PROBE_MODELS: ${{ vars.OPENAI_ALLOWED_MODELS }}
+          KRAL_PROBE_MODELS_SECRET: ${{ secrets.OPENAI_ALLOWED_MODELS }}
+        run: |
+          set -euo pipefail
+          presence() {
+            if [[ -n "$2" ]]; then
+              printf '%s=true\n' "$1"
+            else
+              printf '%s=false\n' "$1"
+            fi
+          }
+          presence OPENAI_API_KEY_PRESENT "$KRAL_PROBE_KEY"
+          presence KRAL_OPENAI_API_KEY_PRESENT "$KRAL_PROBE_ALIAS"
+          presence OPENAI_ALLOWED_MODELS_VARIABLE_PRESENT "$KRAL_PROBE_MODELS"
+          presence OPENAI_ALLOWED_MODELS_SECRET_PRESENT "$KRAL_PROBE_MODELS_SECRET"
+          printf 'OPENAI_CALLS=0\n'
