@@ -1,0 +1,24 @@
+name: KRAL Oct 26 read-only OpenAI catalog
+on:
+  push:
+    branches:
+      - audit/kral-oct26-openai-catalog-20261117
+    paths:
+      - .github/workflows/kral-oct26-openai-catalog.yml
+permissions:
+  contents: read
+jobs:
+  catalog:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    environment: openai-ci
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dcfbab30b257d7693ae2d22ba43cafb7a784d8a9
+          persist-credentials: false
+      - name: Check existing key presence and GET the project model catalog
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_ALLOWED_MODELS: ${{ vars.OPENAI_ALLOWED_MODELS }}
+        run: python3 -m server.openai_model_inventory --check-api
