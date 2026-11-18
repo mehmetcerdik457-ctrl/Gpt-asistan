@@ -1,0 +1,147 @@
+"""Credential aliases stay server-only and share the existing API transports."""
+import io
+import json
+import os
+import unittest
+from unittest.mock import Mock, patch
+
+from server import gateway
+from server.openai_model_inventory import collect_inventory
+
+
+class OpenAIConfigurationTests(unittest.TestCase):
+    @staticmethod
+    def response():
+        response = io.BytesIO(gateway.json_bytes({
+            "id": "resp_config_fixture", "status": "completed", "model": "fixture-model",
+            "output": [{"type": "message", "content": [{"type": "output_text", "text": "Fixture answer"}]}],
+        }))
+        response.status, response.headers = 200, {"x-request-id": "req_config_fixture"}
+        return response
+
+    def test_managed_alias_authenticates_existing_responses_transport(self):
+        for canonical in (None, "", "   "):
+            with self.subTest(canonical=canonical):
+                with patch.dict(os.environ, {"OPENAI_API_KEY": "", "KRAL_OPENAI_API_KEY": " synthetic-alias-token "}), \
+                     patch("server.gateway.urllib.request.build_opener") as transport:
+                    if canonical is None:
+                        os.environ.pop("OPENAI_API_KEY", None)
+                    else:
+                        os.environ["OPENAI_API_KEY"] = canonical
+                    transport.return_value.open.return_value = self.response()
+                    provider = gateway.OpenAIProvider()
+                    self.assertTrue(provider.configured())
+                    answer, model, _, metadata = provider.reply_with_metadata("fixture-model", "Fixture task")
+                    request = transport.return_value.open.call_args.args[0]
+                    self.assertEqual(request.full_url, "https://api.openai.com/v1/responses")
+                    self.assertEqual(request.get_header("Authorization"), "Bearer synthetic-alias-token")
+                    self.assertNotIn("synthetic-alias-token", request.data.decode("utf-8"))
+                    self.assertEqual((answer, model), ("Fixture answer", "fixture-model"))
+                    self.assertNotIn("synthetic-alias-token", json.dumps(metadata))
+
+    def test_canonical_credential_takes_precedence_over_managed_alias(self):
+        with patch.dict(os.environ, {"OPENAI_API_KEY": " synthetic-canonical-token ",
+                                     "KRAL_OPENAI_API_KEY": "synthetic-alias-token"}), \
+             patch("server.gateway.urllib.request.build_opener") as transport:
+            transport.return_value.open.return_value = self.response()
+            gateway.OpenAIProvider().reply("fixture-model", "Fixture task")
+            request = transport.return_value.open.call_args.args[0]
+            self.assertEqual(request.get_header("Authorization"), "Bearer synthetic-canonical-token")
+            self.assertNotIn("synthetic-alias-token", str(request.header_items()))
+
+    def test_missing_canonical_and_alias_are_rejected_before_transport(self):
+        with patch.dict(os.environ, {"OPENAI_API_KEY": "", "KRAL_OPENAI_API_KEY": "   "}), \
+             patch("server.gateway.urllib.request.build_opener") as transport:
+            provider = gateway.OpenAIProvider()
+            self.assertFalse(provider.configured())
+            with self.assertRaises(gateway.Denied) as caught:
+                provider.reply("fixture-model", "Fixture task")
+            self.assertEqual((caught.exception.code, caught.exception.status),
+                             ("PROVIDER_NOT_CONFIGURED", 503))
+            transport.assert_not_called()
+
+    def test_model_configuration_cannot_treat_active_credentials_as_models(self):
+        key = "synthetic-private-credential"
+        for key_name in ("OPENAI_API_KEY", "KRAL_OPENAI_API_KEY"):
+            for model in (key, "model_" + key):
+                with self.subTest(key_name=key_name, prefixed=model != key), \
+                     patch.dict(os.environ, {"OPENAI_API_KEY": "", "KRAL_OPENAI_API_KEY": "",
+                                             key_name: key, "OPENAI_ALLOWED_MODELS": "fixture-model," + model}), \
+                     patch("server.gateway.urllib.request.build_opener") as transport:
+                    with self.assertRaises(gateway.Denied) as caught:
+                        gateway.OpenAIProvider().candidates()
+                    self.assertEqual(caught.exception.code, "MODEL_CONFIGURATION_INVALID")
+                    self.assertNotIn(key, str(caught.exception))
+                    transport.assert_not_called()
+
+    def test_inventory_includes_current_documented_models_without_claiming_project_access(self):
+        expected = {
+            "gpt-6.2-astra", "gpt-6.2-sol", "gpt-6-astra", "gpt-6.1-sol",
+            "gpt-6.1-terra", "gpt-6-sol", "gpt-6-luna",
+            "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna",
+        }
+        report = collect_inventory({"OPENAI_ALLOWED_MODELS": "gpt-6.2-sol"})
+        rows = {row["model_id"]: row for row in report["models"]}
+        self.assertTrue(expected.issubset(rows))
+        self.assertTrue(all(rows[model]["official_catalog_documented"] for model in expected))
+        self.assertTrue(rows["gpt-6.2-sol"]["configured_in_gateway_allowlist"])
+        self.assertFalse(any(rows[model]["responses_call_verified"] for model in expected))
+        self.assertFalse(report["account_entitlement_fully_verified"])
+        self.assertEqual(report["live_responses_calls_made"], 0)
+
+    def test_inventory_uses_same_alias_without_exposing_it_or_claiming_live_access(self):
+        values = {"KRAL_OPENAI_API_KEY": "synthetic-alias-token", "OPENAI_ALLOWED_MODELS": "gpt-6.1-sol"}
+        transport = Mock()
+        offline = collect_inventory(values, opener=transport)
+        self.assertTrue(offline["key_present_server_side"])
+        self.assertEqual(offline["mode"], "OFFLINE_NO_NETWORK")
+        transport.open.assert_not_called()
+        response = io.BytesIO(gateway.json_bytes({"object": "list", "data": [{"id": "gpt-6.1-sol"}]}))
+        response.status = 200
+        transport.open.return_value = response
+        catalog = collect_inventory(values, check_api=True, opener=transport)
+        request = transport.open.call_args.args[0]
+        self.assertEqual((request.get_method(), request.full_url), ("GET", "https://api.openai.com/v1/models"))
+        self.assertEqual(request.get_header("Authorization"), "Bearer synthetic-alias-token")
+        self.assertIsNone(request.data)
+        self.assertEqual(catalog["catalog_result"], "READ_ONLY_GET_SUCCEEDED_NOT_LIVE_VERIFIED")
+        self.assertEqual(catalog["live_responses_calls_made"], 0)
+        self.assertFalse(catalog["account_entitlement_fully_verified"])
+        self.assertNotIn("synthetic-alias-token", json.dumps({"offline": offline, "catalog": catalog}))
+
+    def test_explicit_project_targets_catalog_and_responses(self):
+        project = "proj_kralFixture"
+        values = {"KRAL_OPENAI_API_KEY": "synthetic-alias-token", "OPENAI_PROJECT_ID": project}
+        catalog_response = io.BytesIO(gateway.json_bytes({"object": "list", "data": []}))
+        catalog_response.status = 200
+        with patch.dict(os.environ, values, clear=True), \
+             patch("server.gateway.urllib.request.build_opener") as transport:
+            transport.return_value.open.side_effect = [catalog_response, self.response()]
+            catalog = collect_inventory(check_api=True)
+            *_, evidence = gateway.OpenAIProvider().reply_with_metadata("fixture-model", "Fixture task")
+            requests = [call.args[0] for call in transport.return_value.open.call_args_list]
+        self.assertEqual([(r.get_method(), r.full_url) for r in requests], [
+            ("GET", "https://api.openai.com/v1/models"),
+            ("POST", "https://api.openai.com/v1/responses"),
+        ])
+        self.assertEqual([r.get_header("Openai-project") for r in requests], [project, project])
+        self.assertNotIn(project, json.dumps({"catalog": catalog, "responses": evidence}))
+
+    def test_invalid_project_value_fails_before_either_transport(self):
+        key = "synthetic-alias-token"
+        for project in ("wrong-project", "proj_fixture\nX-Extra: value", "proj_" + key):
+            with self.subTest(project=project), \
+                 patch.dict(os.environ, {"KRAL_OPENAI_API_KEY": key, "OPENAI_PROJECT_ID": project}, clear=True), \
+                 patch("server.gateway.urllib.request.build_opener") as transport:
+                catalog = collect_inventory(check_api=True)
+                with self.assertRaises(gateway.Denied) as caught:
+                    gateway.OpenAIProvider().reply("fixture-model", "Fixture task")
+                self.assertEqual(catalog["catalog_result"], "OPENAI_PROJECT_CONFIGURATION_INVALID")
+                self.assertEqual((caught.exception.code, caught.exception.status),
+                                 ("OPENAI_PROJECT_CONFIGURATION_INVALID", 503))
+                self.assertNotIn(key, json.dumps(catalog))
+                transport.assert_not_called()
+
+
+if __name__ == "__main__":
+    unittest.main()

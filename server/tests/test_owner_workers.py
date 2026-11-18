@@ -16,6 +16,7 @@ import urllib.request
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from http.server import ThreadingHTTPServer
+from itertools import cycle
 from pathlib import Path
 from unittest.mock import patch
 
@@ -106,13 +107,30 @@ class OwnerWorkerTests(unittest.TestCase):
         return {"id": f"W{n:02d}", "kind": kind, "args": {} if args is None else args}
 
     def test_fifty_slots_use_four_local_threads_without_provider(self):
-        payload = {"tasks": [self.job(i) for i in range(1, 51)], "max_parallel": 4}
+        self.assertEqual(self.post({"tasks": [self.job(1)], "max_parallel": 1})[0], 200)
+        self.store.remember("fixture memory")
+        self.store.add_chat("fixture question", "fixture answer", "model-fixture", "openai")
+        self.gateway.models["model-fixture"] = ({
+            "id": "model-fixture", "provider": "openai", "verified_at": int(time.time()),
+        },)
+        operations = [
+            ("status", {}, {"scope": "local-owner-reads", "external_execution": False}),
+            ("memory.search", {"query": "fixture", "limit": 1}, {"memories": self.store.recall("fixture", limit=1)}),
+            ("history.recent", {"limit": 1}, {"messages": self.store.history(limit=1)}),
+            ("models.cached", {}, {"models": [{"id": "model-fixture", "provider": "openai"}]}),
+        ]
+        jobs = [self.job(i, kind, args) for i, (kind, args, _) in zip(range(1, 51), cycle(operations))]
+        expected_by_kind = {kind: result for kind, _, result in operations}
+        payload = {"tasks": jobs, "max_parallel": 4}
         status, data = self.post(payload)
         self.assertEqual(status, 200)
         self.assertEqual((data["logical_worker_slots"], data["executed_tasks"]), (50, 50))
         self.assertEqual(data["parallel_limit"], 4)
         self.assertEqual((data["provider_calls"], data["external_actions"], data["automatic_approvals"]), (0, 0, 0))
-        self.assertTrue(all(j["status"] == "COMPLETED_LOCAL_READ" for j in data["results"]))
+        for job, result in zip(jobs, data["results"], strict=True):
+            with self.subTest(worker=job["id"], operation=job["kind"]):
+                self.assertEqual(result, {"id": job["id"], "status": "COMPLETED_LOCAL_READ",
+                                          "result": expected_by_kind[job["kind"]]})
         self.assertEqual(self.provider.calls, 0)
         self.assertEqual(len(data["task_sha256"]), 64)
 

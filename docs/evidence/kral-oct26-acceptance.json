@@ -1,0 +1,234 @@
+{
+  "tested_source_commit": "5f9ba026c4a9ef62beb617483aa34932695e3206",
+  "base_commit": "057606ccfe3c5d1530022842b1901bd60a00367f",
+  "branch": "codex/kral-openai-guide-adapter",
+  "guide_url": "https://developers.openai.com/custom-guide/copper-voyage-pathway-9b837682",
+  "overall_status": "BLOCKED_REAL_API_ACCESS",
+  "acceptance": {
+    "A": "PASS",
+    "B": "PASS_OFFLINE_CONTRACT",
+    "C": "BLOCKED",
+    "D": "PASS_SYNTHETIC_APPROVED_EXECUTION",
+    "E": "PASS_OFFLINE_ENGINEERING"
+  },
+  "python": {
+    "tests": 152,
+    "passed": 152,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "seconds": 24.391,
+    "log_sha256": "2e299047796592f318e361eb247fa97f08e5f87dd1ce518d73a70229b6e19dbb"
+  },
+  "android_jvm": {
+    "tests": 69,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 6,
+    "passed": 63,
+    "suites": [
+      {
+        "name": "com.example.gptasistan.ChatSessionTest",
+        "tests": 9,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "sha256": "e09fb3efd4a53845e410f5057ad842106e67e3e22541c5a93953396f8756a632"
+      },
+      {
+        "name": "com.example.gptasistan.KralCoreTest",
+        "tests": 6,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "sha256": "9cbebc3fe118eae1868de2bd445220cf3020943bd4becea73419a1233733dc71"
+      },
+      {
+        "name": "com.example.gptasistan.KralStoreTest",
+        "tests": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 5,
+        "sha256": "0a8823034bebc232699fdbcd9157193d708a349dabbfb76ed56ea1bac87b938e"
+      },
+      {
+        "name": "com.example.gptasistan.ModelGatewayTest",
+        "tests": 17,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "sha256": "80e2e9b37535cf23ded786dd6c18de7342d404f64625cb15b0416ca533aa4e34"
+      },
+      {
+        "name": "com.example.gptasistan.OwnerExecutionPolicyTest",
+        "tests": 7,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "sha256": "7bdd94f99f1524b5bd82d6cadca0ee034175a9bb2c552943ddc08565eb9e4a16"
+      },
+      {
+        "name": "com.example.gptasistan.OwnerGatewayTest",
+        "tests": 14,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "sha256": "5691fc01bc4ccef516df03e708741f44191750684407f9105cb2186f8a89fa21"
+      },
+      {
+        "name": "com.example.gptasistan.OwnerGatewayToolTest",
+        "tests": 7,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "sha256": "b84c543f2a1e9fd1602cde724b27aa728b751f32df651cbbffd9984c0c2478d8"
+      },
+      {
+        "name": "com.example.gptasistan.OwnerGatewayTransportTest",
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "sha256": "0574ac7e505f3a6954eccc2a349ac8c972cfaf716c89aad8c6b7091f0caba477"
+      },
+      {
+        "name": "com.example.gptasistan.OwnerLockTest",
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 1,
+        "sha256": "42f5a341ee1a2329a22116d66b40c4b36ee0ea6d33693687c211077a1fd62784"
+      }
+    ]
+  },
+  "android_emulator": {
+    "api_level": 30,
+    "tests": 17,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "passed": 17,
+    "suites": [
+      {
+        "name": "com.example.gptasistan.EncryptedOrchestratorTest",
+        "tests": 17,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "sha256": "6144ff9d12ecd24e29eca5546309d8e195a536c4ecced46878a8b1c0b1c43406"
+      }
+    ],
+    "hardware_acceleration": false,
+    "emulation_mode": "software TCG"
+  },
+  "configured_gateway_acceptance": {
+    "instrumentation_tests": 4,
+    "passed_tests": [
+      "signedAndroidTaskReachesGatewayAndReturnsResponsesEvidence",
+      "chatHttpErrorsUseTheSameTypedAndroidFailureParser",
+      "signedLocalMemoryRequiresExactApprovalAndExecutesOnlyOnce",
+      "providerAccessFailuresRemainTypedInTheTaskContract"
+    ],
+    "instrumentation_passed": true,
+    "expected_tests": [
+      "chatHttpErrorsUseTheSameTypedAndroidFailureParser",
+      "providerAccessFailuresRemainTypedInTheTaskContract",
+      "signedAndroidTaskReachesGatewayAndReturnsResponsesEvidence",
+      "signedLocalMemoryRequiresExactApprovalAndExecutesOnlyOnce"
+    ],
+    "physical_phone_tested": false,
+    "live_model_tested": false,
+    "external_provider_calls": 0,
+    "api_level": 30,
+    "skipped_tests": 0,
+    "fixture_evidence": {
+      "mocked_responses_calls": 11,
+      "external_provider_calls": 0,
+      "completed": 5,
+      "typed_failures": 6
+    }
+  },
+  "lint": {
+    "Error": 0,
+    "Warning": 31
+  },
+  "apk_sha256": {
+    "app/build/outputs/apk/debug/app-debug.apk": "af37ceed457b90d163f109350e1a285a532684a30bac23622a1adaf7d4104838",
+    "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk": "54b6696ef0df50f6483bc816b6971023f8871417f187d0e1275412ec23eb6e97"
+  },
+  "live_readiness": {
+    "account_access": "NOT_VERIFIED",
+    "allowlist_valid": true,
+    "catalog_status": "NOT_CHECKED",
+    "configured_models": [],
+    "errors": [
+      "PROVIDER_NOT_CONFIGURED"
+    ],
+    "key_present": false,
+    "mode": "READ_ONLY_MODEL_LIST",
+    "model_access": "NOT_VERIFIED",
+    "observed_at": "2026-11-03T13:18:29+00:00",
+    "responses_attempted": 0,
+    "status": "BLOCKED"
+  },
+  "physical_device": "NOT_VERIFIED",
+  "source_files_sha256": {
+    ".github/workflows/android.yml": "7c8c7700c2e4ca1f26566e53d5af284f72788d2f5b3e424995f7738e9bfe7710",
+    ".gitignore": "18a1505ea864e117a941921b9cd37e47f5600dbb44bb317539f8cbef9494d148",
+    "app/src/androidTest/java/com/example/gptasistan/OwnerGatewayIntegrationTest.kt": "446cf4e6b2d9444c2cf107ad6805db761258e287f8d16ed338a32a7822f9402e",
+    "app/src/main/java/com/example/gptasistan/OwnerGateway.kt": "b8251854fa70b69246e2f7fcc7eeaed4a77cdd46220f3837d1c169f957d69bc7",
+    "app/src/main/java/com/example/gptasistan/OwnerIdentity.kt": "9e43c4a7151c3e00e461f796d178a39f7c72cf87ffa09c1ec49ba9072059c554",
+    "app/src/test/java/com/example/gptasistan/OwnerGatewayToolTest.kt": "c3662cfbb263c38a5dc71bc13d8ca77fc941dc2aa73ee817270487b1092bb056",
+    "app/src/test/java/com/example/gptasistan/OwnerGatewayTransportTest.kt": "c1989b916aef5791d771951fd62da4fa9f9f99c96ebf62e9be9b5c652a34713e",
+    "scripts/android_gateway_fixture.py": "7680f145743ca5fbd296da858c7e6b8f607fe44cd008939f707a4f4398847802",
+    "scripts/run_android_gateway_acceptance.py": "9bc817216bc16ebf43e1835026a083d587db3fcffc9316e971026f90866770e1",
+    "scripts/verify_openai_acceptance.py": "085d825dffc3a5ca253d3f1749296eec526eabb48be3a30ecb1bf8e7a2523829",
+    "server/config.env.example": "7fcba2f51c68e2633e15262351c0f4a619935348e35fd819c7a0fbc79e4d5e27",
+    "server/gateway.py": "0d5e26f71fb83a1fd79e49c6c8e9da1526243d2c7132481e52c1616ab1e22b89",
+    "server/openai_config.py": "0c8dcaa005dbfe5bcdabf5720e514b5659d4430abfe8b74b0e72aeecd52f0773",
+    "server/openai_model_inventory.py": "6e6575e810587b218107119c6148f2e391a2d4ef6c20ad6469347f9667e5c448",
+    "server/task_runtime.py": "6d8b1fd48c7365168333ae718b97e3d071ec2e0b964a79cf1f281bed8a5c8349",
+    "server/tests/test_android_acceptance_runner.py": "ecb44e498a899c2ccc6ad5f2c69498ba75cad456a856063fe7f0ba965b00df0a",
+    "server/tests/test_gateway.py": "0ce90316b1d574113b61818526e95875e2b88e8c2bec8645f0a22d703a257067",
+    "server/tests/test_live_acceptance.py": "06c1ad7119a1d9a39602b5756bed524eac064b30a921cce14888ca7a005bbecb",
+    "server/tests/test_openai_config.py": "aa8fb1af1cc3be9bd01c925df9ab1650ca4e2f54f3fd8d3f0c2556835961f787",
+    "server/tests/test_security_boundaries.py": "3b7ef44f8ad2dac9d2be73ef5358d5ac50772d304de63a8b185e1ffb9bb64979",
+    "server/tests/test_task_runtime.py": "5677039820014caf97b03ad314cb79450d7ad68cc706c4926da37ae9af6c151d",
+    "server/tests/test_tool_tasks.py": "a6f085043822d19e047db41221987606d04be69f07efa31d7fa765eb5f1a3d2a",
+    "server/tool_tasks.py": "56fffcf536c9696201d986186af577f49c63ead35affeb0d9d3011dfab1741bf"
+  },
+  "changed_files": [
+    ".github/workflows/android.yml",
+    ".gitignore",
+    "app/src/androidTest/java/com/example/gptasistan/OwnerGatewayIntegrationTest.kt",
+    "app/src/main/java/com/example/gptasistan/OwnerGateway.kt",
+    "app/src/main/java/com/example/gptasistan/OwnerIdentity.kt",
+    "app/src/test/java/com/example/gptasistan/OwnerGatewayToolTest.kt",
+    "app/src/test/java/com/example/gptasistan/OwnerGatewayTransportTest.kt",
+    "docs/KRAL_OPENAI_GUIDE_ADAPTER.md",
+    "docs/KRAL_OPENAI_MODEL_ACCESS.md",
+    "docs/KRAL_TOOL_TASKS.md",
+    "scripts/android_gateway_fixture.py",
+    "scripts/run_android_gateway_acceptance.py",
+    "scripts/verify_openai_acceptance.py",
+    "server/config.env.example",
+    "server/gateway.py",
+    "server/openai_config.py",
+    "server/openai_model_inventory.py",
+    "server/task_runtime.py",
+    "server/tests/test_android_acceptance_runner.py",
+    "server/tests/test_gateway.py",
+    "server/tests/test_live_acceptance.py",
+    "server/tests/test_openai_config.py",
+    "server/tests/test_security_boundaries.py",
+    "server/tests/test_task_runtime.py",
+    "server/tests/test_tool_tasks.py",
+    "server/tool_tasks.py"
+  ],
+  "notes": [
+    "JVM native/Keystore ignores are exercised by real emulator instrumentation.",
+    "Mocked Responses and synthetic owner identities are not proof of live account access.",
+    "No paid OpenAI calls, main merge or deployment.",
+    "An initial emulator clock-skew failure was fixed and all17 tests passed on a fresh rerun."
+  ]
+}
