@@ -220,6 +220,60 @@ class TaskLifecycleTests(unittest.TestCase):
             self.manager.submit("m", "m", "test-engineer", "Overflow", approval_required=True)
         self.assertEqual(self.provider.calls, 0)
 
+    def test_background_task_completes_only_after_webhook_result(self):
+        class BackgroundProvider(FakeProvider):
+            def __init__(self):
+                super().__init__()
+                self.started_background = 0
+            def start_background(self, model, prompt, *, request_metadata=None, client_request_id=None):
+                self.started_background += 1
+                self.started.set()
+                return {"response_id": "resp_background_123", "request_id": "req_background_123",
+                        "http_status": 200, "status": "in_progress"}
+        provider = BackgroundProvider()
+        manager = TaskManager(self.store, provider)
+        try:
+            task = manager.submit("model-fixture", "model-fixture", "test-engineer",
+                                  "Background task", background=True)
+            pending = self.wait_for_with(manager, task["task_id"], {"background_pending"})
+            self.assertEqual(provider.started_background, 1)
+            self.assertEqual(pending["response_id"], "resp_background_123")
+            self.assertIsNone(pending["result"])
+            self.assertTrue(manager.complete_background(
+                "resp_background_123", "verified async result", "model-fixture",
+                {"request_id": "req_retrieve_123", "http_status": 200}
+            ))
+            completed = manager.get(task["task_id"])
+            self.assertEqual(completed["status"], "completed")
+            self.assertEqual(completed["result"], "verified async result")
+            self.assertEqual(completed["result_sha256"],
+                             hashlib.sha256(b"verified async result").hexdigest())
+            self.assertEqual(completed["response_id"], "resp_background_123")
+        finally:
+            manager.close()
+
+    def test_background_task_cancellation_discards_webhook_result(self):
+        class BackgroundProvider(FakeProvider):
+            def start_background(self, model, prompt, *, request_metadata=None, client_request_id=None):
+                return {"response_id": "resp_background_cancel", "request_id": "req_background_cancel",
+                        "http_status": 200, "status": "in_progress"}
+        provider = BackgroundProvider()
+        manager = TaskManager(self.store, provider)
+        try:
+            task = manager.submit("model-fixture", "model-fixture", "test-engineer",
+                                  "Cancel background task", background=True)
+            self.wait_for_with(manager, task["task_id"], {"background_pending"})
+            cancelled = manager.cancel(task["task_id"])
+            self.assertEqual(cancelled["status"], "cancelled")
+            self.assertTrue(manager.complete_background(
+                "resp_background_cancel", "must be discarded", "model-fixture", {}
+            ))
+            final = manager.get(task["task_id"])
+            self.assertEqual(final["status"], "cancelled")
+            self.assertIsNone(final["result"])
+        finally:
+            manager.close()
+
     def test_unknown_expert_rejected(self):
         with self.assertRaisesRegex(ValueError, "TASK_EXPERT_NOT_FOUND"):
             self.manager.submit("m", "m", "unknown", "hello")

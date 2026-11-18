@@ -22,7 +22,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from . import owner_auth_v1 as auth
-from . import email_otp, kral_memory, idempotency, owner_workers, task_runtime
+from . import email_otp, kral_memory, idempotency, owner_workers, task_runtime, openai_webhooks, openai_config
 
 CONTRACT = "OMEGA-OWNER-API-V1"
 PREFIX = "/api/v1/owner/"
@@ -61,11 +61,21 @@ class OpenAIProvider:
     name = "openai"
 
     def configured(self):
-        return bool(os.getenv("OPENAI_API_KEY", "").strip())
+        return bool(openai_config.api_key())
+
+    @staticmethod
+    def _project_headers():
+        try:
+            return openai_config.project_headers()
+        except openai_config.ProjectConfigurationError:
+            raise Denied("OPENAI_PROJECT_CONFIGURATION_INVALID", 503) from None
 
     def candidates(self):
         models = [m.strip() for m in os.getenv("OPENAI_ALLOWED_MODELS", "").split(",") if m.strip()]
-        if len(models) > 4 or any(not MODEL_ID.fullmatch(m) for m in models):
+        if len(models) > 4 or any(
+                not MODEL_ID.fullmatch(m) or openai_config.contains_credential(m)
+                for m in models
+        ):
             raise Denied("MODEL_CONFIGURATION_INVALID", 503)
         preferred = os.getenv("OPENAI_MODEL_PREFERRED", "").strip()
         ordered = list(dict.fromkeys(models))
@@ -115,9 +125,10 @@ class OpenAIProvider:
 
     def reply_with_metadata(self, model, message, *, probe=False,
                             request_metadata=None, client_request_id=None):
-        key = os.getenv("OPENAI_API_KEY", "").strip()
+        key = openai_config.api_key()
         if not key:
             raise Denied("PROVIDER_NOT_CONFIGURED", 503)
+        project_headers = self._project_headers()
         payload = {"model": model, "input": message,
                    "max_output_tokens": 64 if probe else 1024, "store": False}
         if request_metadata is not None:
@@ -130,6 +141,7 @@ class OpenAIProvider:
         headers = {
             "Authorization": "Bearer " + key, "Content-Type": "application/json",
             "User-Agent": "kral-owner-gateway/1.0"}
+        headers.update(project_headers)
         if client_request_id is not None:
             if (not isinstance(client_request_id, str) or not client_request_id.isascii()
                     or not 1 <= len(client_request_id) <= 512):
@@ -211,6 +223,121 @@ class OpenAIProvider:
             raise Denied("PROVIDER_RESPONSE_INVALID", 502) from None
 
 
+    def start_background(self, model, message, *, request_metadata=None, client_request_id=None):
+        """Start a Responses background job with temporary-only storage."""
+        key = openai_config.api_key()
+        if not key:
+            raise Denied("PROVIDER_NOT_CONFIGURED", 503)
+        project_headers = self._project_headers()
+        payload = {
+            "model": model, "input": message, "max_output_tokens": 1024,
+            "background": True, "store": False,
+        }
+        if request_metadata is not None:
+            if (not isinstance(request_metadata, dict) or len(request_metadata) > 16 or
+                    any(not isinstance(k, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", k)
+                        or not isinstance(v, str) or len(v) > 512
+                        for k, v in request_metadata.items())):
+                raise Denied("PROVIDER_METADATA_INVALID", 400)
+            payload["metadata"] = request_metadata
+        headers = {
+            "Authorization": "Bearer " + key, "Content-Type": "application/json",
+            "User-Agent": "kral-owner-gateway/1.0",
+        }
+        headers.update(project_headers)
+        if client_request_id is not None:
+            if (not isinstance(client_request_id, str) or not client_request_id.isascii()
+                    or not 1 <= len(client_request_id) <= 512):
+                raise Denied("PROVIDER_CLIENT_REQUEST_ID_INVALID", 400)
+            headers["X-Client-Request-Id"] = client_request_id
+        req = urllib.request.Request(
+            "https://api.openai.com/v1/responses", data=json_bytes(payload),
+            method="POST", headers=headers,
+        )
+        try:
+            with urllib.request.build_opener(NoRedirect()).open(req, timeout=30) as response:
+                status = getattr(response, "status", 200)
+                request_id = self._safe_header(getattr(response, "headers", {}) or {},
+                                                "x-request-id", secret=key)
+                raw = response.read(MAX_RESPONSE + 1)
+            if status not in (200, 201, 202) or len(raw) > MAX_RESPONSE:
+                raise Denied("PROVIDER_BACKGROUND_START_FAILED", 502,
+                             provider_http_status=status, provider_request_id=request_id)
+            data = json.loads(raw)
+            response_id = data.get("id") if isinstance(data, dict) else None
+            returned_model = data.get("model") if isinstance(data, dict) else None
+            state = data.get("status") if isinstance(data, dict) else None
+            if (not isinstance(response_id, str)
+                    or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", response_id)
+                    or returned_model != model
+                    or state not in ("queued", "in_progress", "completed")):
+                raise Denied("PROVIDER_BACKGROUND_RESPONSE_INVALID", 502,
+                             provider_http_status=status, provider_request_id=request_id)
+            return {"response_id": response_id, "request_id": request_id,
+                    "http_status": status, "status": state}
+        except urllib.error.HTTPError as exc:
+            request_id = self._safe_header(exc.headers or {}, "x-request-id", secret=key)
+            raise Denied("PROVIDER_BACKGROUND_START_FAILED", 502,
+                         provider_http_status=exc.code, provider_request_id=request_id) from None
+        except (urllib.error.URLError, TimeoutError, OSError):
+            raise Denied("PROVIDER_CONNECTION_FAILED", 502, retryable=True) from None
+        except (ValueError, TypeError, KeyError):
+            raise Denied("PROVIDER_RESPONSE_INVALID", 502) from None
+
+    def retrieve_background(self, response_id):
+        """Retrieve one known KRAL background response; never accepts an arbitrary URL."""
+        key = openai_config.api_key()
+        if not key:
+            raise Denied("PROVIDER_NOT_CONFIGURED", 503)
+        project_headers = self._project_headers()
+        if not isinstance(response_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", response_id):
+            raise Denied("PROVIDER_RESPONSE_ID_INVALID", 400)
+        headers = {"Authorization": "Bearer " + key, "User-Agent": "kral-owner-gateway/1.0"}
+        headers.update(project_headers)
+        req = urllib.request.Request(
+            "https://api.openai.com/v1/responses/" + response_id,
+            method="GET",
+            headers=headers,
+        )
+        try:
+            with urllib.request.build_opener(NoRedirect()).open(req, timeout=20) as response:
+                status = getattr(response, "status", 200)
+                request_id = self._safe_header(getattr(response, "headers", {}) or {},
+                                                "x-request-id", secret=key)
+                raw = response.read(MAX_RESPONSE + 1)
+            if status != 200 or len(raw) > MAX_RESPONSE:
+                raise Denied("PROVIDER_BACKGROUND_RETRIEVE_FAILED", 502,
+                             provider_http_status=status, provider_request_id=request_id)
+            data = json.loads(raw)
+            if not isinstance(data, dict) or data.get("id") != response_id:
+                raise Denied("PROVIDER_BACKGROUND_RESPONSE_INVALID", 502)
+            if data.get("status") != "completed":
+                raise Denied("PROVIDER_BACKGROUND_NOT_COMPLETED", 409)
+            actual = data.get("model")
+            if not isinstance(actual, str) or not MODEL_ID.fullmatch(actual) or key in actual:
+                raise Denied("PROVIDER_MODEL_MISSING", 502)
+            chunks = [part["text"] for item in data.get("output", []) if isinstance(item, dict)
+                      and item.get("type") == "message" for part in item.get("content", [])
+                      if isinstance(part, dict) and part.get("type") == "output_text"
+                      and isinstance(part.get("text"), str)]
+            answer = "\n".join(chunks).strip()
+            if not answer or len(answer) > 16000 or key in answer:
+                raise Denied("PROVIDER_TEXT_INVALID", 502)
+            return answer, actual, {
+                "response_id": response_id, "request_id": request_id,
+                "http_status": status, "provider_error_code": None,
+                "retryable": False, "retry_after_seconds": None,
+            }
+        except urllib.error.HTTPError as exc:
+            request_id = self._safe_header(exc.headers or {}, "x-request-id", secret=key)
+            raise Denied("PROVIDER_BACKGROUND_RETRIEVE_FAILED", 502,
+                         provider_http_status=exc.code, provider_request_id=request_id) from None
+        except (urllib.error.URLError, TimeoutError, OSError):
+            raise Denied("PROVIDER_CONNECTION_FAILED", 502, retryable=True) from None
+        except (ValueError, TypeError, KeyError):
+            raise Denied("PROVIDER_RESPONSE_INVALID", 502) from None
+
+
 class Store:
     def __init__(self, path):
         self.path = Path(path)
@@ -226,6 +353,13 @@ class Store:
                 CREATE TABLE IF NOT EXISTS owner_binding (
                     singleton INTEGER PRIMARY KEY CHECK(singleton=1),
                     owner_id TEXT NOT NULL, public_key_sha256 TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS openai_webhook_events (
+                    webhook_id TEXT PRIMARY KEY,
+                    event_id TEXT NOT NULL,
+                    event_type TEXT NOT NULL,
+                    received_at INTEGER NOT NULL,
+                    body_sha256 TEXT NOT NULL
+                );
             """)
             kral_memory.initialize(db)
             idempotency.initialize(db)
@@ -515,22 +649,66 @@ class Gateway:
             response_id, provider_request_id, client_request_id
         )
 
+    def receive_openai_webhook(self, raw_body, headers):
+        event, webhook_id = openai_webhooks.verify_and_parse(raw_body, headers)
+        # Process only response events that belong to a known KRAL background task.
+        # Do this before recording the delivery so a transient retrieval failure is retried.
+        if event["type"] in ("response.completed", "response.failed", "response.incomplete"):
+            response_id = event["data"].get("id")
+            task = self.tasks.task_for_response(response_id)
+            if task is None:
+                raise openai_webhooks.WebhookError("WEBHOOK_RESPONSE_NOT_MATCHED", 503)
+            if event["type"] == "response.completed" and task["status"] == "background_pending":
+                try:
+                    answer, actual_model, provider_meta = self.provider.retrieve_background(response_id)
+                    if not self.tasks.complete_background(response_id, answer, actual_model, provider_meta):
+                        raise openai_webhooks.WebhookError("WEBHOOK_TASK_NOT_READY", 503)
+                except Denied as exc:
+                    raise openai_webhooks.WebhookError("WEBHOOK_RESPONSE_RETRIEVAL_FAILED", 503) from None
+                except ValueError:
+                    raise openai_webhooks.WebhookError("WEBHOOK_RESPONSE_INVALID", 400) from None
+            elif event["type"] == "response.failed":
+                self.tasks.fail_background(response_id, "PROVIDER_BACKGROUND_FAILED")
+            elif event["type"] == "response.incomplete":
+                self.tasks.fail_background(response_id, "PROVIDER_BACKGROUND_INCOMPLETE")
+        digest = hashlib.sha256(raw_body).hexdigest()
+        with self.store.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            cursor = db.execute(
+                "INSERT OR IGNORE INTO openai_webhook_events "
+                "(webhook_id,event_id,event_type,received_at,body_sha256) VALUES(?,?,?,?,?)",
+                (webhook_id, event["id"], event["type"], int(time.time()), digest),
+            )
+            duplicate = cursor.rowcount == 0
+            if duplicate:
+                existing = db.execute(
+                    "SELECT event_id,event_type,body_sha256 FROM openai_webhook_events WHERE webhook_id=?",
+                    (webhook_id,),
+                ).fetchone()
+                if existing is None or existing != (event["id"], event["type"], digest):
+                    raise openai_webhooks.WebhookError("WEBHOOK_ID_CONFLICT", 409)
+        return {"accepted": True, "duplicate": duplicate,
+                "event_id": event["id"], "event_type": event["type"]}
+
     def route(self, path, data, *, request_deadline=None):
         if path == PREFIX + "tasks":
-            if set(data) - {"input", "model", "expert", "tools", "requires_approval",
+            if set(data) - {"input", "model", "expert", "tools", "requires_approval", "background",
                             "idempotency_key", "client_request_id"}:
                 raise Denied("TASK_FIELDS_DENIED")
             prompt, model = data.get("input"), data.get("model")
             expert, tools = data.get("expert"), data.get("tools", [])
             approval = data.get("requires_approval", False)
+            background = data.get("background", False)
             if not isinstance(prompt, str) or not prompt.strip() or len(prompt) > 8000:
                 raise Denied("TASK_INPUT_INVALID")
             if not isinstance(model, str) or not isinstance(expert, str) or not isinstance(tools, list):
                 raise Denied("TASK_FIELDS_INVALID")
             if tools:
                 raise Denied("TASK_TOOL_CAPABILITY_DENIED", 403)
-            if not isinstance(approval, bool):
+            if not isinstance(approval, bool) or not isinstance(background, bool):
                 raise Denied("TASK_APPROVAL_FLAG_INVALID")
+            if background and approval:
+                raise Denied("TASK_BACKGROUND_APPROVAL_CONFLICT")
             if any(field in data and data[field] is None
                    for field in ("idempotency_key", "client_request_id")):
                 raise Denied("TASK_IDEMPOTENCY_KEY_INVALID")
@@ -540,7 +718,7 @@ class Gateway:
                 # Retrieval is not a new model call. Accepted submissions remain
                 # discoverable after restart/expiry/rate or capacity exhaustion.
                 existing = self.tasks.lookup_submission(key, model, expert, prompt,
-                                                        approval_required=approval)
+                                                        approval_required=approval, background=background)
                 if existing is not None:
                     return existing
             except task_runtime.TaskIdempotencyConflict as exc:
@@ -564,7 +742,7 @@ class Gateway:
                     self.calls.append(now)
             try:
                 return self.tasks.submit(model, row[1], expert, prompt, approval_required=approval,
-                                         idempotency_key=key)
+                                         background=background, idempotency_key=key)
             except task_runtime.TaskIdempotencyConflict as exc:
                 raise Denied(str(exc), 409) from None
             except task_runtime.TaskIdempotencyUnavailable as exc:
@@ -677,6 +855,30 @@ def handler_for(gateway):
                 raise Denied("JSON_OBJECT_REQUIRED")
             return data
 
+        def handle_openai_webhook(self):
+            try:
+                if (self.headers.get("Transfer-Encoding")
+                        or len(self.headers.get_all("Content-Length", [])) != 1):
+                    raise openai_webhooks.WebhookError("WEBHOOK_BODY_LENGTH_REQUIRED", 411)
+                if self.headers.get_content_type() != "application/json":
+                    raise openai_webhooks.WebhookError("WEBHOOK_JSON_REQUIRED", 415)
+                length = int(self.headers.get("Content-Length", "0"))
+                if not 0 < length <= openai_webhooks.MAX_WEBHOOK_BODY:
+                    raise openai_webhooks.WebhookError("WEBHOOK_BODY_INVALID", 413)
+                raw = self.rfile.read(length)
+                if len(raw) != length:
+                    raise openai_webhooks.WebhookError("WEBHOOK_BODY_INCOMPLETE")
+                result = gateway.receive_openai_webhook(raw, self.headers)
+                self.send_json(200, result)
+            except openai_webhooks.WebhookError as exc:
+                self.send_json(exc.status, {"error": exc.code})
+            except (ValueError, UnicodeError):
+                self.send_json(400, {"error": "WEBHOOK_REQUEST_INVALID"})
+            except sqlite3.Error:
+                self.send_json(503, {"error": "PERSISTENT_STORE_UNAVAILABLE"})
+            finally:
+                self.close_connection = True
+
         def handle_otp(self):
             # Pre-login endpoints: the code goes only to the configured owner e-mail.
             try:
@@ -703,6 +905,8 @@ def handler_for(gateway):
             request_deadline = time.monotonic() + CHAT_PREPARATION_BUDGET
             acquired = False
             try:
+                if self.path == "/webhooks/openai":
+                    return self.handle_openai_webhook()
                 if self.path in (email_otp.REQUEST_PATH, email_otp.VERIFY_PATH):
                     return self.handle_otp()
                 if self.path not in {PREFIX + p for p in ("chat", "models", "history", "memory", "workers", "tasks", "tasks/status", "tasks/cancel", "tasks/approve")}:
