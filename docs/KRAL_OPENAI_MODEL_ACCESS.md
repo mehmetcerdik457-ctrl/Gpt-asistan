@@ -1,4 +1,4 @@
-# KRAL model access & evidence boundary (2026-11-03)
+# KRAL model access & evidence boundary (2026-11-19)
 
 ## Source provenance
 
@@ -19,7 +19,7 @@
 server-side, using `OPENAI_API_KEY` from server environment, with `store: false`,
 bounded output, redacted upstream HTTP errors, allowlisted models, two
 concurrent probe requests at most, and fresh dual-P256 signed owner requests.
-It limits active configured candidate models to **four**, so six documented
+It limits active configured candidate models to **four**, so ten documented
 model names must **not** be inserted into the active allowlist at once.
 
 The 26 October guide's `runKralAiTask()` JavaScript snippet illustrates
@@ -38,6 +38,23 @@ The established Android contract remains `result`, `model`, and `response_id`;
 it carries the guide's `text`, `model`, and `responseId` semantics without adding
 a JavaScript service. See [the adapter acceptance map](KRAL_OPENAI_GUIDE_ADAPTER.md)
 for test commands and the remaining tool-execution boundary.
+
+## Documented model IDs snapshot (2026-11-19)
+
+The curated offline inventory records these official API model IDs:
+
+- GPT-6.2: `gpt-6.2-astra`, `gpt-6.2-sol`
+- GPT-6 family: `gpt-6-astra`, `gpt-6-sol`, `gpt-6-luna`
+- GPT-6.1 family: `gpt-6.1-sol`, `gpt-6.1-terra`
+- GPT-5.6 family: `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`
+
+This is a public-documentation snapshot, not a project entitlement list. The
+connected project's GET /v1/models result remains authoritative for catalog
+presence; a successful Responses request is still required for live verification.
+See the [GPT-6.2 Astra](https://developers.openai.com/api/docs/models/gpt-6.2-astra),
+[GPT-6.2 Sol](https://developers.openai.com/api/docs/models/gpt-6.2-sol),
+[GPT-5.6 Terra](https://developers.openai.com/api/docs/models/gpt-5.6-terra), and
+[GPT-5.6 Luna](https://developers.openai.com/api/docs/models/gpt-5.6-luna) references.
 
 ## Model states are not interchangeable
 
