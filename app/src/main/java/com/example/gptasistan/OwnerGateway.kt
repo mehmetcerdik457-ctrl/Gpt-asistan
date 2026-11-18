@@ -41,6 +41,61 @@ object OwnerGateway {
 
     fun clear() { registry = null }
 
+    /** Read-only SUPER ADMIN snapshot; the server never returns credential values. */
+    fun adminStatus(context: Context, base: String): JSONObject {
+        val owner = context.getSharedPreferences("kral_model", Context.MODE_PRIVATE)
+            .getString("owner_id", "").orEmpty()
+        return request(base, "/api/v1/owner/admin/status", owner, JSONObject())
+    }
+
+    /** Render only the server's bounded status contract; never display raw JSON or credentials. */
+    fun adminStatusReport(context: Context, base: String): String {
+        val status = adminStatus(context, base)
+        require(status.optString("contract") == OmegaEnvelope.CONTRACT)
+        require(status.optString("role") == "SUPER_ADMIN")
+        require(status.optString("authorization") == "DUAL_P256_OWNER_DEVICE")
+        val lines = mutableListOf(
+            "SUPER ADMIN — salt okunur durum",
+            "Yetki: sahip + cihaz imzası doğrulandı",
+            "",
+            "Yapay zekâ sağlayıcıları:"
+        )
+        val providers = status.optJSONArray("providers") ?: JSONArray()
+        for (index in 0 until providers.length()) {
+            val provider = providers.optJSONObject(index) ?: continue
+            val id = provider.optString("id", "bilinmeyen")
+            val configuration = provider.optString("configuration", "DURUM_BİLİNMİYOR")
+            val count = provider.optInt("candidate_count", 0).coerceIn(0, 4)
+            val version = provider.optString("api_version", "")
+            lines += "• $id: $configuration · aday model: $count" +
+                if (version.isNotBlank()) " · API: $version" else ""
+        }
+        lines += ""
+        lines += "Doğrulanmış modeller:"
+        val models = status.optJSONArray("verified_models") ?: JSONArray()
+        if (models.length() == 0) lines += "• Yok — henüz canlı doğrulama kaydı bulunmuyor"
+        for (index in 0 until models.length()) {
+            val model = models.optJSONObject(index) ?: continue
+            val id = model.optString("id", "")
+            val provider = model.optString("provider", "")
+            if (id.matches(Regex("[A-Za-z0-9._-]{1,200}")) &&
+                provider.matches(Regex("[A-Za-z0-9_-]{1,64}"))) {
+                lines += "• $id ($provider)"
+            }
+        }
+        lines += ""
+        lines += "Bağlayıcılar:"
+        for (key in listOf("google_cloud", "google_drive", "github_actions")) {
+            val value = status.optString(key, "DURUM_BİLİNMİYOR")
+            lines += "• $key: $value"
+        }
+        lines += "• Harici eylemler: " + if (status.optBoolean("external_actions_enabled")) "AÇIK" else "KAPALI"
+        lines += "• Model araçları: " + if (status.optBoolean("model_tools_enabled")) "AÇIK" else "KAPALI"
+        lines += "• Gizli anahtar değerleri: " +
+            if (status.optBoolean("credential_values_exposed")) "SUNUCU TARAFINDAN SUNULUYOR" else "GÖSTERİLMİYOR"
+        return lines.joinToString("\n")
+    }
+
     fun verifiedModels(base: String, owner: String, now: Long = System.currentTimeMillis() / 1000): List<Model> {
         val cached = registry ?: return emptyList()
         if (cached.base != base.trimEnd('/') || cached.owner != owner) return emptyList()
