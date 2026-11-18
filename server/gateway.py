@@ -22,7 +22,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from . import owner_auth_v1 as auth
-from . import email_otp, kral_memory, idempotency, owner_workers, task_runtime, openai_webhooks
+from . import email_otp, kral_memory, idempotency, owner_workers, task_runtime, openai_webhooks, openai_config
 
 CONTRACT = "OMEGA-OWNER-API-V1"
 PREFIX = "/api/v1/owner/"
@@ -61,11 +61,21 @@ class OpenAIProvider:
     name = "openai"
 
     def configured(self):
-        return bool(os.getenv("OPENAI_API_KEY", "").strip())
+        return bool(openai_config.api_key())
+
+    @staticmethod
+    def _project_headers():
+        try:
+            return openai_config.project_headers()
+        except openai_config.ProjectConfigurationError:
+            raise Denied("OPENAI_PROJECT_CONFIGURATION_INVALID", 503) from None
 
     def candidates(self):
         models = [m.strip() for m in os.getenv("OPENAI_ALLOWED_MODELS", "").split(",") if m.strip()]
-        if len(models) > 4 or any(not MODEL_ID.fullmatch(m) for m in models):
+        if len(models) > 4 or any(
+                not MODEL_ID.fullmatch(m) or openai_config.contains_credential(m)
+                for m in models
+        ):
             raise Denied("MODEL_CONFIGURATION_INVALID", 503)
         preferred = os.getenv("OPENAI_MODEL_PREFERRED", "").strip()
         ordered = list(dict.fromkeys(models))
@@ -115,9 +125,10 @@ class OpenAIProvider:
 
     def reply_with_metadata(self, model, message, *, probe=False,
                             request_metadata=None, client_request_id=None):
-        key = os.getenv("OPENAI_API_KEY", "").strip()
+        key = openai_config.api_key()
         if not key:
             raise Denied("PROVIDER_NOT_CONFIGURED", 503)
+        project_headers = self._project_headers()
         payload = {"model": model, "input": message,
                    "max_output_tokens": 64 if probe else 1024, "store": False}
         if request_metadata is not None:
@@ -130,6 +141,7 @@ class OpenAIProvider:
         headers = {
             "Authorization": "Bearer " + key, "Content-Type": "application/json",
             "User-Agent": "kral-owner-gateway/1.0"}
+        headers.update(project_headers)
         if client_request_id is not None:
             if (not isinstance(client_request_id, str) or not client_request_id.isascii()
                     or not 1 <= len(client_request_id) <= 512):
@@ -213,9 +225,10 @@ class OpenAIProvider:
 
     def start_background(self, model, message, *, request_metadata=None, client_request_id=None):
         """Start a Responses background job with temporary-only storage."""
-        key = os.getenv("OPENAI_API_KEY", "").strip()
+        key = openai_config.api_key()
         if not key:
             raise Denied("PROVIDER_NOT_CONFIGURED", 503)
+        project_headers = self._project_headers()
         payload = {
             "model": model, "input": message, "max_output_tokens": 1024,
             "background": True, "store": False,
@@ -231,6 +244,7 @@ class OpenAIProvider:
             "Authorization": "Bearer " + key, "Content-Type": "application/json",
             "User-Agent": "kral-owner-gateway/1.0",
         }
+        headers.update(project_headers)
         if client_request_id is not None:
             if (not isinstance(client_request_id, str) or not client_request_id.isascii()
                     or not 1 <= len(client_request_id) <= 512):
@@ -272,15 +286,18 @@ class OpenAIProvider:
 
     def retrieve_background(self, response_id):
         """Retrieve one known KRAL background response; never accepts an arbitrary URL."""
-        key = os.getenv("OPENAI_API_KEY", "").strip()
+        key = openai_config.api_key()
         if not key:
             raise Denied("PROVIDER_NOT_CONFIGURED", 503)
+        project_headers = self._project_headers()
         if not isinstance(response_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", response_id):
             raise Denied("PROVIDER_RESPONSE_ID_INVALID", 400)
+        headers = {"Authorization": "Bearer " + key, "User-Agent": "kral-owner-gateway/1.0"}
+        headers.update(project_headers)
         req = urllib.request.Request(
             "https://api.openai.com/v1/responses/" + response_id,
             method="GET",
-            headers={"Authorization": "Bearer " + key, "User-Agent": "kral-owner-gateway/1.0"},
+            headers=headers,
         )
         try:
             with urllib.request.build_opener(NoRedirect()).open(req, timeout=20) as response:

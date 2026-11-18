@@ -16,15 +16,19 @@ import sys
 import urllib.error
 import urllib.request
 
+from . import openai_config
+
 API_MODELS_URL = "https://api.openai.com/v1/models"
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 ID = re.compile(r"[A-Za-z0-9._:/-]{1,160}\Z")
 
-# Names directly documented by the official OpenAI API model catalog,
-# as checked November 3, 2026; not a statement about user project access.
+# Model IDs verified against official OpenAI API documentation on November 19, 2026.
+# This curated documentation list is not proof of access in any user project.
 DOCUMENTED = (
-    "gpt-6-astra", "gpt-6-sol", "gpt-6-luna",
-    "gpt-6.1-sol", "gpt-6.1-terra", "gpt-5.6-sol",
+    "gpt-6.2-astra", "gpt-6.2-sol",
+    "gpt-6-astra", "gpt-6.1-sol", "gpt-6.1-terra",
+    "gpt-6-sol", "gpt-6-luna",
+    "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna",
 )
 
 
@@ -60,15 +64,17 @@ def parse_catalog(raw: bytes) -> set[str]:
     return found
 
 
-def read_project_catalog(key: str, *, opener=None) -> set[str]:
+def read_project_catalog(key: str, *, opener=None, environ=None) -> set[str]:
     """No Responses create call; never follow redirects to other hosts."""
     if not isinstance(key, str) or not key.strip():
         raise CatalogError("API_KEY_NOT_CONFIGURED")
-    request = urllib.request.Request(
-        API_MODELS_URL, method="GET",
-        headers={"Authorization": "Bearer " + key, "Accept": "application/json",
-                 "User-Agent": "kral-readonly-model-inventory/1.0"},
-    )
+    headers = {"Authorization": "Bearer " + key, "Accept": "application/json",
+               "User-Agent": "kral-readonly-model-inventory/1.0"}
+    try:
+        headers.update(openai_config.project_headers(environ))
+    except openai_config.ProjectConfigurationError as error:
+        raise CatalogError(str(error)) from None
+    request = urllib.request.Request(API_MODELS_URL, method="GET", headers=headers)
     transport = opener if opener is not None else urllib.request.build_opener(RejectRedirects())
     try:
         with transport.open(request, timeout=10) as response:
@@ -94,13 +100,13 @@ def collect_inventory(environ=None, *, check_api: bool = False, opener=None) -> 
     env = os.environ if environ is None else environ
     allowed = tuple(x.strip() for x in env.get("OPENAI_ALLOWED_MODELS", "").split(",") if x.strip())
     allowlist_valid = len(allowed) <= 4 and all(ID.fullmatch(x) for x in allowed)
-    key = env.get("OPENAI_API_KEY", "")
+    key = openai_config.api_key(env)
     configured = bool(isinstance(key, str) and key.strip())
     listed = None
     catalog_result = "NOT_CHECKED"
     if check_api:
         try:
-            listed = read_project_catalog(key, opener=opener)
+            listed = read_project_catalog(key, opener=opener, environ=env)
             catalog_result = "READ_ONLY_GET_SUCCEEDED_NOT_LIVE_VERIFIED"
         except CatalogError as exc:
             catalog_result = str(exc)

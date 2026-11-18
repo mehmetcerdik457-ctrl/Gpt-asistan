@@ -1,4 +1,4 @@
-# KRAL model access & evidence boundary (2026-11-03)
+# KRAL model access & evidence boundary (2026-11-19)
 
 ## Source provenance
 
@@ -16,15 +16,37 @@
 ## Existing implementation (do not duplicate)
 
 `server/gateway.py` already calls the fixed HTTPS OpenAI Responses API
-server-side, using `OPENAI_API_KEY` from server environment, with `store: false`,
+server-side, using `OPENAI_API_KEY` (or the managed `KRAL_OPENAI_API_KEY` fallback) from server environment, with `store: false`,
 bounded output, redacted upstream HTTP errors, allowlisted models, two
 concurrent probe requests at most, and fresh dual-P256 signed owner requests.
-It limits active configured candidate models to **four**, so six documented
+It limits active configured candidate models to **four**, so ten documented
 model names must **not** be inserted into the active allowlist at once.
 
 The 26 October guide's `runKralAiTask()` JavaScript snippet illustrates
 an interface; it does not override this existing Python backend or authorize
 a second Android-side API integration.
+
+## Project binding
+
+`OPENAI_PROJECT_ID` is optional. When configured, the same validated
+`OpenAI-Project` header is attached to the read-only GET `/v1/models`,
+synchronous Responses requests, background Responses creation, and retrieval
+of the already-bound background response ID. Invalid project IDs fail closed
+before a provider request. `OPENAI_API_KEY` takes precedence over the managed
+`KRAL_OPENAI_API_KEY` alias; neither value belongs in the APK or source tree.
+
+## Documented model IDs snapshot (2026-11-19)
+
+The curated offline inventory records these official API model IDs:
+
+- GPT-6.2: `gpt-6.2-astra`, `gpt-6.2-sol`
+- GPT-6 family: `gpt-6-astra`, `gpt-6-sol`, `gpt-6-luna`
+- GPT-6.1 family: `gpt-6.1-sol`, `gpt-6.1-terra`
+- GPT-5.6 family: `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`
+
+This public-documentation snapshot does not establish access in the owner's
+OpenAI project. GET `/v1/models` is the project-specific catalog check; a
+separate authorized Responses request is still required for live verification.
 
 ## Model states are not interchangeable
 
