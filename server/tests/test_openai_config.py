@@ -74,6 +74,21 @@ class OpenAIConfigurationTests(unittest.TestCase):
                     self.assertNotIn(key, str(caught.exception))
                     transport.assert_not_called()
 
+    def test_inventory_includes_current_documented_models_without_claiming_project_access(self):
+        expected = {
+            "gpt-6.2-astra", "gpt-6.2-sol", "gpt-6-astra", "gpt-6.1-sol",
+            "gpt-6.1-terra", "gpt-6-sol", "gpt-6-luna",
+            "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna",
+        }
+        report = collect_inventory({"OPENAI_ALLOWED_MODELS": "gpt-6.2-sol"})
+        rows = {row["model_id"]: row for row in report["models"]}
+        self.assertTrue(expected.issubset(rows))
+        self.assertTrue(all(rows[model]["official_catalog_documented"] for model in expected))
+        self.assertTrue(rows["gpt-6.2-sol"]["configured_in_gateway_allowlist"])
+        self.assertFalse(any(rows[model]["responses_call_verified"] for model in expected))
+        self.assertFalse(report["account_entitlement_fully_verified"])
+        self.assertEqual(report["live_responses_calls_made"], 0)
+
     def test_inventory_uses_same_alias_without_exposing_it_or_claiming_live_access(self):
         values = {"KRAL_OPENAI_API_KEY": "synthetic-alias-token", "OPENAI_ALLOWED_MODELS": "gpt-6.1-sol"}
         transport = Mock()
