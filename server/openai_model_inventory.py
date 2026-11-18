@@ -21,11 +21,13 @@ API_MODELS_URL = "https://api.openai.com/v1/models"
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 ID = re.compile(r"[A-Za-z0-9._:/-]{1,160}\Z")
 
-# Names directly documented by the official OpenAI API model catalog,
-# as checked November 3, 2026; not a statement about user project access.
+# Model IDs verified against official OpenAI API documentation on November 19, 2026.
+# This curated documentation list is not proof of access in any user project.
 DOCUMENTED = (
-    "gpt-6-astra", "gpt-6-sol", "gpt-6-luna",
-    "gpt-6.1-sol", "gpt-6.1-terra", "gpt-5.6-sol",
+    "gpt-6.2-astra", "gpt-6.2-sol",
+    "gpt-6-astra", "gpt-6.1-sol", "gpt-6.1-terra",
+    "gpt-6-sol", "gpt-6-luna",
+    "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna",
 )
 
 
