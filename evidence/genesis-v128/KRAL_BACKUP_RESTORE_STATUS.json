@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "updated_at_utc": "2026-11-04",
+  "status": "NOT_TESTED",
+  "backup_verified": false,
+  "restore_verified": false,
+  "note": "No backup or restore was attempted in this session."
+}

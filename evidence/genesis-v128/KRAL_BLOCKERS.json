@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "updated_at_utc": "2026-11-04",
+  "blockers": [
+    {"id": "ANDROID_DEVICE_UNAVAILABLE", "status": "BLOCKED", "evidence": "No adb executable or USB device bus was available in this environment.", "impact": "Installed package, device signer, data-preserving update and physical acceptance cannot be verified.", "next": "Use an authorized real device and collect package, version and signing certificate without uninstalling."},
+    {"id": "INSTALLED_SIGNER_UNVERIFIED", "status": "BLOCKED", "evidence": "The actual installed APK and certificate have not been inspected.", "impact": "No candidate can be declared a safe in-place update.", "next": "Compare the installed package and certificate against an owner-controlled candidate before any installation."},
+    {"id": "DRIVE_ACCESS_UNVERIFIED", "status": "BLOCKED", "evidence": "No Drive connector was available or authenticated in this session.", "impact": "Drive discovery, delivery and re-download verification are not proven.", "next": "Use a separately authorized Drive connection; do not record tokens."},
+    {"id": "LOCAL_ANDROID_BUILD_UNAVAILABLE", "status": "BLOCKED", "evidence": "Java 27 is incompatible with the local Gradle invocation; no Android SDK configured; dl.google.com DNS resolution failed.", "impact": "This session cannot yet reproduce the Android build locally; existing GitHub CI remains separate evidence.", "next": "Use JDK 17 and a reachable Android SDK and Google Maven mirror or an authorized CI environment."},
+    {"id": "LIVE_MODEL_UNVERIFIED", "status": "BLOCKED", "evidence": "No authorized live provider request was performed.", "impact": "Live model, fallback and end-to-end product acceptance are unproven.", "next": "Test only with owner-authorized configuration, cost and data boundaries."},
+    {"id": "REQUIREMENT_MAPPING_INCOMPLETE", "status": "BLOCKED", "evidence": "The full roadmap was supplied as conversation text; requirement-level comparison with source is incomplete.", "impact": "No section or T01-T26 acceptance is claimed.", "next": "Map each original subrequirement and acceptance criterion to source and independent evidence."}
+  ]
+}

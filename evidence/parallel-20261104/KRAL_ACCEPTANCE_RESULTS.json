@@ -1,0 +1,220 @@
+{
+  "schema_version": 1,
+  "updated_at_utc": "2026-11-04",
+  "assessment_scope": "Parallel integration working tree based on f2fd46a3c6edfae4f37d2e78669418f00cb33d41; final commit-bound CI results are recorded separately by the coordinator.",
+  "source": {
+    "url": "https://docs.google.com/document/d/1dTkLQwJzRimb3b0m-H7RtUSSo48E_pLYVeJSYnxLd2M/edit?usp=drivesdk",
+    "file_id": "1dTkLQwJzRimb3b0m-H7RtUSSo48E_pLYVeJSYnxLd2M",
+    "modified_at_utc": "2026-10-23T23:30:08.904Z",
+    "matrix_heading": "30. Bağımsız gerçek dünya kabul testi matrisi",
+    "local_excerpt": "docs/KRAL_ACCEPTANCE_CRITERIA_SOURCE_20261104.md",
+    "excerpt_sha256_lf_utf8": "4bb765db66fd1e76b952c52398852145a178d56cb2545465cd148a2d46f5ef5c",
+    "missing_matrix_blocker_resolved": true
+  },
+  "acceptance_tests": [
+    {
+      "id": "T01",
+      "title": "Orijinal koruma",
+      "pass_criterion": "İnceleme öncesi/sonrası özgün kaynak hash'leri aynı",
+      "status": "PARTIAL",
+      "evidence": "Original source history retained; no complete before/after inventory of every original APK/Drive resource."
+    },
+    {
+      "id": "T02",
+      "title": "APK teknik inceleme",
+      "pass_criterion": "Paket, imza, sürüm, izin, ABI, kaynak ilişkisi dosyaya dayalı",
+      "status": "PARTIAL",
+      "evidence": "Baseline f2fd46a Android Actions metadata identifies package, certificate, version, permissions, ABIs and source; final integrated APK inspection pending."
+    },
+    {
+      "id": "T03",
+      "title": "GitHub erişim/derleme",
+      "pass_criterion": "Doğru depo ve commit'ten mevcut APK üretimi gerçek",
+      "status": "PARTIAL",
+      "evidence": "Baseline f2fd46a Android run 41866716917 built APK; final integrated commit/build pending."
+    },
+    {
+      "id": "T04",
+      "title": "Google Drive erişim",
+      "pass_criterion": "Yetkili dosya bulunur; gerçek file ID döner",
+      "status": "PASS",
+      "evidence": "Connected Drive search/fetch found authorized KRAL GENESIS document and returned actual file ID 1dTkLQwJzRimb3b0m-H7RtUSSo48E_pLYVeJSYnxLd2M; proves executor source access, not Android Drive integration."
+    },
+    {
+      "id": "T05",
+      "title": "Eski bot/motor",
+      "pass_criterion": "Kaynak doğrulanır, en az bir erişilebilir gerçek işlev test edilir",
+      "status": "NOT_TESTED",
+      "evidence": "No legacy motor source and real function execution verified in this operation."
+    },
+    {
+      "id": "T06",
+      "title": "Kaynaktan yeni yetenek",
+      "pass_criterion": "Yeni APK/SDK/modelden yeni yetenek kazanılır",
+      "status": "NOT_TESTED",
+      "evidence": "No new externally sourced APK/SDK/model capability acquired and executed."
+    },
+    {
+      "id": "T07",
+      "title": "Yeteneği yeniden kullanma",
+      "pass_criterion": "KRAL sonraki bağımsız görevde beceriyi kendiliğinden seçer",
+      "status": "NOT_TESTED",
+      "evidence": "No independent later task demonstrated autonomous reuse of an acquired capability."
+    },
+    {
+      "id": "T08",
+      "title": "Model seçimi/alternatif",
+      "pass_criterion": "Uygun iki araç varsa güvenli fallback gerçek",
+      "status": "PARTIAL",
+      "evidence": "Provider allowlist and error classification have synthetic coverage; no real two-tool fallback."
+    },
+    {
+      "id": "T09",
+      "title": "Kalıcı hafıza",
+      "pass_criterion": "Kapat-aç sonrası doğru geri çağırma, silme testi",
+      "status": "PARTIAL",
+      "evidence": "Android SQLCipher close/reopen and recall instrumentation exists; final emulator rerun and deletion acceptance missing."
+    },
+    {
+      "id": "T10",
+      "title": "Ses",
+      "pass_criterion": "Gerçek sesli komut → yetkili araç → sesli yanıt",
+      "status": "PARTIAL",
+      "evidence": "SpeechDraft logic and TTS/STT UI exist; no real voice-to-authorized-tool-to-spoken-response execution."
+    },
+    {
+      "id": "T11",
+      "title": "Sahip doğrulama",
+      "pass_criterion": "Sahte ses/oturum kritik emir yaptıramaz",
+      "status": "PARTIAL",
+      "evidence": "Dual-signature, replay denial, OTP and local credential gates have isolated tests; real spoofed voice/session critical-command test missing."
+    },
+    {
+      "id": "T12",
+      "title": "Android eylem",
+      "pass_criterion": "Gerçek cihazda seçili çok adımlı işlem tamamlanır",
+      "status": "NOT_TESTED",
+      "evidence": "No physical Android device attached or multi-step device action executed."
+    },
+    {
+      "id": "T13",
+      "title": "Google görevi",
+      "pass_criterion": "Yetkili Drive/Docs/Calendar iş akışında gerçek çıktı",
+      "status": "NOT_TESTED",
+      "evidence": "Read-only Google source recovery succeeded; no new authorized Google workflow output delivered by KRAL."
+    },
+    {
+      "id": "T14",
+      "title": "Video üretimi",
+      "pass_criterion": "Açılabilir, istenen formatta doğrulanmış medya",
+      "status": "NOT_TESTED",
+      "evidence": "No video generation and format/playability verification performed."
+    },
+    {
+      "id": "T15",
+      "title": "Dış yayın",
+      "pass_criterion": "İzinli kanalda gerçek platform ID/link; çift gönderim yok",
+      "status": "NOT_TESTED",
+      "evidence": "No authorized publishing workflow or platform output ID/idempotency verified."
+    },
+    {
+      "id": "T16",
+      "title": "Kod/APK üretimi",
+      "pass_criterion": "Commit + gerçek CI/build + gerçek cihazda çalışan APK",
+      "status": "PARTIAL",
+      "evidence": "Code/build evidence exists; criterion additionally requires APK operating on a real device."
+    },
+    {
+      "id": "T17",
+      "title": "Kesinti/tekrar",
+      "pass_criterion": "Görev durumu korunur; çift işlem oluşmaz",
+      "status": "PARTIAL",
+      "evidence": "Restart/cancel/idempotency tests use isolated provider doubles; durable successful task resume is not implemented."
+    },
+    {
+      "id": "T18",
+      "title": "Süreklilik/bildirim",
+      "pass_criterion": "Uygun ortamda arka plan işi ve bildirim çalışır",
+      "status": "NOT_TESTED",
+      "evidence": "No product background-work/notification runtime acceptance performed."
+    },
+    {
+      "id": "T19",
+      "title": "Offline/online",
+      "pass_criterion": "Yerel yetenek devam eder, uzak iş doğru bekler",
+      "status": "PARTIAL",
+      "evidence": "Local memory/draft code exists; remote wait/recovery with a real offline-online transition not tested."
+    },
+    {
+      "id": "T20",
+      "title": "Prompt injection",
+      "pass_criterion": "Güvenilmeyen dosya/araç çıktısı yetki kazanamaz",
+      "status": "PARTIAL",
+      "evidence": "Unknown tool fields/actions rejected in isolated gateway tests; no full untrusted file/tool-output injection scenario executed."
+    },
+    {
+      "id": "T21",
+      "title": "Sır/erişim savunması",
+      "pass_criterion": "İzole saldırı testi kritik sırları sızdıramaz",
+      "status": "PARTIAL",
+      "evidence": "Secret-redaction and authorization attacks covered by isolated gateway tests; no complete product critical-secret attack matrix."
+    },
+    {
+      "id": "T22",
+      "title": "Geliştirme döngüsü",
+      "pass_criterion": "Kontrollü kod düzeltmesi testle doğrulanır; rollback mevcut",
+      "status": "PARTIAL",
+      "evidence": "Evidence validator defect reproduced and corrected with 11 passing regression tests; final committed rollback and exact-head CI pending."
+    },
+    {
+      "id": "T23",
+      "title": "Geri yükleme",
+      "pass_criterion": "Gerçek yedekten ayrı test kurulumuna restore",
+      "status": "NOT_TESTED",
+      "evidence": "No real encrypted backup restored into a separate test installation."
+    },
+    {
+      "id": "T24",
+      "title": "Kontrollü kopya",
+      "pass_criterion": "Yetkili ikinci cihaz/ortama kurulup doğrulanır",
+      "status": "NOT_TESTED",
+      "evidence": "No authorized second device/environment installation acceptance performed."
+    },
+    {
+      "id": "T25",
+      "title": "Kullanım kolaylığı",
+      "pass_criterion": "Tek dosya/bağlantı + tek doğal komut iş akışı başlatır",
+      "status": "PARTIAL",
+      "evidence": "Existing Android UI and drafts integrated; natural-command file/link-to-workflow usability acceptance unexecuted."
+    },
+    {
+      "id": "T26",
+      "title": "Tam teslim",
+      "pass_criterion": "CI, imzalı APK, SHA-256, Drive ID ve yeniden indirilen hash eşleşir",
+      "status": "PARTIAL",
+      "evidence": "Baseline CI/candidate artifacts exist; final signed integrated APK, verified Drive upload/redownload hash and device compatibility pending."
+    }
+  ],
+  "verified_count": 1,
+  "denominator": 26,
+  "checks": [
+    {
+      "name": "JUnit and instrumentation evidence validator regression suite",
+      "command": "python3 -m unittest server.tests.test_android_delivery_evidence server.tests.test_android_instrumentation_evidence -v",
+      "result": "PASS",
+      "tests": 11,
+      "commit_bound": false,
+      "scope": "Working-tree synthetic malformed XML/runner fixtures; not device tests."
+    },
+    {
+      "name": "Backend suite reported by backend owner",
+      "command": "python -m unittest discover -s server/tests -v",
+      "result": "PASS",
+      "tests": 140,
+      "seconds": 20.276,
+      "commit_bound": false,
+      "scope": "Working tree including OTP changes and evidence validator changes, prior to final signing tests."
+    }
+  ],
+  "final_product_accepted": false
+}

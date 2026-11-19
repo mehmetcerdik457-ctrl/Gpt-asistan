@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "updated_at_utc": "2026-11-04",
+  "sources": [
+    {"id": "github-repository", "type": "git", "location": "https://github.com/mehmetcerdik457-ctrl/Gpt-asistan", "owner_claim": "Owner-provided repository", "access": "READ_AND_PUSH_PERMISSION_OBSERVED", "status": "VERIFIED", "default_branch": "main", "default_branch_commit": "5062b22ccfc11bdd10302bed75e5902deeb4ea4c"},
+    {"id": "pr-86-head", "type": "git-commit", "location": "https://github.com/mehmetcerdik457-ctrl/Gpt-asistan/pull/86", "status": "VERIFIED", "commit": "5c365322ca1722d0e837a2785d4fc4401cea56b8", "merged": false},
+    {"id": "roadmap-conversation", "type": "text", "location": "Owner message in this session", "status": "DISCOVERED", "sha256": null, "note": "Full text supplied in conversation; separate PDF or Markdown original not independently obtained."},
+    {"id": "drive-root", "type": "drive-folder", "location": "1GQPrI2FI799dtIwAQi_Rh8It04_shfa_", "status": "BLOCKED", "access": "NOT_VERIFIED"},
+    {"id": "candidate-105-claimed", "type": "apk", "status": "DISCOVERED", "claimed_source_commit": "276f84109cb32826416d63b8b4d18bb702190f3c", "claimed_sha256": "a56558fd15c35aaf957aca162e0c1d09a41e3d867dc43834ffbe8de31e4d1128", "note": "Owner-provided claim, not yet independently verified from APK bytes."}
+  ]
+}

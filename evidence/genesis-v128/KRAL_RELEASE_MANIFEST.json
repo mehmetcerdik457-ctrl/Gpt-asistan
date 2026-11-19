@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "updated_at_utc": "2026-11-04",
+  "status": "BLOCKED",
+  "candidate_source_commit": "5c365322ca1722d0e837a2785d4fc4401cea56b8",
+  "source_configuration": {"debug_application_id": "com.example.gptasistan.genesis", "version_name": "1.0.6-genesis-candidate", "version_code": 7},
+  "apk_file_independently_verified": false,
+  "installed_package_verified": false,
+  "installed_certificate_verified": false,
+  "upgrade_data_preservation_verified": false,
+  "physical_device_verified": false,
+  "drive_upload_verified": false,
+  "drive_redownload_hash_verified": false,
+  "ci_url": "https://github.com/mehmetcerdik457-ctrl/Gpt-asistan/actions/runs/41753708922",
+  "note": "Source configuration and CI success do not establish safe upgrade, release signing or final delivery."
+}
