@@ -309,7 +309,10 @@ jobs:
   release-build:
     needs: [backend, build, emulator, backup-copy]
     if: >-
-      github.event_name == 'push' && github.ref == 'refs/heads/main' &&
+      (
+        (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+        (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/codex/omega-orba-completion-20261117')
+      ) &&
       github.repository == 'mehmetcerdik457-ctrl/Gpt-asistan' &&
       github.actor == 'mehmetcerdik457-ctrl'
     runs-on: ubuntu-24.04
@@ -521,7 +524,9 @@ jobs:
           if-no-files-found: warn
   publish-owner-release:
     needs: [release-build, release-smoke]
-    if: needs.release-build.outputs.ready == 'true'
+    if: >-
+      needs.release-build.outputs.ready == 'true' &&
+      github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     permissions:
       contents: write
