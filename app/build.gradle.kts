@@ -12,10 +12,29 @@ android {
         versionName = "1.0.10-genesis-candidate"
         ndk { abiFilters += setOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64") }
     }
+    val releaseKeystorePath = System.getenv("ANDROID_KEYSTORE_PATH")
+
+    signingConfigs {
+        if (!releaseKeystorePath.isNullOrBlank()) {
+            create("release") {
+                storeFile = file(releaseKeystorePath)
+                storePassword = System.getenv("ANDROID_STORE_PASSWORD")
+                    ?: error("ANDROID_STORE_PASSWORD is not set")
+                keyAlias = System.getenv("ANDROID_KEY_ALIAS")
+                    ?: error("ANDROID_KEY_ALIAS is not set")
+                keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+                    ?: error("ANDROID_KEY_PASSWORD is not set")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isDebuggable = false
             isMinifyEnabled = false
+            if (!releaseKeystorePath.isNullOrBlank()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
         debug {
             isDebuggable = true

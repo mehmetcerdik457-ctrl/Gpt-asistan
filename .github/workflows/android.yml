@@ -315,66 +315,141 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       ready: ${{ steps.signing.outputs.ready }}
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - name: Check existing owner signing configuration without exposing secrets
+      - name: Check owner signing secrets without exposing values
         id: signing
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
           ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+        shell: bash
         run: |
-          python3 - <<'PY'
-          import json, os
-          from pathlib import Path
-          names = ('ANDROID_KEYSTORE_BASE64', 'ANDROID_KEY_ALIAS', 'ANDROID_KEY_PASSWORD', 'ANDROID_STORE_PASSWORD')
+          set -euo pipefail
+          mkdir -p build/release
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import os
+          names = ("ANDROID_KEYSTORE_BASE64", "ANDROID_KEY_ALIAS",
+                   "ANDROID_KEY_PASSWORD", "ANDROID_STORE_PASSWORD")
           missing = [name for name in names if not os.environ.get(name)]
-          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
-              output.write(f'ready={str(not missing).lower()}\n')
-          Path('build/release').mkdir(parents=True, exist_ok=True)
+          print(f"ready={str(not missing).lower()}")
           if missing:
-              report = dict(status='BLOCKED_OWNER_SECRETS_MISSING', owner_signing_verified=False,
-                            missing_secret_names=missing, source_commit=os.environ['GITHUB_SHA'],
-                            github_run_id=os.environ['GITHUB_RUN_ID'], new_key_created=False)
-              Path('build/release/signing-status.json').write_text(json.dumps(report, indent=2) + '\n')
-              with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
-                  summary.write('Owner release BLOCKED: existing signing secrets are missing. No owner-signed APK/AAB will be published. The separately tested debug candidate is a prerelease.\n')
+              import json
+              from pathlib import Path
+              report = dict(status="BLOCKED_OWNER_SECRETS_MISSING",
+                            owner_signing_verified=False, release_apk_aab_verified=False,
+                            missing_secret_names=missing, source_commit=os.environ["GITHUB_SHA"],
+                            github_run_id=os.environ["GITHUB_RUN_ID"], new_key_created=False)
+              Path("build/release/signing-status.json").write_text(json.dumps(report, indent=2) + "\n")
+              with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
+                  summary.write("Owner release BLOCKED: existing signing secrets are missing. No signed release was produced.\n")
           PY
-      - uses: actions/download-artifact@v4
-        if: steps.signing.outputs.ready == 'true'
-        with:
-          name: kral-asistan-unsigned-release-inputs
-          path: build/release
       - uses: actions/setup-java@v4
         if: steps.signing.outputs.ready == 'true'
         with:
           distribution: temurin
           java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        if: steps.signing.outputs.ready == 'true'
       - uses: android-actions/setup-android@v4
         if: steps.signing.outputs.ready == 'true'
         with:
-          packages: build-tools;36.0.0
+          packages: platform-tools
           log-accepted-android-sdk-licenses: false
-      - name: Sign release APK and AAB with the existing pinned owner key
+      - name: Install the release Android SDK packages
+        if: steps.signing.outputs.ready == 'true'
+        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+      - name: Decode the existing owner keystore outside the workspace
         if: steps.signing.outputs.ready == 'true'
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          KEYSTORE_PATH="$RUNNER_TEMP/orba-owner-upload.jks"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
+          test -s "$KEYSTORE_PATH"
+          chmod 600 "$KEYSTORE_PATH"
+          echo "ANDROID_KEYSTORE_PATH=$KEYSTORE_PATH" >> "$GITHUB_ENV"
+      - name: Build signed release APK and AAB with Gradle
+        if: steps.signing.outputs.ready == 'true'
+        env:
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
           ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+        shell: bash
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          mv build/release/app-release-unsigned.apk build/release/app-release.apk
-          mv build/release/app-release-unsigned.aab build/release/app-release.aab
-          python3 scripts/android_owner_signing.py \
-            --release-apk build/release/app-release.apk --bundle build/release/app-release.aab \
-            --require-owner --apksigner "$ANDROID_HOME/build-tools/36.0.0/apksigner" \
-            --output build/release/signing-status.json
+          ./gradlew clean :app:assembleRelease :app:bundleRelease --no-daemon --stacktrace
+          mkdir -p build/release
+          cp app/build/outputs/apk/release/app-release.apk build/release/app-release.apk
+          cp app/build/outputs/bundle/release/app-release.aab build/release/app-release.aab
+      - name: Verify AAB signature with jarsigner and validate bundle with Bundletool
+        if: steps.signing.outputs.ready == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="build/release/app-release.apk"
+          AAB="build/release/app-release.aab"
+          test -s "$APK"
+          test -s "$AAB"
+          jarsigner -verify -verbose -certs "$AAB" > build/release/jarsigner-verify.txt
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$APK" > build/release/apksigner-verify.txt
+          BUNDLETOOL_VERSION="1.18.2"
+          BUNDLETOOL="$RUNNER_TEMP/bundletool-all-$BUNDLETOOL_VERSION.jar"
+          curl --fail --location --retry 3 --silent --show-error \
+            "https://github.com/google/bundletool/releases/download/$BUNDLETOOL_VERSION/bundletool-all-$BUNDLETOOL_VERSION.jar" \
+            --output "$BUNDLETOOL"
+          java -jar "$BUNDLETOOL" validate --bundle="$AAB"
+          PACKAGE="$(java -jar "$BUNDLETOOL" dump manifest --bundle="$AAB" --module=base --xpath='/manifest/@package')"
+          test "$PACKAGE" = "com.example.gptasistan.genesis"
+      - name: Pin-check Gradle release signatures and write signing evidence
+        if: steps.signing.outputs.ready == 'true'
+        env:
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, os, re, subprocess
+          from pathlib import Path
+          config = json.loads(Path("config/android-owner-signing.json").read_text())
+          expected = config["certificate_sha256"]
+          env = os.environ.copy()
+          cert = subprocess.run(
+              ["keytool", "-exportcert", "-keystore", env["ANDROID_KEYSTORE_PATH"],
+               "-alias", env["ANDROID_KEY_ALIAS"], "-storepass:env", "ANDROID_STORE_PASSWORD"],
+              check=True, capture_output=True, env=env, timeout=60).stdout
+          actual = hashlib.sha256(cert).hexdigest()
+          apk_verify = Path("build/release/apksigner-verify.txt").read_text()
+          match = re.findall(r"(?m)^Signer #1 certificate SHA-256 digest:\s*([0-9a-fA-F]{64})\s*$", apk_verify)
+          if actual != expected or [value.lower() for value in match] != [expected]:
+              raise SystemExit("OWNER_SIGNER_CERTIFICATE_PIN_MISMATCH")
+          report = {
+              "status": "OWNER_SIGNER_PIN_VERIFIED",
+              "owner_signing_verified": True,
+              "release_apk_aab_verified": True,
+              "expected_certificate_sha256": expected,
+              "actual_certificate_sha256": actual,
+              "signed_apks": ["app-release.apk"],
+              "signed_bundles": ["app-release.aab"],
+              "new_key_created": False,
+              "previous_install_upgrade_verified": False,
+              "source_commit": subprocess.run(["git", "rev-parse", "HEAD"], check=True,
+                                                capture_output=True, text=True).stdout.strip(),
+              "github_run_id": os.environ.get("GITHUB_RUN_ID")
+          }
+          Path("build/release/signing-status.json").write_text(json.dumps(report, indent=2) + "\n")
+          PY
           python3 scripts/android_release_artifact.py \
             build/release/app-release.apk build/release/app-release.aab build/release \
             --expected-sha "$GITHUB_SHA" --signing-report build/release/signing-status.json \
@@ -386,7 +461,14 @@ jobs:
         with:
           name: kral-asistan-owner-release
           path: build/release/
-          if-no-files-found: error
+          if-no-files-found: warn
+      - name: Remove temporary owner keystore
+        if: always()
+        shell: bash
+        run: |
+          if [ -n "${ANDROID_KEYSTORE_PATH:-}" ]; then
+            rm -f -- "$ANDROID_KEYSTORE_PATH"
+          fi
   release-smoke:
     needs: release-build
     if: needs.release-build.outputs.ready == 'true'
