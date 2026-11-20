@@ -1,0 +1,9 @@
+pytest>=8,<9
+ruff>=0.9,<1
+bandit>=1.7,<2
+pip-audit>=2.7,<3
+yt-dlp>=2025.1
+Pillow>=10,<12
+opencv-python-headless>=4.10,<5
+faster-whisper>=1.1,<2
+librosa>=0.10,<1
