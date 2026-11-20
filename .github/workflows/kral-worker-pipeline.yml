@@ -1,0 +1,36 @@
+name: KRAL Worker Fleet and Studio Pipeline
+on:
+  push:
+    branches: [integration/kral-worker-studio-pipeline-20261120]
+    paths: ['worker_fleet/**','tests/test_worker_fleet.py','requirements-worker-pipeline.txt','.github/workflows/kral-worker-pipeline.yml']
+  pull_request:
+    paths: ['worker_fleet/**','tests/test_worker_fleet.py','requirements-worker-pipeline.txt','.github/workflows/kral-worker-pipeline.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: kral-worker-pipeline-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install --upgrade pip pytest ruff bandit
+      - run: python -m pytest -q
+      - run: python -m ruff check worker_fleet tests/test_worker_fleet.py
+      - run: python -m bandit -q -r worker_fleet
+      - name: Fleet inventory and doctor
+        run: |
+          python -m worker_fleet.cli status | tee fleet-status.json
+          python -m worker_fleet.cli doctor | tee doctor-report.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kral-worker-pipeline-reports
+          path: |
+            fleet-status.json
+            doctor-report.json
+          if-no-files-found: error
