@@ -26,7 +26,7 @@ jobs:
           grep -q 'versionName = "1.2.1"' bridge/build.gradle.kts
           grep -q 'isMinifyEnabled = true' app/build.gradle.kts
           grep -q 'isMinifyEnabled = true' bridge/build.gradle.kts
-          grep -q 'com.android.billingclient:billing-ktx:7.1.1' app/build.gradle.kts
+          grep -q 'com.android.billingclient:billing:7.1.1' app/build.gradle.kts
           printf 'commit=%s\n' "$(git rev-parse HEAD)" | tee release-commit.txt
       - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
