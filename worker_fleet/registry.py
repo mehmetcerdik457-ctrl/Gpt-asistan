@@ -16,7 +16,7 @@ GROUPS = {
 "youtube":["youtube_metadata","youtube_download","youtube_subtitles","youtube_transcript","youtube_chapters"],
 "media":["audio_probe","audio_convert","audio_cleanup","video_probe","video_transcode","video_trim","image_process","thumbnail","subtitle_sync","media_qc"],
 "studio_automation":["scene_manifest","timeline","render_queue","asset_catalog","studio_export"]}
-WORKERS=tuple(Worker("worker-%02d"%(i+1),g,r) for i,(g,roles) in enumerate((g,role) for g,roles in GROUPS.items() for role in roles))
+WORKERS=tuple(Worker("worker-%02d"%(i+1),group,role) for i,(group,role) in enumerate((group,role) for group,roles in GROUPS.items() for role in roles))
 assert len(WORKERS)==50
 async def run_worker(worker_id,payload=None):
     w=next((x for x in WORKERS if x.id==worker_id),None)
