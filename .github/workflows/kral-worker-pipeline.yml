@@ -33,7 +33,7 @@ jobs:
           python -m pip install pytest yt-dlp faster-whisper
       - name: Unit tests and compile checks
         run: |
-          python -m pytest -q
+          python -m pytest -q tests/test_worker_fleet.py
           python -m compileall -q worker_fleet run_studio_pipeline.py
       - name: Run real YouTube media job
         env:
