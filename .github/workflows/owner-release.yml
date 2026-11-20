@@ -1,0 +1,113 @@
+name: Owner Companion 1.5.4 + Bridge 1.2.1 Release
+on:
+  push:
+    branches: [release/owner-aab-v154-v121]
+  pull_request:
+    branches: [owner/final-hardening-v1-20260929, main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Verify release coordinates
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'versionCode = 12' app/build.gradle.kts
+          grep -q 'versionName = "1.5.4"' app/build.gradle.kts
+          grep -q 'versionCode = 4' bridge/build.gradle.kts
+          grep -q 'versionName = "1.2.1"' bridge/build.gradle.kts
+          grep -q 'isMinifyEnabled = true' app/build.gradle.kts
+          grep -q 'isMinifyEnabled = true' bridge/build.gradle.kts
+          grep -q 'com.android.billingclient:billing-ktx:7.1.1' app/build.gradle.kts
+          printf 'commit=%s\n' "$(git rev-parse HEAD)" | tee release-commit.txt
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6.2.0
+        with:
+          gradle-version: "8.7"
+          cache-provider: basic
+      - name: Prepare signing key from Actions secrets
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::Missing required GitHub Actions secret: ${name}"
+              exit 41
+            fi
+          done
+          install -d -m 700 "$RUNNER_TEMP/release-signing"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release-signing/owner-release.jks"
+          chmod 600 "$RUNNER_TEMP/release-signing/owner-release.jks"
+          keytool -list -keystore "$RUNNER_TEMP/release-signing/owner-release.jks" -storepass "$ANDROID_KEYSTORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" >/dev/null
+          echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/release-signing/owner-release.jks" >> "$GITHUB_ENV"
+          echo "ANDROID_KEYSTORE_PASSWORD=$ANDROID_KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+          echo "ANDROID_KEY_ALIAS=$ANDROID_KEY_ALIAS" >> "$GITHUB_ENV"
+          echo "ANDROID_KEY_PASSWORD=$ANDROID_KEY_PASSWORD" >> "$GITHUB_ENV"
+          echo "OWNER_EXPECTED_SIGNER_SHA256=279084a36b7c17a1663bfba5fe1c5bdac974f8ef4ce56b21000d882493e39448" >> "$GITHUB_ENV"
+          echo "OWNER_BUILD_GIT_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+      - name: Unit tests
+        run: gradle :app:testDebugUnitTest
+      - name: Build signed release APKs and AABs
+        run: gradle :app:assembleRelease :app:bundleRelease :bridge:assembleRelease :bridge:bundleRelease
+      - name: Verify signatures, package identity and calculate SHA-256
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-output
+          OWNER_APK="$(find app/build/outputs/apk/release -maxdepth 1 -name '*.apk' -type f -print -quit)"
+          OWNER_AAB="$(find app/build/outputs/bundle/release -maxdepth 1 -name '*.aab' -type f -print -quit)"
+          BRIDGE_APK="$(find bridge/build/outputs/apk/release -maxdepth 1 -name '*.apk' -type f -print -quit)"
+          BRIDGE_AAB="$(find bridge/build/outputs/bundle/release -maxdepth 1 -name '*.aab' -type f -print -quit)"
+          test -n "$OWNER_APK" && test -n "$OWNER_AAB" && test -n "$BRIDGE_APK" && test -n "$BRIDGE_AAB"
+          cp "$OWNER_APK" release-output/Owner-Companion-1.5.4-vc12.apk
+          cp "$OWNER_AAB" release-output/Owner-Companion-1.5.4-vc12.aab
+          cp "$BRIDGE_APK" release-output/Owner-Bridge-1.2.1-vc4.apk
+          cp "$BRIDGE_AAB" release-output/Owner-Bridge-1.2.1-vc4.aab
+          EXPECTED="279084a36b7c17a1663bfba5fe1c5bdac974f8ef4ce56b21000d882493e39448"
+          BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
+          for apk in release-output/*.apk; do
+            "$BUILD_TOOLS/apksigner" verify --verbose "$apk"
+            ACTUAL="$("$BUILD_TOOLS/apksigner" verify --print-certs "$apk" | awk -F': ' '/certificate SHA-256 digest/ {gsub(/:/,"",$2); print tolower($2); exit}')"
+            test "$ACTUAL" = "$EXPECTED"
+          done
+          for aab in release-output/*.aab; do
+            jarsigner -verify -strict -certs "$aab"
+            ACTUAL="$(keytool -printcert -jarfile "$aab" | awk -F': ' '/SHA256:/ {gsub(/:/,"",$2); print tolower($2); exit}')"
+            test "$ACTUAL" = "$EXPECTED"
+          done
+          sha256sum release-output/* | tee release-output/SHA256SUMS
+          {
+            echo "## Release artifact SHA-256"
+            cat release-output/SHA256SUMS
+            echo "Expected signer SHA-256: $EXPECTED"
+            echo "Commit: $(git rev-parse HEAD)"
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat release-output/SHA256SUMS
+      - name: Upload signed Play release artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v4.6.2
+        with:
+          name: owner-play-release-v1.5.4-v1.2.1
+          path: release-output/
+          if-no-files-found: error
+          retention-days: 30
+      - name: Remove temporary signing material
+        if: always()
+        shell: bash
+        run: rm -rf "$RUNNER_TEMP/release-signing"
