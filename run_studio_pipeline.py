@@ -18,7 +18,7 @@ def digest(path):
 
 def main():
     ap=argparse.ArgumentParser()
-    ap.add_argument("--url",default=os.getenv("STUDIO_SOURCE_URL","https://www.youtube.com/watch?v=BaW_jenozKc"))
+    ap.add_argument("--url",default=os.getenv("STUDIO_SOURCE_URL","https://www.youtube.com/watch?v=jNQXAC9IVRw"))
     ap.add_argument("--output",default=os.getenv("STUDIO_OUTPUT_DIR","artifacts/studio"))
     ap.add_argument("--whisper-model",default=os.getenv("WHISPER_MODEL","tiny"))
     ap.add_argument("--skip-transcription",action="store_true")
@@ -29,7 +29,7 @@ def main():
     (out/"metadata.json").write_text(json.dumps(meta,ensure_ascii=False,indent=2),encoding="utf-8")
     sub=get_subtitles(url,str(out/"subtitles"),"tr,en")
     video=out/"video"/"source.mp4"
-    run(["yt-dlp","--no-playlist","--no-warnings","-f","bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/b","--merge-output-format","mp4","-o",str(video),url],1200)
+    run(["yt-dlp","--no-playlist","--no-warnings","--js-runtimes","node","-f","bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/b","--merge-output-format","mp4","-o",str(video),url],1200)
     if not video.exists():
         candidates=sorted((out/"video").glob("source.*"))
         if not candidates: raise RuntimeError("yt-dlp produced no video file")

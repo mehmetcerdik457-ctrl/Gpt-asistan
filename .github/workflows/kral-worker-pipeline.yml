@@ -10,7 +10,7 @@ on:
       source_url:
         description: YouTube URL to process
         required: false
-        default: 'https://www.youtube.com/watch?v=BaW_jenozKc'
+        default: 'https://www.youtube.com/watch?v=jNQXAC9IVRw'
 permissions:
   contents: read
 concurrency:
@@ -37,7 +37,7 @@ jobs:
           python -m compileall -q worker_fleet run_studio_pipeline.py
       - name: Run real YouTube media job
         env:
-          STUDIO_SOURCE_URL: ${{ github.event.inputs.source_url || 'https://www.youtube.com/watch?v=BaW_jenozKc' }}
+          STUDIO_SOURCE_URL: ${{ github.event.inputs.source_url || 'https://www.youtube.com/watch?v=jNQXAC9IVRw' }}
           WHISPER_MODEL: tiny
         run: python run_studio_pipeline.py --url "$STUDIO_SOURCE_URL" --output artifacts/studio
       - name: Verify manifest and generated files
