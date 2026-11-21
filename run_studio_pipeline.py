@@ -18,7 +18,7 @@ def digest(path):
 
 def main():
     ap=argparse.ArgumentParser()
-    ap.add_argument("--url",default=os.getenv("STUDIO_SOURCE_URL","https://www.youtube.com/watch?v=jNQXAC9IVRw"))
+    ap.add_argument("--url",default=os.getenv("STUDIO_SOURCE_URL","https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/360/Big_Buck_Bunny_360_10s_1MB.mp4"))
     ap.add_argument("--output",default=os.getenv("STUDIO_OUTPUT_DIR","artifacts/studio"))
     ap.add_argument("--whisper-model",default=os.getenv("WHISPER_MODEL","tiny"))
     ap.add_argument("--skip-transcription",action="store_true")
