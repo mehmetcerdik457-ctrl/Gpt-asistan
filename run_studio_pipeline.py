@@ -42,11 +42,15 @@ def main():
         dur=run(["ffprobe","-v","error","-show_entries","format=duration","-of","csv=p=0",str(video)],60).stdout.strip() or "10"
         run(["ffmpeg","-y","-f","lavfi","-i","anullsrc=r=16000:cl=mono","-t",dur,"-c:a","pcm_s16le",str(audio)])
     pattern=str(out/"scenes"/"scene-%03d.jpg")
-    run(["ffmpeg","-y","-i",str(video),"-vf","select='gt(scene,0.30)',scale='min(1280,iw)':-2","-vsync","vfr","-frames:v","24",pattern])
-    scenes=sorted((out/"scenes").glob("scene-*.jpg"))
+    scenes=[]
+    try:
+        run(["ffmpeg","-y","-i",str(video),"-vf","select='gt(scene,0.30)',scale='min(1280,iw)':-2","-vsync","vfr","-frames:v","24","-strict","unofficial",pattern])
+        scenes=sorted((out/"scenes").glob("scene-*.jpg"))
+    except Exception:
+        scenes=[]
     if not scenes:
         fallback=out/"scenes"/"scene-001.jpg"
-        run(["ffmpeg","-y","-ss","0","-i",str(video),"-frames:v","1","-vf","scale='min(1280,iw)':-2",str(fallback)])
+        run(["ffmpeg","-y","-ss","0","-i",str(video),"-frames:v","1","-vf","scale='min(1280,iw)':-2","-strict","unofficial",str(fallback)])
         scenes=[fallback]
     transcript_status="SKIPPED"
     if not a.skip_transcription:
