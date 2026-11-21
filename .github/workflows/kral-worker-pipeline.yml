@@ -1,0 +1,63 @@
+name: KRAL YouTube Media Studio Pipeline
+on:
+  push:
+    branches: [integration/kral-worker-studio-pipeline-20261120]
+    paths: ['worker_fleet/**','run_studio_pipeline.py','tests/**','.github/workflows/kral-worker-pipeline.yml']
+  pull_request:
+    paths: ['worker_fleet/**','run_studio_pipeline.py','tests/**','.github/workflows/kral-worker-pipeline.yml']
+  workflow_dispatch:
+    inputs:
+      source_url:
+        description: YouTube URL to process
+        required: false
+        default: 'https://download.samplelib.com/mp4/sample-5s.mp4'
+permissions:
+  contents: read
+concurrency:
+  group: kral-studio-pipeline-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  studio-pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install FFmpeg and Python tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          python -m pip install --upgrade pip
+          python -m pip install pytest yt-dlp faster-whisper
+      - name: Unit tests and compile checks
+        run: |
+          python -m pytest -q tests/test_worker_fleet.py
+          python -m compileall -q worker_fleet run_studio_pipeline.py
+      - name: Run real YouTube media job
+        env:
+          STUDIO_SOURCE_URL: ${{ github.event.inputs.source_url || 'https://download.samplelib.com/mp4/sample-5s.mp4' }}
+          WHISPER_MODEL: tiny
+        run: python run_studio_pipeline.py --url "$STUDIO_SOURCE_URL" --output artifacts/studio
+      - name: Verify manifest and generated files
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          root=Path("artifacts/studio")
+          d=json.loads((root/"manifest.json").read_text())
+          assert d["status"]=="COMPLETED" and d["scenes"]
+          assert (root/"audio/audio.wav").is_file()
+          for f in d["files"]:
+              p=root/f["path"]
+              assert p.is_file() and p.stat().st_size==f["size_bytes"]
+          print(json.dumps({"status":d["status"],"scenes":len(d["scenes"]),"files":len(d["files"])},indent=2))
+          PY
+          sha256sum artifacts/studio/manifest.json artifacts/studio/audio/audio.wav
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kral-youtube-studio-output
+          path: artifacts/studio/
+          if-no-files-found: error
+          retention-days: 14
