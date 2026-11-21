@@ -42,6 +42,7 @@ class GatedWorkerSlots:
         self.all_workers_entered = threading.Event()
         self.release_workers = threading.Event()
         self.probe_attempted = threading.Event()
+        self.probe_decided = threading.Event()
 
     def acquire(self, blocking=True, timeout=-1):
         with self.lock:
@@ -51,6 +52,8 @@ class GatedWorkerSlots:
             self.probe_attempted.set()
         acquired = (self.slots.acquire(timeout=2 if timeout == -1 else timeout) if blocking
                     else self.slots.acquire(blocking=False))
+        if position > 4:
+            self.probe_decided.set()
         if not acquired:
             return False
         if position <= 4:
@@ -127,6 +130,8 @@ class GatewayConcurrencyTests(unittest.TestCase):
             if registry_unlocked:
                 self.gateway.lock.release()
         finally:
+            if slots.probe_attempted.wait(2):
+                self.assertTrue(slots.probe_decided.wait(2), "probe attempt never settled")
             slots.release_workers.set()
         worker_result = self.finished(workers)
         if refresh is not None:

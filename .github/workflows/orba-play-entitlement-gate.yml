@@ -15,6 +15,8 @@ on:
       - 'server/play_entitlement_gate.py'
       - 'server/play_subscription_lifecycle.py'
       - 'server/play_google_oauth.py'
+      - 'server/play_voided_audit.py'
+      - 'server/tests/test_play_voided_audit.py'
       - 'server/tests/test_play_google_oauth.py'
       - 'server/tests/test_play_subscription_lifecycle.py'
       - 'server/play_google_api.py'
@@ -55,11 +57,11 @@ jobs:
         with:
           python-version: '3.11'
       - name: Compile decision gate
-        run: python -m compileall -q server/play_google_oauth.py server/tests/test_play_google_oauth.py server/play_subscription_lifecycle.py server/tests/test_play_subscription_lifecycle.py server/play_entitlement_gate.py server/play_google_api.py server/play_subscription_mapper.py server/play_owner_binding.py server/play_account_id.py server/play_verification_service.py server/play_acknowledgement.py server/play_acknowledgement_service.py server/play_gateway_boundary.py server/play_rtdn.py server/gateway.py server/tests/test_play_gateway_boundary.py server/tests/test_play_rtdn.py server/tests/test_play_acknowledgement_service.py server/tests/test_play_entitlement_gate.py server/tests/test_play_google_api.py server/tests/test_play_subscription_mapper.py server/tests/test_play_owner_binding.py server/tests/test_play_account_id.py server/tests/test_play_verification_service.py
+        run: python -m compileall -q server/play_voided_audit.py server/tests/test_play_voided_audit.py server/play_google_oauth.py server/tests/test_play_google_oauth.py server/play_subscription_lifecycle.py server/tests/test_play_subscription_lifecycle.py server/play_entitlement_gate.py server/play_google_api.py server/play_subscription_mapper.py server/play_owner_binding.py server/play_account_id.py server/play_verification_service.py server/play_acknowledgement.py server/play_acknowledgement_service.py server/play_gateway_boundary.py server/play_rtdn.py server/gateway.py server/tests/test_play_gateway_boundary.py server/tests/test_play_rtdn.py server/tests/test_play_acknowledgement_service.py server/tests/test_play_entitlement_gate.py server/tests/test_play_google_api.py server/tests/test_play_subscription_mapper.py server/tests/test_play_owner_binding.py server/tests/test_play_account_id.py server/tests/test_play_verification_service.py
       - name: Install P-256 test dependency for signed HTTP boundary
         run: python -m pip install -r server/requirements.txt
       - name: Run offline entitlement regressions
-        run: python -m unittest -v server.tests.test_play_google_oauth server.tests.test_play_subscription_lifecycle server.tests.test_play_entitlement_gate server.tests.test_play_google_api server.tests.test_play_subscription_mapper server.tests.test_play_owner_binding server.tests.test_play_account_id server.tests.test_play_verification_service server.tests.test_play_acknowledgement_service server.tests.test_play_gateway_boundary server.tests.test_gateway server.tests.test_gateway_idempotency server.tests.test_play_rtdn
+        run: python -m unittest -v server.tests.test_play_voided_audit server.tests.test_play_google_oauth server.tests.test_play_subscription_lifecycle server.tests.test_play_entitlement_gate server.tests.test_play_google_api server.tests.test_play_subscription_mapper server.tests.test_play_owner_binding server.tests.test_play_account_id server.tests.test_play_verification_service server.tests.test_play_acknowledgement_service server.tests.test_play_gateway_boundary server.tests.test_gateway server.tests.test_gateway_idempotency server.tests.test_play_rtdn
 
   android-purchase-contract:
     runs-on: ubuntu-24.04

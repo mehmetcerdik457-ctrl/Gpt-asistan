@@ -198,3 +198,34 @@ JSON private keys, use least privilege, and never enter secrets into issues.
 https://developers.google.com/android-publisher/getting_started
 https://developers.google.com/identity/protocols/oauth2/scopes
 https://google-auth.readthedocs.io/en/latest/reference/google.auth.html
+
+
+## 14 November 2026 — read-only Voided Purchases order audit, stacked DRAFT
+
+The Google Play Voided Purchases API returns refund/chargeback/revocation
+records. When requesting subscriptions you MUST set `type=1` (default 0
+silently omits subscriptions) and deduplicate by `orderId`, because many
+renewal orders may share the same `purchaseToken`. The new server-only
+`server/play_voided_audit.py` reads a bounded 48h-overlap window (the API
+retains at most 30 days) with max 5 pages, 1000 entries per page, provider
+OAuth and an explicit private database. It does NOT embed a service key or
+create a public HTTP endpoint. `ORBA_PLAY_VOIDED_AUDIT_ENABLED=YES` is
+required even after a trusted installer supplies the OAuth and DB factories.
+All pages must be fetched and validated before any durable ledger writes;
+truncated pagination, malformed order, duplicates with conflicting values,
+auth/provider errors and missing schema trigger failure without success.
+
+The `initialize_voided_orders(db)` schema is installed only by a trusted
+operator. Records store order-ID and purchase-token SHA-256 hashes, voided
+time and reason; no raw identifiers, provider payloads, credentials or
+payment amounts. This is strictly an **order-based risk/audit feed** and
+`entitlement_changed` is always FALSE; an individual refunded renewal
+MUST NOT cause wholesale subscription-token revocation. Existing provider
+`subscriptionsv2.get` checks remain the authoritative online gate.
+Order-specific entitlement reconciliation, fair user-facing disputes,
+permissions and an authorized real API smoke test are still missing.
+
+Official references:
+https://developers.google.com/android-publisher/voided-purchases
+https://developers.google.com/android-publisher/api-ref/rest/v3/purchases.voidedpurchases/list
+https://developer.android.com/google/play/billing/security
