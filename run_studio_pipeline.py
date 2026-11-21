@@ -18,7 +18,7 @@ def digest(path):
 
 def main():
     ap=argparse.ArgumentParser()
-    ap.add_argument("--url",default=os.getenv("STUDIO_SOURCE_URL","https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/360/Big_Buck_Bunny_360_10s_1MB.mp4"))
+    ap.add_argument("--url",default=os.getenv("STUDIO_SOURCE_URL","https://download.samplelib.com/mp4/sample-5s.mp4"))
     ap.add_argument("--output",default=os.getenv("STUDIO_OUTPUT_DIR","artifacts/studio"))
     ap.add_argument("--whisper-model",default=os.getenv("WHISPER_MODEL","tiny"))
     ap.add_argument("--skip-transcription",action="store_true")
@@ -35,7 +35,12 @@ def main():
         if not candidates: raise RuntimeError("yt-dlp produced no video file")
         video=candidates[0]
     audio=out/"audio"/"audio.wav"
-    run(["ffmpeg","-y","-i",str(video),"-vn","-ac","1","-ar","16000","-c:a","pcm_s16le",str(audio)])
+    has_audio=run(["ffprobe","-v","error","-select_streams","a","-show_entries","stream=codec_type","-of","csv=p=0",str(video)],60).stdout.strip()
+    if has_audio:
+        run(["ffmpeg","-y","-i",str(video),"-vn","-ac","1","-ar","16000","-c:a","pcm_s16le",str(audio)])
+    else:
+        dur=run(["ffprobe","-v","error","-show_entries","format=duration","-of","csv=p=0",str(video)],60).stdout.strip() or "10"
+        run(["ffmpeg","-y","-f","lavfi","-i","anullsrc=r=16000:cl=mono","-t",dur,"-c:a","pcm_s16le",str(audio)])
     pattern=str(out/"scenes"/"scene-%03d.jpg")
     run(["ffmpeg","-y","-i",str(video),"-vf","select='gt(scene,0.30)',scale='min(1280,iw)':-2","-vsync","vfr","-frames:v","24",pattern])
     scenes=sorted((out/"scenes").glob("scene-*.jpg"))

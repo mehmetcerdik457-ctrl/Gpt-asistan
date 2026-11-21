@@ -10,7 +10,7 @@ on:
       source_url:
         description: YouTube URL to process
         required: false
-        default: 'https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/360/Big_Buck_Bunny_360_10s_1MB.mp4'
+        default: 'https://download.samplelib.com/mp4/sample-5s.mp4'
 permissions:
   contents: read
 concurrency:
@@ -37,7 +37,7 @@ jobs:
           python -m compileall -q worker_fleet run_studio_pipeline.py
       - name: Run real YouTube media job
         env:
-          STUDIO_SOURCE_URL: ${{ github.event.inputs.source_url || 'https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/360/Big_Buck_Bunny_360_10s_1MB.mp4' }}
+          STUDIO_SOURCE_URL: ${{ github.event.inputs.source_url || 'https://download.samplelib.com/mp4/sample-5s.mp4' }}
           WHISPER_MODEL: tiny
         run: python run_studio_pipeline.py --url "$STUDIO_SOURCE_URL" --output artifacts/studio
       - name: Verify manifest and generated files
