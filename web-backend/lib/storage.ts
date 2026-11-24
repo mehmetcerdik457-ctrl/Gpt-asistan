@@ -32,6 +32,11 @@ export async function createWorkflow(id: string, payload: unknown, callbackToken
   } catch (e) { await client.query("ROLLBACK"); throw e; }
   finally { client.release(); }
 }
+export async function getWorkflowPayload(id: string): Promise<Record<string, unknown> | null> {
+  await ensureSchema();
+  const q = await db().query("SELECT payload FROM omega_workflows WHERE id=$1", [id]);
+  return (q.rows[0]?.payload as Record<string, unknown> | undefined) ?? null;
+}
 export async function transitionWorkflow(id: string, from: string[], to: string, result?: unknown) {
   await ensureSchema();
   const q = await db().query(
