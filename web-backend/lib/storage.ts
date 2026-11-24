@@ -21,9 +21,16 @@ async function ensureSchema(): Promise<void> {
   `).then(() => undefined).catch((error) => { schemaReady = undefined; throw error; });
   return schemaReady;
 }
-export async function createWorkflow(id: string, payload: unknown) {
+export async function createWorkflow(id: string, payload: unknown, callbackTokenHash: string) {
   await ensureSchema();
-  await db().query("INSERT INTO omega_workflows(id,status,payload) VALUES($1,'PENDING',$2::jsonb)", [id, JSON.stringify(payload)]);
+  const client = await db().connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("INSERT INTO omega_workflows(id,status,payload) VALUES($1,'PENDING',$2::jsonb)", [id, JSON.stringify(payload)]);
+    await client.query("INSERT INTO omega_callbacks(token_hash,workflow_id) VALUES($1,$2)", [callbackTokenHash, id]);
+    await client.query("COMMIT");
+  } catch (e) { await client.query("ROLLBACK"); throw e; }
+  finally { client.release(); }
 }
 export async function transitionWorkflow(id: string, from: string[], to: string, result?: unknown) {
   await ensureSchema();
