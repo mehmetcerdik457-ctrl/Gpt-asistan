@@ -1,7 +1,9 @@
 plugins { id("com.android.application"); kotlin("android") }
+
 android {
   namespace = "com.example.gptasistan"
   compileSdk = 34
+
   defaultConfig {
     applicationId = "com.example.gptasistan"
     minSdk = 24
@@ -9,11 +11,31 @@ android {
     versionCode = 1
     versionName = "1.0.0"
   }
+
+  signingConfigs {
+    create("release") {
+      storeFile = file("release-keystore.jks")
+      storePassword = providers.environmentVariable("ANDROID_STORE_PASSWORD").orNull ?: ""
+      keyAlias = providers.environmentVariable("ANDROID_KEY_ALIAS").orNull ?: ""
+      keyPassword = providers.environmentVariable("ANDROID_KEY_PASSWORD").orNull ?: ""
+    }
+  }
+
   buildTypes {
-    release { isMinifyEnabled = false; proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro") }
-    debug { isDebuggable = true }
+    release {
+      signingConfig = signingConfigs.getByName("release")
+      isMinifyEnabled = false
+      proguardFiles(
+        getDefaultProguardFile("proguard-android-optimize.txt"),
+        "proguard-rules.pro"
+      )
+    }
+    debug {
+      isDebuggable = true
+    }
   }
 }
+
 dependencies {
   implementation("org.jetbrains.kotlin:kotlin-stdlib:1.9.24")
   implementation("androidx.core:core-ktx:1.13.1")
