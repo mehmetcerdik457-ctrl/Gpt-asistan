@@ -1,0 +1,33 @@
+name: OMEGA Vercel Web Backend
+on:
+  push:
+    branches: [feature/omega-vercel-web-backend]
+    paths: ["web-backend/**", ".github/workflows/omega-vercel-web-backend.yml"]
+  pull_request:
+    paths: ["web-backend/**", ".github/workflows/omega-vercel-web-backend.yml"]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  web-backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web-backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web-backend/package-lock.json
+      - run: npm install --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm run build
+        env:
+          DATABASE_URL: postgres://ci:ci@127.0.0.1:5432/ci
+          OMEGA_API_TOKEN: ci-placeholder-not-a-secret
+          OMEGA_APPROVAL_SECRET: ci-placeholder-not-a-secret
+          OPENAI_API_KEY: ci-placeholder-not-a-secret
+          OPENAI_MODEL: ci-placeholder
+          YOUTUBE_WRITE_ENABLED: "false"
