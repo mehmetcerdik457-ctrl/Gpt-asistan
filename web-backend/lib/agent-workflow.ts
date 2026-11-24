@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { createWorkflow, transitionWorkflow } from "./storage";
 import { runModel } from "./model-router";
-export async function startWorkflow(payload: unknown) {
+export async function startWorkflow(payload: unknown, callbackTokenHash: string) {
   const id = randomUUID();
-  await createWorkflow(id, payload);
+  await createWorkflow(id, payload, callbackTokenHash);
   return { taskId: id, status: "PENDING" as const };
 }
 export async function approveWorkflow(taskId: string, decision: "approve" | "reject") {
