@@ -1,6 +1,7 @@
 import { authorized, jsonError } from "@/lib/auth";
 import { verifyApproval } from "@/lib/approval-manager";
-import { approveWorkflow } from "@/lib/agent-workflow";
+import { approveWorkflow, executeApprovedWorkflow } from "@/lib/agent-workflow";
+import { getWorkflowPayload } from "@/lib/storage";
 export const runtime = "nodejs";
 export async function POST(request: Request, context: { params: Promise<{ taskId: string }> }) {
   if (!authorized(request)) return jsonError("UNAUTHORIZED", 401);
@@ -15,6 +16,12 @@ export async function POST(request: Request, context: { params: Promise<{ taskId
   if (!verifyApproval(taskId, decision, timestamp, proof)) return jsonError("APPROVAL_PROOF_DENIED", 403);
   try {
     const result = await approveWorkflow(taskId, decision);
-    return result ? Response.json({ ok: true, ...result }) : jsonError("TASK_NOT_PENDING", 409);
+    if (!result) return jsonError("TASK_NOT_PENDING", 409);
+    if (decision === "reject") return Response.json({ ok: true, ...result });
+    const payload = await getWorkflowPayload(taskId);
+    const prompt = payload?.prompt;
+    if (typeof prompt !== "string" || !prompt.trim()) return jsonError("WORKFLOW_PROMPT_MISSING", 422);
+    const output = await executeApprovedWorkflow(taskId, prompt);
+    return Response.json({ ok: true, taskId, status: "COMPLETED", output }, { headers: { "Cache-Control": "no-store" } });
   } catch { return jsonError("WORKFLOW_STORAGE_UNAVAILABLE", 503); }
 }
