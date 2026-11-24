@@ -22,7 +22,8 @@ class PlayBoundaryError(RuntimeError):
 
 class PlayGatewayBoundary:
     def __init__(self, *, server_secret: bytes, allowed_products,
-                 oauth_supplier, db_factory, opener=None, clock_ms=None):
+                 oauth_supplier, db_factory, opener=None, clock_ms=None,
+                 snapshot_recorder=None):
         if not isinstance(server_secret, bytes) or len(server_secret) < 32:
             raise ValueError("ORBA_SERVER_SECRET_NOT_PROVISIONED")
         if (not isinstance(allowed_products, (set, frozenset))
@@ -37,6 +38,9 @@ class PlayGatewayBoundary:
         self._oauth = oauth_supplier
         self._db_factory = db_factory
         self._opener = opener
+        if snapshot_recorder is not None and not callable(snapshot_recorder):
+            raise ValueError("SNAPSHOT_RECORDER_INVALID")
+        self._snapshot_recorder = snapshot_recorder
         self._clock_ms = clock_ms if clock_ms is not None else lambda: int(time.time() * 1000)
         if not callable(self._clock_ms):
             raise ValueError("ORBA_CLOCK_NOT_PROVISIONED")
@@ -84,6 +88,7 @@ class PlayGatewayBoundary:
                         authenticated_owner_id=owner, product_id=product_id,
                         server_secret=self._secret, now_ms=now_ms,
                         opener=self._opener,
+                        snapshot_recorder=self._snapshot_recorder,
                     ))
         except PlayBoundaryError:
             raise
