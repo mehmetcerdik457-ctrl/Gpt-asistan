@@ -3,7 +3,12 @@
   "trusted_branch": "fix/kral-owner-signing-20261103",
   "release_branch": "main",
   "actor": "mehmetcerdik457-ctrl",
-  "certificate_sha256": "279084a36b7c17a1663bfba5fe1c5bdac974f8ef4ce56b21000d882493e39448",
+  "certificate_sha256": "0b86f45a6670aae1927fb812f38fe980a6b5ba872bcf45f4e956aa47a4d6c7a6",
   "pin_source_commit": "7228a9ecd9f2a3d1ed5402b39d72f2e31994952e",
-  "pin_source_path": ".github/workflows/owner-feature-parity-build.yml"
+  "pin_source_path": ".github/workflows/owner-feature-parity-build.yml",
+  "pin_rotation": {
+    "date": "2026-11-28",
+    "authorization": "Owner-provided certificate SHA-256 fingerprint",
+    "previous_certificate_sha256": "279084a36b7c17a1663bfba5fe1c5bdac974f8ef4ce56b21000d882493e39448"
+  }
 }

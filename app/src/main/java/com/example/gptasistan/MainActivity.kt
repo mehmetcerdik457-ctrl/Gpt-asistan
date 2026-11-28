@@ -13,6 +13,9 @@ import kotlin.concurrent.thread
 import android.speech.tts.TextToSpeech
 import android.text.InputFilter
 import android.view.ViewGroup
+import android.view.Gravity
+import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -34,7 +37,8 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private lateinit var store: KralStore
     private lateinit var orchestrator: KralCoreOrchestrator
     private lateinit var session: ChatSession
-    private lateinit var transcript: TextView
+    private lateinit var chatMessages: LinearLayout
+    private lateinit var selectedModelLabel: TextView
     private lateinit var input: EditText
     private lateinit var sendButton: Button
     private lateinit var modelButton: Button
@@ -335,6 +339,24 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         button(getString(R.string.action_tasks)) { showLocalTaskMenu() }
         modelButton = button(getString(R.string.action_model)) { configureModel() }
         root.addView(actions)
+        val omegaActions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        omegaActions.addView(Button(this).apply {
+            text = "OMEGA · Modeller"
+            setOnClickListener { showOmegaModelMenu() }
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        omegaActions.addView(Button(this).apply {
+            text = "Eklentiler"
+            setOnClickListener { showOmegaConnectorMenu() }
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        omegaActions.addView(Button(this).apply {
+            text = "Ajan Hub"
+            setOnClickListener { showOmegaAgentMenu() }
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        root.addView(omegaActions)
+        selectedModelLabel = TextView(this).apply { text = "Seçili Model: " + OmegaModelCatalog.byId(prefs.getString("omega_provider", "openai"))?.title.orEmpty(); textSize = 13f; setPadding(8, 8, 8, 8) }
+        root.addView(selectedModelLabel)
+        refreshModelSummary()
+        root.addView(Button(this).apply { text = "Ayarlar · API Anahtarı"; setOnClickListener { showOmegaApiKeyDialog() } })
         root.addView(Button(this).apply {
             text = getString(R.string.action_server_registration)
             setOnClickListener { unlock { showRegistration() } }
@@ -371,8 +393,8 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             }
         })
         scroller = ScrollView(this)
-        transcript = TextView(this).apply { textSize = 16f }
-        scroller.addView(transcript)
+        chatMessages = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(4, 8, 4, 8) }
+        scroller.addView(chatMessages)
         root.addView(scroller, LinearLayout.LayoutParams(-1, 0, 1f))
         val bottom = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         input = EditText(this).apply {
@@ -393,8 +415,18 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         root.addView(bottom)
         setContentView(root)
         session.history.observe(this) { history ->
-            transcript.text = if (history.isEmpty()) getString(R.string.greeting_help, KralCore.help())
-                else history.joinToString("\n\n") { it.text } + "\n"
+            chatMessages.removeAllViews()
+            if (history.isEmpty()) addChatBubble("OMEGA", getString(R.string.greeting_help, KralCore.help()), false)
+            else history.forEach { entry ->
+                val raw = entry.text
+                val isUser = raw.startsWith("Sen:")
+                val speaker = when {
+                    isUser -> "Sen"
+                    raw.startsWith("Model:") -> "OMEGA"
+                    else -> "OMEGA"
+                }
+                addChatBubble(speaker, raw.removePrefix("Sen: ").removePrefix("Model: "), isUser)
+            }
             scroller.post { scroller.fullScroll(ScrollView.FOCUS_DOWN) }
         }
         session.state.observe(this) { state ->
@@ -404,6 +436,184 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             if (appUnlocked) speakLatestReply()
         }
         tts = TextToSpeech(this, this)
+    }
+
+
+    private fun addChatBubble(speaker: String, message: String, user: Boolean) {
+        val bubble = TextView(this).apply {
+            text = "$speaker\\n$message"
+            textSize = 15f
+            setTextColor(Color.WHITE)
+            setPadding(14, 10, 14, 10)
+            background = GradientDrawable().apply {
+                cornerRadius = 22f
+                setColor(if (user) Color.rgb(37, 99, 235) else Color.rgb(48, 52, 61))
+            }
+        }
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = if (user) Gravity.END else Gravity.START
+            setPadding(4, 5, 4, 5)
+            addView(bubble, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 0.88f))
+        }
+        chatMessages.addView(row)
+    }
+
+    private fun showOmegaApiKeyDialog() {
+        if (!appUnlocked || !uiReady || storageBlocked) return
+        val providers = OmegaModelCatalog.providers
+        AlertDialog.Builder(this).setTitle("API anahtarı / yerel model")
+            .setItems(providers.map { it.title + if (it.requiresSecret) " · API anahtarı" else " · yerel uç nokta" }.toTypedArray()) { _, index ->
+                showOmegaProviderSetup(providers[index])
+            }.setNegativeButton("Kapat", null).showProtected()
+    }
+
+    private fun showOmegaProviderSetup(provider: OmegaModelProvider) {
+        val keyInput = EditText(this).apply {
+            hint = if (provider.requiresSecret) "Sağlayıcı API anahtarı" else "Opsiyonel yerel sunucu token'ı"
+            isSingleLine = true
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+        }
+        val endpointInput = EditText(this).apply {
+            hint = if (provider.kind == OmegaProviderKind.LOCAL_OPENAI_COMPATIBLE)
+                "http://127.0.0.1:11434/v1/chat/completions" else provider.endpoint
+            isSingleLine = true
+            setText(prefs.getString("omega_endpoint_${provider.id}", provider.endpoint))
+        }
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(24, 12, 24, 0)
+            addView(TextView(this@MainActivity).apply {
+                text = if (provider.requiresSecret) "Anahtar cihazın Android Keystore kasasında şifrelenir." else "Yerel model sunucusu aynı cihazda loopback veya HTTPS üzerinden erişilebilir olmalı."
+            })
+            if (provider.requiresSecret) addView(keyInput)
+            addView(endpointInput)
+        }
+        AlertDialog.Builder(this).setTitle(provider.title + " yapılandırması").setView(panel)
+            .setPositiveButton("Güvenli kaydet ve seç") { _, _ ->
+                val endpoint = endpointInput.text.toString().trim()
+                val key = keyInput.text.toString().trim()
+                if (provider.kind == OmegaProviderKind.LOCAL_OPENAI_COMPATIBLE &&
+                    !(endpoint.startsWith("http://127.0.0.1") || endpoint.startsWith("http://localhost") || endpoint.startsWith("https://"))) {
+                    notice("Yerel uç nokta loopback veya HTTPS olmalı.")
+                    return@setPositiveButton
+                }
+                if (provider.requiresSecret && (key.length < 16 || key.length > 4096)) {
+                    notice("Geçerli sağlayıcı API anahtarını gir.")
+                    return@setPositiveButton
+                }
+                try {
+                    if (provider.requiresSecret) OmegaSecretVault.save(this, "omega_${provider.id}_api_key", key)
+                    prefs.edit {
+                        putString("omega_provider", provider.id)
+                        putString("omega_endpoint_${provider.id}", endpoint)
+                    }
+                    keyInput.text?.clear()
+                    refreshModelSummary()
+                    notice(provider.title + " yapılandırması kaydedildi. Canlı bağlantı ilk sohbet isteğinde sınanır.")
+                } catch (_: Exception) {
+                    notice("Sağlayıcı bilgisi güvenli biçimde kaydedilemedi.")
+                }
+            }.setNegativeButton("İptal", null).showProtected()
+    }
+
+    private fun omegaModelEntries(): List<OmegaModelEntry> = OmegaModelListProvider.list(
+        hasKey = { p -> runCatching { !OmegaSecretVault.read(this, "omega_${p.id}_api_key").isNullOrBlank() }.getOrDefault(false) },
+        hasEndpoint = { p -> !prefs.getString("omega_endpoint_${p.id}", "").isNullOrBlank() },
+        modelOverride = { p -> prefs.getString("omega_model_${p.id}", "") }
+    )
+    private fun refreshModelSummary() {
+        if (!::selectedModelLabel.isInitialized) return
+        val e = omegaModelEntries()
+        val sel = prefs.getString("omega_provider", "openai")
+        val name = if (sel == "auto") "Otomatik Mod" else OmegaModelCatalog.byId(sel)?.title.orEmpty()
+        selectedModelLabel.text = "Seçili Model: " + name + " · " + e.size + " model tanımlı, " + e.count { it.readiness == OmegaModelReadiness.READY } + " hazır · " + OmegaAgentProfiles.all.size + " ajan"
+    }
+    private fun effectiveProvider(p: OmegaModelProvider): OmegaModelProvider {
+        val o = prefs.getString("omega_model_${p.id}", "").orEmpty().trim()
+        return if (o.isBlank()) p else p.copy(modelId = o)
+    }
+    private fun showOmegaModelIdEditor() {
+        val base = OmegaModelCatalog.byId(prefs.getString("omega_provider", "openai")) ?: run {
+            notice("Önce bir sağlayıcı seç (Otomatik Mod için model kimliği sağlayıcı bazlıdır)."); return
+        }
+        val input = android.widget.EditText(this).apply { setText(effectiveProvider(base).modelId); isSingleLine = true }
+        AlertDialog.Builder(this).setTitle(base.title + " model kimliği")
+            .setMessage("Varsayılan: " + base.modelId + ". Boş bırakıp kaydedersen varsayılana döner.")
+            .setView(input)
+            .setPositiveButton("Kaydet") { _, _ ->
+                val v = input.text.toString().trim()
+                prefs.edit { if (v.isBlank() || v == base.modelId) remove("omega_model_${base.id}") else putString("omega_model_${base.id}", v) }
+                refreshModelSummary(); notice(base.title + " model kimliği: " + (if (v.isBlank()) base.modelId else v))
+            }.setNegativeButton("Vazgeç", null).showProtected()
+    }
+    private fun showOmegaModelMenu() {
+        if (!appUnlocked || !uiReady || storageBlocked || session.state.value?.busy == true) return
+        val providers = OmegaModelCatalog.providers
+        val autoSelected = prefs.getString("omega_provider", "openai") == "auto"
+        val labels = listOf((if (autoSelected) "✓ " else "") + "Otomatik Mod · göreve göre sağlayıcı seç") +
+            omegaModelEntries().map { entry ->
+                val selected = prefs.getString("omega_provider", "openai") == entry.provider.id
+                (if (selected) "✓ " else "") + entry.label
+            } + "✎ Seçili sağlayıcının model kimliğini düzenle (Ultra vb.)"
+        AlertDialog.Builder(this).setTitle("Çoklu model seçimi")
+            .setMessage("Otomatik Mod, kodlama ve genel sohbet görevlerinde yalnızca yapılandırılmış sağlayıcılar arasından seçim yapar. Görsel analizi için gerçek görsel yükleme henüz desteklenmiyor.")
+            .setItems(labels.toTypedArray()) { _, index ->
+                if (!appUnlocked || storageBlocked) return@setItems
+                if (index == providers.size + 1) { showOmegaModelIdEditor(); return@setItems }
+                if (index == 0) {
+                    prefs.edit { putString("omega_provider", "auto") }
+                    refreshModelSummary()
+                    notice("Otomatik Mod etkin. Her mesaj uygun ve yapılandırılmış sağlayıcıya yönlendirilecek.")
+                } else {
+                    val selected = providers[index - 1]
+                    prefs.edit { putString("omega_provider", selected.id) }
+                    refreshModelSummary()
+                    val hasKey = !selected.requiresSecret || runCatching {
+                        !OmegaSecretVault.read(this, "omega_${selected.id}_api_key").isNullOrBlank()
+                    }.getOrDefault(false)
+                    val hasEndpoint = selected.kind != OmegaProviderKind.LOCAL_OPENAI_COMPATIBLE ||
+                        !prefs.getString("omega_endpoint_${selected.id}", "").isNullOrBlank()
+                    notice(if (hasKey && hasEndpoint) selected.title + " seçildi. Sohbet bu sağlayıcıya yönlendirilecek."
+                        else selected.title + " seçildi ancak bağlantı henüz yapılandırılmadı. Ayarlar · API Anahtarı bölümünü aç.")
+                }
+            }.setNegativeButton("Vazgeç", null).showProtected()
+    }
+
+    private fun showOmegaAgentMenu() {
+        if (!appUnlocked || !uiReady || storageBlocked || session.state.value?.busy == true) return
+        val modes = arrayOf("Otomatik görev algılama", "Kod yazma ajanı", "Dosya analiz ajanı", "Planlama ajanı") +
+            OmegaAgentProfiles.all.map { "Ajan · " + it.title }
+        val ids = arrayOf("auto", "coding", "file_analysis", "planning") +
+            OmegaAgentProfiles.all.map { "agent:" + it.id }
+        val current = prefs.getString("omega_agent_mode", "auto")
+        AlertDialog.Builder(this).setTitle("OMEGA Ajan Hub")
+            .setMessage("Ajan, görevin türüne göre seçili model için uzman talimatı hazırlar. Dosya analizinde içeriği sohbete ekle veya yapıştır. Kod çalıştırma ve dış sistem değişiklikleri bu sürümde otomatik yapılmaz.")
+            .setItems(modes) { _, index ->
+                prefs.edit { putString("omega_agent_mode", ids[index]) }
+                connectionStatus.text = "Ajan modu: " + modes[index]
+            }.setNegativeButton("Kapat", null).showProtected()
+    }
+
+    private fun showOmegaConnectorMenu() {
+        if (!appUnlocked || !uiReady || storageBlocked || session.state.value?.busy == true) return
+        val connectors = OmegaConnectorCatalog.connectors
+        val labels = connectors.map { connector ->
+            val status = when (connector.state) {
+                OmegaConnectorState.NOT_CONFIGURED -> "YAPILANDIRILMADI"
+                OmegaConnectorState.DISABLED_UNTIL_SANDBOXED -> "SANDBOX BEKLİYOR"
+                OmegaConnectorState.OAUTH_REQUIRED -> "OAUTH GEREKLİ"
+            }
+            connector.title + " · " + status
+        }.toTypedArray()
+        AlertDialog.Builder(this).setTitle("OMEGA eklentileri")
+            .setItems(labels) { _, index ->
+                if (!appUnlocked || storageBlocked) return@setItems
+                val connector = connectors[index]
+                notice(connector.title + "\n\n" + connector.detail +
+                    "\n\nDurum: " + labels[index] +
+                    "\n\nBu sürümde bağlantı katalog düzeyindedir; canlı erişim etkin değildir.")
+            }.setNegativeButton("Kapat", null).showProtected()
     }
 
     private fun memoryControlsReady() = appUnlocked && uiReady && !storageBlocked &&
@@ -845,8 +1055,85 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         return true
     }
 
+    private fun sendOmegaChat(raw: String): Boolean {
+        if (!appUnlocked || !foreground || !uiReady || storageBlocked || raw.isBlank()) return false
+        val selectedId = prefs.getString("omega_provider", "openai").orEmpty()
+        val providerBase = if (selectedId == "auto") {
+            val configured = OmegaModelCatalog.providers.filter { candidate ->
+                val keyReady = !candidate.requiresSecret || runCatching {
+                    !OmegaSecretVault.read(this, "omega_${candidate.id}_api_key").isNullOrBlank()
+                }.getOrDefault(false)
+                val endpointReady = candidate.kind != OmegaProviderKind.LOCAL_OPENAI_COMPATIBLE ||
+                    !prefs.getString("omega_endpoint_${candidate.id}", "").isNullOrBlank()
+                keyReady && endpointReady
+            }
+            val route = OmegaAutoRouter.select(raw, configured)
+            if (route.provider == null) {
+                connectionStatus.text = route.reason
+                return false
+            }
+            connectionStatus.text = route.reason
+            route.provider
+        } else OmegaModelCatalog.byId(selectedId)
+        val provider = providerBase?.let { effectiveProvider(it) }
+        if (provider == null) {
+            connectionStatus.text = "Model sağlayıcısı seçilmedi."
+            return false
+        }
+        val apiKey = if (provider.requiresSecret) try {
+            OmegaSecretVault.read(this, "omega_${provider.id}_api_key")
+        } catch (_: Exception) { null } else null
+        if (provider.requiresSecret && apiKey.isNullOrBlank()) {
+            connectionStatus.text = provider.title + " API anahtarı eksik. Ayarlar bölümünden kaydet."
+            return false
+        }
+        val endpoint = if (provider.kind == OmegaProviderKind.LOCAL_OPENAI_COMPATIBLE)
+            prefs.getString("omega_endpoint_${provider.id}", "").orEmpty() else provider.endpoint
+        if (endpoint.isBlank()) {
+            connectionStatus.text = "Yerel model uç noktası yapılandırılmadı."
+            return false
+        }
+        val agent = OmegaAgentHub.route(raw, prefs.getString("omega_agent_mode", "auto").orEmpty())
+        return try {
+            store.saveMessage("user", "Sen: " + raw)
+            session.refreshHistory()
+            sendButton.isEnabled = false
+            connectionStatus.text = provider.title + " · " + agent.displayName + " isteği gönderiliyor…"
+            thread {
+                val result = runCatching {
+                    OmegaMultiModelClient.chat(provider, apiKey, raw, agent.systemPrompt, endpoint)
+                }
+                runOnUiThread {
+                    sendButton.isEnabled = appUnlocked && !storageBlocked
+                    if (!foreground || !appUnlocked || storageBlocked || isFinishing || isDestroyed) return@runOnUiThread
+                    result.onSuccess { reply ->
+                        runCatching {
+                            store.saveMessage("assistant", "Model: [${provider.title} / ${provider.modelId}] " + reply)
+                            session.refreshHistory()
+                        }.onSuccess {
+                            connectionStatus.text = provider.title + " yanıtı alındı · Ajan: " + agent.displayName
+                        }.onFailure {
+                            connectionStatus.text = getString(R.string.status_record_write_failed)
+                        }
+                    }.onFailure { error ->
+                        connectionStatus.text = when {
+                            error.message?.startsWith("PROVIDER_HTTP_401") == true -> "API anahtarı reddedildi. Anahtarı ve sağlayıcı hesabını kontrol et."
+                            error.message?.startsWith("PROVIDER_HTTP_429") == true -> "Sağlayıcı hız/kota sınırına ulaşıldı."
+                            else -> provider.title + " bağlantısı başarısız. Uç nokta, model erişimi, kota ve interneti kontrol et."
+                        }
+                    }
+                }
+            }
+            true
+        } catch (_: Exception) {
+            connectionStatus.text = getString(R.string.status_record_write_failed)
+            false
+        }
+    }
+
     private fun handle(raw: String): Boolean {
         if (session.state.value?.busy == true) return false
+        if (KralCore.parse(raw) is KralCommand.Chat) return sendOmegaChat(raw)
         return try {
             val command = KralCore.parse(raw)
             val remoteVerified = if (command is KralCommand.Chat && appUnlocked && !storageBlocked) {
@@ -946,6 +1233,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     private fun configureModel() {
         if (session.state.value?.busy == true) return
+        if (prefs.getString("endpoint", "").isNullOrBlank()) { showOmegaModelMenu(); return }
         val fields = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(24, 16, 24, 0) }
         val endpoint = EditText(this).apply {
             hint = "https://sana-ait-sunucu.example"
@@ -959,6 +1247,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         AlertDialog.Builder(this).setTitle("Doğrulanmış modeller")
             .setMessage("Sana ait HTTPS sunucusu sahip ve cihaz imzanı doğrular. Yalnız canlı yanıtla doğrulanan modeller listelenir. Geçmiş ve hafıza otomatik gönderilmez.")
             .setView(fields)
+            .setNeutralButton("Tüm modeller") { _, _ -> showOmegaModelMenu() }
             .setPositiveButton("Bağlantıyı doğrula") { _, _ ->
                 val base = endpoint.text.toString().trim().trimEnd('/')
                 val identity = owner.text.toString().trim()
