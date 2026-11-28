@@ -88,7 +88,9 @@ jobs:
           echo "=== SHA-256 ==="
           sha256sum "$APK" "$AAB"
           echo "=== APK signing certificate ==="
-          keytool -printcert -jarfile "$APK"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          test -n "$APKSIGNER"
+          "$APKSIGNER" verify --print-certs --verbose "$APK"
           echo "=== AAB signing certificate ==="
           keytool -printcert -jarfile "$AAB"
 
