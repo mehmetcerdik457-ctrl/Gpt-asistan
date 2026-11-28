@@ -33,7 +33,7 @@ class DeliveryEvidenceTests(unittest.TestCase):
             self.assertEqual(result["lint"]["severities"], {"Warning": 1})
             tests.write_text('<testsuite tests="1" failures="1">'
                              '<testcase classname="Store" name="a"><failure/></testcase></testsuite>')
-            with self.assertRaisesRegex(ValueError, "UNIT_TESTS_NOT_PASSED"):
+            with self.assertRaisesRegex(ValueError, "UNIT_TESTS_FAILED"):
                 evidence.summarize(root, lint)
 
     def test_missing_test_results_and_lint_errors_never_report_success(self):
