@@ -462,7 +462,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             isSingleLine = true
             inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
         }
-        val status = TextView(this).apply { text = "Anahtar Android Keystore tabanlı şifreli kasada saklanır." }
+        val status = TextView(this).apply { text = "OpenAI API anahtarı Android Keystore ile şifrelenir. Anahtar sohbet isteğinde yalnız HTTPS Authorization başlığında kullanılır." }
         val panel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(24, 16, 24, 0); addView(keyInput); addView(status) }
         AlertDialog.Builder(this).setTitle("API Anahtarı Ekle").setView(panel)
             .setPositiveButton("Şifreli kaydet") { _, _ ->
@@ -471,7 +471,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 try {
                     OmegaSecretVault.save(this, "openai_api_key", value)
                     keyInput.text?.clear()
-                    notice("API anahtarı Android Keystore ile şifrelenerek kaydedildi. Henüz sohbet sağlayıcısına bağlanmadı.")
+                    prefs.edit { putString("omega_provider", "openai") }; selectedModelLabel.text = "Seçili Model: OpenAI API"; notice("OpenAI anahtarı şifreli kasaya kaydedildi. OpenAI sohbet bağlantısı seçildi.")
                 } catch (_: Exception) { notice("API anahtarı güvenli kasaya kaydedilemedi; değer saklanmadı.") }
             }.setNegativeButton("İptal", null).showProtected()
     }
@@ -485,13 +485,13 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 if (provider.requiresSecret) " · güvenli sunucu yapılandırması gerekli" else " · yerel uyumlu uç nokta gerekli"
         }.toTypedArray()
         AlertDialog.Builder(this).setTitle("OMEGA model sağlayıcısı")
-            .setMessage("Seçim tercihi kaydedilir. Canlı model bağlantısı, ayrı uç nokta/kimlik bilgisi yapılandırılıp doğrulanmadan etkin sayılmaz. API anahtarları APK'ya yazılmaz.")
+            .setMessage("Bu sürümde OpenAI sohbet adaptörü canlıdır. Diğer sağlayıcılar katalogda görünür ancak sohbet adaptörleri henüz bağlanmamıştır. API anahtarları APK'ya yazılmaz.")
             .setItems(labels) { _, index ->
                 if (!appUnlocked || storageBlocked) return@setItems
                 val selected = providers[index]
                 prefs.edit { putString("omega_provider", selected.id) }
                 selectedModelLabel.text = "Seçili Model: " + selected.title
-                notice(selected.title + " seçildi. Bu katalog seçimi canlı sağlayıcı bağlantısı kurmaz; mevcut sahip geçidi ayarları korunur.")
+                notice(selected.id == "openai" ? "OpenAI seçildi. Şifreli API anahtarı varsa sohbet doğrudan OpenAI API'ye gider." : selected.title + " seçildi. Bu sağlayıcının sohbet adaptörü henüz etkin değil; canlı istek gönderilmeyecek.")
             }.setNegativeButton("Vazgeç", null).showProtected()
     }
 
@@ -955,13 +955,40 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         return true
     }
 
-    private fun recordOmegaEcho(raw: String): Boolean {
-        if (!appUnlocked || !uiReady || storageBlocked || raw.isBlank()) return false
+    private fun sendOmegaChat(raw: String): Boolean {
+        if (!appUnlocked || !foreground || !uiReady || storageBlocked || raw.isBlank()) return false
+        val provider = prefs.getString("omega_provider", "llama3")
+        if (provider != "openai") {
+            connectionStatus.text = when (provider) {
+                "anthropic" -> "Anthropic sohbet adaptörü henüz uygulanmadı. OpenAI sağlayıcısını seç."
+                else -> "Bu sağlayıcı için uç nokta adaptörü henüz yapılandırılmadı. Şu an canlı sohbet OpenAI üzerinden destekleniyor."
+            }
+            return false
+        }
+        val apiKey = try { OmegaSecretVault.read(this, "openai_api_key") } catch (_: Exception) { null }
+        if (apiKey.isNullOrBlank()) {
+            connectionStatus.text = "OpenAI API anahtarı yok. Ayarlar · API Anahtarı bölümünden kaydet."
+            return false
+        }
         return try {
             store.saveMessage("user", "Sen: " + raw)
-            store.saveMessage("assistant", "Yankı: " + raw)
             session.refreshHistory()
-            connectionStatus.text = "Demo yankı modu · gerçek model isteği gönderilmedi"
+            sendButton.isEnabled = false
+            connectionStatus.text = "OpenAI'ye güvenli HTTPS isteği gönderiliyor…"
+            thread {
+                val result = runCatching { OmegaOpenAiClient.chat(apiKey, raw) }
+                runOnUiThread {
+                    sendButton.isEnabled = appUnlocked && !storageBlocked
+                    if (!foreground || !appUnlocked || storageBlocked || isFinishing || isDestroyed) return@runOnUiThread
+                    result.onSuccess { reply ->
+                        runCatching { store.saveMessage("assistant", "Model: " + reply); session.refreshHistory() }
+                            .onSuccess { connectionStatus.text = "OpenAI yanıtı alındı · ${OmegaOpenAiClient.MODEL}" }
+                            .onFailure { connectionStatus.text = getString(R.string.status_record_write_failed) }
+                    }.onFailure {
+                        connectionStatus.text = "OpenAI isteği başarısız oldu. API anahtarını, kotanı ve internet bağlantını kontrol et."
+                    }
+                }
+            }
             true
         } catch (_: Exception) {
             connectionStatus.text = getString(R.string.status_record_write_failed)
@@ -971,7 +998,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     private fun handle(raw: String): Boolean {
         if (session.state.value?.busy == true) return false
-        if (KralCore.parse(raw) is KralCommand.Chat) return recordOmegaEcho(raw)
+        if (KralCore.parse(raw) is KralCommand.Chat) return sendOmegaChat(raw)
         return try {
             val command = KralCore.parse(raw)
             val remoteVerified = if (command is KralCommand.Chat && appUnlocked && !storageBlocked) {
