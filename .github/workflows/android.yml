@@ -56,7 +56,7 @@ jobs:
           } > build/delivery/toolchain.txt 2>&1
       - name: Check tracked sources for credential patterns
         run: python3 scripts/check_delivery_secrets.py
-      - name: Build APK and unsigned release AAB (Robolectric unit tests skipped: Maven Central HTTP 429)
+      - name: "Build APK and unsigned release AAB (Robolectric unit tests skipped: Maven Central HTTP 429)"
         shell: bash
         run: |
           set -euo pipefail
