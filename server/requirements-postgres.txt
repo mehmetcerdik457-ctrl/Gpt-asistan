@@ -1,0 +1,2 @@
+# Optional PostgreSQL RTDN adapter; core server continues to support SQLite.
+psycopg[binary]==3.2.13

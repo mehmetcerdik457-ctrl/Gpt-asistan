@@ -1,0 +1,76 @@
+name: ORBA RTDN PostgreSQL transactions
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'server/play_rtdn*.py'
+      - 'server/play_purchase*.py'
+      - 'server/play_gateway_boundary.py'
+      - 'server/play_acknowledgement_service.py'
+      - 'server/play_verification_service.py'
+      - 'server/play_owner_binding.py'
+      - 'server/play_runtime.py'
+      - 'server/play_preflight.py'
+      - 'server/play_google_oauth.py'
+      - 'server/gateway.py'
+      - 'server/Dockerfile'
+      - 'server/play_verified_snapshot.py'
+      - 'server/tests/test_play_rtdn*.py'
+      - 'server/tests/test_play_verified_snapshot.py'
+      - 'server/tests/test_play_purchase*.py'
+      - 'server/tests/test_play_runtime.py'
+      - 'server/tests/test_play_preflight.py'
+      - 'server/tests/test_play_google_transport.py'
+      - 'server/integration_tests/test_play_rtdn_postgres*.py'
+      - 'server/integration_tests/test_play_purchase_postgres.py'
+      - 'server/integration_tests/test_play_preflight_postgres.py'
+      - 'server/requirements*.txt'
+      - 'scripts/test_orba_rtdn_postgres.sh'
+      - 'scripts/test_orba_runtime_container.py'
+      - '.github/workflows/orba-rtdn-postgres.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  postgres-transactions:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: orba_test
+          POSTGRES_PASSWORD: disposable-ci-test-only
+          POSTGRES_DB: orba_test
+        ports:
+          - 5432/tcp
+        options: >-
+          --health-cmd "pg_isready -U orba_test -d orba_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Install server and PostgreSQL dependencies
+        run: python -m pip install -r server/requirements.txt -r server/requirements-postgres.txt
+      - name: Run server, runtime and SQLite regressions
+        run: python -m unittest discover -s server/tests -v
+      - name: Run real PostgreSQL integration tests (no skips)
+        env:
+          OMEGA_ORBA_TEST_PG_DSN: postgresql://orba_test:disposable-ci-test-only@127.0.0.1:${{ job.services.postgres.ports[5432] }}/orba_test
+        run: >-
+          python -m unittest -v server.integration_tests.test_play_rtdn_postgres
+          server.integration_tests.test_play_rtdn_postgres_http
+          server.integration_tests.test_play_purchase_postgres
+          server.integration_tests.test_play_preflight_postgres
+      - name: Build the opt-in gateway image
+        run: docker build -f server/Dockerfile -t orba-runtime-ci .
+      - name: Smoke test actual container with disabled and incomplete configuration
+        run: python scripts/test_orba_runtime_container.py --image orba-runtime-ci
