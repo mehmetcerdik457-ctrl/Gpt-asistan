@@ -348,8 +348,12 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             text = "Eklentiler"
             setOnClickListener { showOmegaConnectorMenu() }
         }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        omegaActions.addView(Button(this).apply {
+            text = "Ajan Hub"
+            setOnClickListener { showOmegaAgentMenu() }
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         root.addView(omegaActions)
-        selectedModelLabel = TextView(this).apply { text = "Seçili Model: " + OmegaModelCatalog.byId(prefs.getString("omega_provider", "llama3"))?.title.orEmpty(); textSize = 13f; setPadding(8, 8, 8, 8) }
+        selectedModelLabel = TextView(this).apply { text = "Seçili Model: " + OmegaModelCatalog.byId(prefs.getString("omega_provider", "openai"))?.title.orEmpty(); textSize = 13f; setPadding(8, 8, 8, 8) }
         root.addView(selectedModelLabel)
         root.addView(Button(this).apply { text = "Ayarlar · API Anahtarı"; setOnClickListener { showOmegaApiKeyDialog() } })
         root.addView(Button(this).apply {
@@ -457,22 +461,59 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     private fun showOmegaApiKeyDialog() {
         if (!appUnlocked || !uiReady || storageBlocked) return
+        val providers = OmegaModelCatalog.providers
+        AlertDialog.Builder(this).setTitle("API anahtarı / yerel model")
+            .setItems(providers.map { it.title + if (it.requiresSecret) " · API anahtarı" else " · yerel uç nokta" }.toTypedArray()) { _, index ->
+                showOmegaProviderSetup(providers[index])
+            }.setNegativeButton("Kapat", null).showProtected()
+    }
+
+    private fun showOmegaProviderSetup(provider: OmegaModelProvider) {
         val keyInput = EditText(this).apply {
-            hint = "OpenAI API anahtarı"
+            hint = if (provider.requiresSecret) "Sağlayıcı API anahtarı" else "Opsiyonel yerel sunucu token'ı"
             isSingleLine = true
             inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
         }
-        val status = TextView(this).apply { text = "OpenAI API anahtarı Android Keystore ile şifrelenir. Anahtar sohbet isteğinde yalnız HTTPS Authorization başlığında kullanılır." }
-        val panel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(24, 16, 24, 0); addView(keyInput); addView(status) }
-        AlertDialog.Builder(this).setTitle("API Anahtarı Ekle").setView(panel)
-            .setPositiveButton("Şifreli kaydet") { _, _ ->
-                val value = keyInput.text.toString().trim()
-                if (!value.startsWith("sk-") || value.length < 20) { notice("Geçerli görünen bir API anahtarı gir."); return@setPositiveButton }
+        val endpointInput = EditText(this).apply {
+            hint = if (provider.kind == OmegaProviderKind.LOCAL_OPENAI_COMPATIBLE)
+                "http://127.0.0.1:11434/v1/chat/completions" else provider.endpoint
+            isSingleLine = true
+            setText(prefs.getString("omega_endpoint_${provider.id}", provider.endpoint))
+        }
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(24, 12, 24, 0)
+            addView(TextView(this@MainActivity).apply {
+                text = if (provider.requiresSecret) "Anahtar cihazın Android Keystore kasasında şifrelenir." else "Yerel model sunucusu aynı cihazda loopback veya HTTPS üzerinden erişilebilir olmalı."
+            })
+            if (provider.requiresSecret) addView(keyInput)
+            addView(endpointInput)
+        }
+        AlertDialog.Builder(this).setTitle(provider.title + " yapılandırması").setView(panel)
+            .setPositiveButton("Güvenli kaydet ve seç") { _, _ ->
+                val endpoint = endpointInput.text.toString().trim()
+                val key = keyInput.text.toString().trim()
+                if (provider.kind == OmegaProviderKind.LOCAL_OPENAI_COMPATIBLE &&
+                    !(endpoint.startsWith("http://127.0.0.1") || endpoint.startsWith("http://localhost") || endpoint.startsWith("https://"))) {
+                    notice("Yerel uç nokta loopback veya HTTPS olmalı.")
+                    return@setPositiveButton
+                }
+                if (provider.requiresSecret && (key.length < 16 || key.length > 4096)) {
+                    notice("Geçerli sağlayıcı API anahtarını gir.")
+                    return@setPositiveButton
+                }
                 try {
-                    OmegaSecretVault.save(this, "openai_api_key", value)
+                    if (provider.requiresSecret) OmegaSecretVault.save(this, "omega_${provider.id}_api_key", key)
+                    prefs.edit {
+                        putString("omega_provider", provider.id)
+                        putString("omega_endpoint_${provider.id}", endpoint)
+                    }
                     keyInput.text?.clear()
-                    prefs.edit { putString("omega_provider", "openai") }; selectedModelLabel.text = "Seçili Model: OpenAI API"; notice("OpenAI anahtarı şifreli kasaya kaydedildi. OpenAI sohbet bağlantısı seçildi.")
-                } catch (_: Exception) { notice("API anahtarı güvenli kasaya kaydedilemedi; değer saklanmadı.") }
+                    selectedModelLabel.text = "Seçili Model: " + provider.title
+                    notice(provider.title + " yapılandırması kaydedildi. Canlı bağlantı ilk sohbet isteğinde sınanır.")
+                } catch (_: Exception) {
+                    notice("Sağlayıcı bilgisi güvenli biçimde kaydedilemedi.")
+                }
             }.setNegativeButton("İptal", null).showProtected()
     }
 
@@ -480,19 +521,37 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         if (!appUnlocked || !uiReady || storageBlocked || session.state.value?.busy == true) return
         val providers = OmegaModelCatalog.providers
         val labels = providers.map { provider ->
-            val selected = prefs.getString("omega_provider", "llama3") == provider.id
-            (if (selected) "✓ " else "") + provider.title +
-                if (provider.requiresSecret) " · güvenli sunucu yapılandırması gerekli" else " · yerel uyumlu uç nokta gerekli"
+            val selected = prefs.getString("omega_provider", "openai") == provider.id
+            (if (selected) "✓ " else "") + provider.title + " · " + provider.modelId
         }.toTypedArray()
-        AlertDialog.Builder(this).setTitle("OMEGA model sağlayıcısı")
-            .setMessage("Bu sürümde OpenAI sohbet adaptörü canlıdır. Diğer sağlayıcılar katalogda görünür ancak sohbet adaptörleri henüz bağlanmamıştır. API anahtarları APK'ya yazılmaz.")
+        AlertDialog.Builder(this).setTitle("Çoklu model seçimi")
+            .setMessage("OpenAI, Gemini, Claude, Grok, Groq ve yerel Llama/Mistral/Gemma katalogda. Bir sağlayıcıyı kullanmadan önce API anahtarını veya yerel uç noktasını Ayarlar bölümünde yapılandır.")
             .setItems(labels) { _, index ->
                 if (!appUnlocked || storageBlocked) return@setItems
                 val selected = providers[index]
                 prefs.edit { putString("omega_provider", selected.id) }
                 selectedModelLabel.text = "Seçili Model: " + selected.title
-                notice(if (selected.id == "openai") "OpenAI seçildi. Şifreli API anahtarı varsa sohbet doğrudan OpenAI API'ye gider." else selected.title + " seçildi. Bu sağlayıcının sohbet adaptörü henüz etkin değil; canlı istek gönderilmeyecek.")
+                val hasKey = !selected.requiresSecret || runCatching {
+                    !OmegaSecretVault.read(this, "omega_${selected.id}_api_key").isNullOrBlank()
+                }.getOrDefault(false)
+                val hasEndpoint = selected.kind != OmegaProviderKind.LOCAL_OPENAI_COMPATIBLE ||
+                    !prefs.getString("omega_endpoint_${selected.id}", "").isNullOrBlank()
+                notice(if (hasKey && hasEndpoint) selected.title + " seçildi. Sohbet bu sağlayıcıya yönlendirilecek."
+                    else selected.title + " seçildi ancak bağlantı henüz yapılandırılmadı. Ayarlar · API Anahtarı bölümünü aç.")
             }.setNegativeButton("Vazgeç", null).showProtected()
+    }
+
+    private fun showOmegaAgentMenu() {
+        if (!appUnlocked || !uiReady || storageBlocked || session.state.value?.busy == true) return
+        val modes = arrayOf("Otomatik görev algılama", "Kod yazma ajanı", "Dosya analiz ajanı", "Planlama ajanı")
+        val ids = arrayOf("auto", "coding", "file_analysis", "planning")
+        val current = prefs.getString("omega_agent_mode", "auto")
+        AlertDialog.Builder(this).setTitle("OMEGA Ajan Hub")
+            .setMessage("Ajan, görevin türüne göre seçili model için uzman talimatı hazırlar. Dosya analizinde içeriği sohbete ekle veya yapıştır. Kod çalıştırma ve dış sistem değişiklikleri bu sürümde otomatik yapılmaz.")
+            .setItems(modes) { _, index ->
+                prefs.edit { putString("omega_agent_mode", ids[index]) }
+                connectionStatus.text = "Ajan modu: " + modes[index]
+            }.setNegativeButton("Kapat", null).showProtected()
     }
 
     private fun showOmegaConnectorMenu() {
@@ -957,35 +1016,52 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     private fun sendOmegaChat(raw: String): Boolean {
         if (!appUnlocked || !foreground || !uiReady || storageBlocked || raw.isBlank()) return false
-        val provider = prefs.getString("omega_provider", "llama3")
-        if (provider != "openai") {
-            connectionStatus.text = when (provider) {
-                "anthropic" -> "Anthropic sohbet adaptörü henüz uygulanmadı. OpenAI sağlayıcısını seç."
-                else -> "Bu sağlayıcı için uç nokta adaptörü henüz yapılandırılmadı. Şu an canlı sohbet OpenAI üzerinden destekleniyor."
-            }
+        val provider = OmegaModelCatalog.byId(prefs.getString("omega_provider", "openai"))
+        if (provider == null) {
+            connectionStatus.text = "Model sağlayıcısı seçilmedi."
             return false
         }
-        val apiKey = try { OmegaSecretVault.read(this, "openai_api_key") } catch (_: Exception) { null }
-        if (apiKey.isNullOrBlank()) {
-            connectionStatus.text = "OpenAI API anahtarı yok. Ayarlar · API Anahtarı bölümünden kaydet."
+        val apiKey = if (provider.requiresSecret) try {
+            OmegaSecretVault.read(this, "omega_${provider.id}_api_key")
+        } catch (_: Exception) { null } else null
+        if (provider.requiresSecret && apiKey.isNullOrBlank()) {
+            connectionStatus.text = provider.title + " API anahtarı eksik. Ayarlar bölümünden kaydet."
             return false
         }
+        val endpoint = if (provider.kind == OmegaProviderKind.LOCAL_OPENAI_COMPATIBLE)
+            prefs.getString("omega_endpoint_${provider.id}", "").orEmpty() else provider.endpoint
+        if (endpoint.isBlank()) {
+            connectionStatus.text = "Yerel model uç noktası yapılandırılmadı."
+            return false
+        }
+        val agent = OmegaAgentHub.route(raw, prefs.getString("omega_agent_mode", "auto").orEmpty())
         return try {
             store.saveMessage("user", "Sen: " + raw)
             session.refreshHistory()
             sendButton.isEnabled = false
-            connectionStatus.text = "OpenAI'ye güvenli HTTPS isteği gönderiliyor…"
+            connectionStatus.text = provider.title + " · " + agent.displayName + " isteği gönderiliyor…"
             thread {
-                val result = runCatching { OmegaOpenAiClient.chat(apiKey, raw) }
+                val result = runCatching {
+                    OmegaMultiModelClient.chat(provider, apiKey, raw, agent.systemPrompt, endpoint)
+                }
                 runOnUiThread {
                     sendButton.isEnabled = appUnlocked && !storageBlocked
                     if (!foreground || !appUnlocked || storageBlocked || isFinishing || isDestroyed) return@runOnUiThread
                     result.onSuccess { reply ->
-                        runCatching { store.saveMessage("assistant", "Model: " + reply); session.refreshHistory() }
-                            .onSuccess { connectionStatus.text = "OpenAI yanıtı alındı · ${OmegaOpenAiClient.MODEL}" }
-                            .onFailure { connectionStatus.text = getString(R.string.status_record_write_failed) }
-                    }.onFailure {
-                        connectionStatus.text = "OpenAI isteği başarısız oldu. API anahtarını, kotanı ve internet bağlantını kontrol et."
+                        runCatching {
+                            store.saveMessage("assistant", "Model: [${provider.title} / ${provider.modelId}] " + reply)
+                            session.refreshHistory()
+                        }.onSuccess {
+                            connectionStatus.text = provider.title + " yanıtı alındı · Ajan: " + agent.displayName
+                        }.onFailure {
+                            connectionStatus.text = getString(R.string.status_record_write_failed)
+                        }
+                    }.onFailure { error ->
+                        connectionStatus.text = when {
+                            error.message?.startsWith("PROVIDER_HTTP_401") == true -> "API anahtarı reddedildi. Anahtarı ve sağlayıcı hesabını kontrol et."
+                            error.message?.startsWith("PROVIDER_HTTP_429") == true -> "Sağlayıcı hız/kota sınırına ulaşıldı."
+                            else -> provider.title + " bağlantısı başarısız. Uç nokta, model erişimi, kota ve interneti kontrol et."
+                        }
                     }
                 }
             }
