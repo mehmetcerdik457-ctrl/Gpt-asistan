@@ -77,6 +77,21 @@ jobs:
           test -n "$AAB"
           jarsigner -verify "$AAB"
 
+      - name: Record artifact SHA-256 and signing certificate fingerprint
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="$(find app/build/outputs/apk/release -type f -name '*.apk' | head -n 1)"
+          AAB="$(find app/build/outputs/bundle/release -type f -name '*.aab' | head -n 1)"
+          test -n "$APK"
+          test -n "$AAB"
+          echo "=== SHA-256 ==="
+          sha256sum "$APK" "$AAB"
+          echo "=== APK signing certificate ==="
+          keytool -printcert -jarfile "$APK"
+          echo "=== AAB signing certificate ==="
+          keytool -printcert -jarfile "$AAB"
+
       - name: Upload signed release artifacts
         uses: actions/upload-artifact@v4
         with:
