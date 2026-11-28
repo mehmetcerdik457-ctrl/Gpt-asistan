@@ -7,7 +7,7 @@ object OmegaModelCatalog {
   OmegaModelProvider("llama3","Llama 3 (yerel sunucu)",OmegaProviderKind.LOCAL_OPENAI_COMPATIBLE,"llama3",true,false),
   OmegaModelProvider("mistral","Mistral (yerel sunucu)",OmegaProviderKind.LOCAL_OPENAI_COMPATIBLE,"mistral",true,false),
   OmegaModelProvider("gemma","Gemma (yerel sunucu)",OmegaProviderKind.LOCAL_OPENAI_COMPATIBLE,"gemma",true,false),
-  OmegaModelProvider("openai","OpenAI API",OmegaProviderKind.OPENAI,"gpt-model",true,true),
+  OmegaModelProvider("openai","OpenAI API",OmegaProviderKind.OPENAI,"gpt-4.1-mini",false,true),
   OmegaModelProvider("anthropic","Anthropic API",OmegaProviderKind.ANTHROPIC,"claude-model",true,true))
  fun byId(id:String?)=providers.firstOrNull{it.id==id}
 }
