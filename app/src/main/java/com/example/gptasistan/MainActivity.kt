@@ -491,7 +491,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 val selected = providers[index]
                 prefs.edit { putString("omega_provider", selected.id) }
                 selectedModelLabel.text = "Seçili Model: " + selected.title
-                notice(selected.id == "openai" ? "OpenAI seçildi. Şifreli API anahtarı varsa sohbet doğrudan OpenAI API'ye gider." : selected.title + " seçildi. Bu sağlayıcının sohbet adaptörü henüz etkin değil; canlı istek gönderilmeyecek.")
+                notice(if (selected.id == "openai") "OpenAI seçildi. Şifreli API anahtarı varsa sohbet doğrudan OpenAI API'ye gider." else selected.title + " seçildi. Bu sağlayıcının sohbet adaptörü henüz etkin değil; canlı istek gönderilmeyecek.")
             }.setNegativeButton("Vazgeç", null).showProtected()
     }
 
