@@ -2,6 +2,9 @@ name: Signed Android Release
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - codex/android-release-signing-20261124
 
 permissions:
   contents: read
@@ -50,7 +53,7 @@ jobs:
           if [[ ! -f ./gradlew ]]; then
             curl -fsSL https://services.gradle.org/distributions/gradle-8.7-bin.zip -o gradle.zip
             unzip -q gradle.zip -d gradle-8.7
-            printf '%s\n' '#!/usr/bin/env sh' 'exec "$(pwd)/gradle-8.7/gradle-8.7/bin/gradle" "$@"' > gradlew
+            printf '%s\\n' '#!/usr/bin/env sh' 'exec "$(pwd)/gradle-8.7/gradle-8.7/bin/gradle" "$@"' > gradlew
             chmod +x gradlew
           fi
 
