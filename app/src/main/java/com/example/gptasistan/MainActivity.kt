@@ -497,17 +497,23 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     private fun showOmegaConnectorMenu() {
         if (!appUnlocked || !uiReady || storageBlocked || session.state.value?.busy == true) return
-        val message = OmegaConnectorCatalog.connectors.joinToString("\n\n") { connector ->
+        val connectors = OmegaConnectorCatalog.connectors
+        val labels = connectors.map { connector ->
             val status = when (connector.state) {
                 OmegaConnectorState.NOT_CONFIGURED -> "YAPILANDIRILMADI"
-                OmegaConnectorState.DISABLED_UNTIL_SANDBOXED -> "GÜVENLİ SANDBOX BEKLİYOR"
-                OmegaConnectorState.OAUTH_REQUIRED -> "OAUTH İZNİ GEREKLİ"
+                OmegaConnectorState.DISABLED_UNTIL_SANDBOXED -> "SANDBOX BEKLİYOR"
+                OmegaConnectorState.OAUTH_REQUIRED -> "OAUTH GEREKLİ"
             }
-            connector.title + " · " + status + "\n" + connector.detail
-        }
+            connector.title + " · " + status
+        }.toTypedArray()
         AlertDialog.Builder(this).setTitle("OMEGA eklentileri")
-            .setMessage(message + "\n\nBağlayıcılar bu sürümde katalog/arayüz düzeyindedir; etkin bağlantı veya kod çalıştırma iddiası yoktur.")
-            .setPositiveButton("Tamam", null).showProtected()
+            .setItems(labels) { _, index ->
+                if (!appUnlocked || storageBlocked) return@setItems
+                val connector = connectors[index]
+                notice(connector.title + "\n\n" + connector.detail +
+                    "\n\nDurum: " + labels[index] +
+                    "\n\nBu sürümde bağlantı katalog düzeyindedir; canlı erişim etkin değildir.")
+            }.setNegativeButton("Kapat", null).showProtected()
     }
 
     private fun memoryControlsReady() = appUnlocked && uiReady && !storageBlocked &&
