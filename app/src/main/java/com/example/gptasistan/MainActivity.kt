@@ -13,6 +13,9 @@ import kotlin.concurrent.thread
 import android.speech.tts.TextToSpeech
 import android.text.InputFilter
 import android.view.ViewGroup
+import android.view.Gravity
+import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -34,7 +37,8 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private lateinit var store: KralStore
     private lateinit var orchestrator: KralCoreOrchestrator
     private lateinit var session: ChatSession
-    private lateinit var transcript: TextView
+    private lateinit var chatMessages: LinearLayout
+    private lateinit var selectedModelLabel: TextView
     private lateinit var input: EditText
     private lateinit var sendButton: Button
     private lateinit var modelButton: Button
@@ -345,6 +349,9 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             setOnClickListener { showOmegaConnectorMenu() }
         }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         root.addView(omegaActions)
+        selectedModelLabel = TextView(this).apply { text = "Seçili Model: " + OmegaModelCatalog.byId(prefs.getString("omega_provider", "llama3"))?.title.orEmpty(); textSize = 13f; setPadding(8, 8, 8, 8) }
+        root.addView(selectedModelLabel)
+        root.addView(Button(this).apply { text = "Ayarlar · API Anahtarı"; setOnClickListener { showOmegaApiKeyDialog() } })
         root.addView(Button(this).apply {
             text = getString(R.string.action_server_registration)
             setOnClickListener { unlock { showRegistration() } }
@@ -381,8 +388,8 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             }
         })
         scroller = ScrollView(this)
-        transcript = TextView(this).apply { textSize = 16f }
-        scroller.addView(transcript)
+        chatMessages = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(4, 8, 4, 8) }
+        scroller.addView(chatMessages)
         root.addView(scroller, LinearLayout.LayoutParams(-1, 0, 1f))
         val bottom = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         input = EditText(this).apply {
@@ -403,8 +410,19 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         root.addView(bottom)
         setContentView(root)
         session.history.observe(this) { history ->
-            transcript.text = if (history.isEmpty()) getString(R.string.greeting_help, KralCore.help())
-                else history.joinToString("\n\n") { it.text } + "\n"
+            chatMessages.removeAllViews()
+            if (history.isEmpty()) addChatBubble("OMEGA", getString(R.string.greeting_help, KralCore.help()), false)
+            else history.forEach { entry ->
+                val raw = entry.text
+                val isUser = raw.startsWith("Sen:")
+                val speaker = when {
+                    isUser -> "Sen"
+                    raw.startsWith("Model:") -> "OMEGA"
+                    raw.startsWith("Yankı:") -> "OMEGA"
+                    else -> "OMEGA"
+                }
+                addChatBubble(speaker, raw.removePrefix("Sen: ").removePrefix("Model: "), isUser)
+            }
             scroller.post { scroller.fullScroll(ScrollView.FOCUS_DOWN) }
         }
         session.state.observe(this) { state ->
@@ -416,6 +434,47 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         tts = TextToSpeech(this, this)
     }
 
+
+    private fun addChatBubble(speaker: String, message: String, user: Boolean) {
+        val bubble = TextView(this).apply {
+            text = "$speaker\\n$message"
+            textSize = 15f
+            setTextColor(Color.WHITE)
+            setPadding(14, 10, 14, 10)
+            background = GradientDrawable().apply {
+                cornerRadius = 22f
+                setColor(if (user) Color.rgb(37, 99, 235) else Color.rgb(48, 52, 61))
+            }
+        }
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = if (user) Gravity.END else Gravity.START
+            setPadding(4, 5, 4, 5)
+            addView(bubble, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 0.88f))
+        }
+        chatMessages.addView(row)
+    }
+
+    private fun showOmegaApiKeyDialog() {
+        if (!appUnlocked || !uiReady || storageBlocked) return
+        val keyInput = EditText(this).apply {
+            hint = "OpenAI API anahtarı"
+            isSingleLine = true
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+        }
+        val status = TextView(this).apply { text = "Anahtar Android Keystore tabanlı şifreli kasada saklanır." }
+        val panel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(24, 16, 24, 0); addView(keyInput); addView(status) }
+        AlertDialog.Builder(this).setTitle("API Anahtarı Ekle").setView(panel)
+            .setPositiveButton("Şifreli kaydet") { _, _ ->
+                val value = keyInput.text.toString().trim()
+                if (!value.startsWith("sk-") || value.length < 20) { notice("Geçerli görünen bir API anahtarı gir."); return@setPositiveButton }
+                try {
+                    OmegaSecretVault.save(this, "openai_api_key", value)
+                    keyInput.text?.clear()
+                    notice("API anahtarı Android Keystore ile şifrelenerek kaydedildi. Henüz sohbet sağlayıcısına bağlanmadı.")
+                } catch (_: Exception) { notice("API anahtarı güvenli kasaya kaydedilemedi; değer saklanmadı.") }
+            }.setNegativeButton("İptal", null).showProtected()
+    }
 
     private fun showOmegaModelMenu() {
         if (!appUnlocked || !uiReady || storageBlocked || session.state.value?.busy == true) return
@@ -431,6 +490,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 if (!appUnlocked || storageBlocked) return@setItems
                 val selected = providers[index]
                 prefs.edit { putString("omega_provider", selected.id) }
+                selectedModelLabel.text = "Seçili Model: " + selected.title
                 notice(selected.title + " seçildi. Bu katalog seçimi canlı sağlayıcı bağlantısı kurmaz; mevcut sahip geçidi ayarları korunur.")
             }.setNegativeButton("Vazgeç", null).showProtected()
     }
@@ -889,8 +949,23 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         return true
     }
 
+    private fun recordOmegaEcho(raw: String): Boolean {
+        if (!appUnlocked || !uiReady || storageBlocked || raw.isBlank()) return false
+        return try {
+            store.saveMessage("user", "Sen: " + raw)
+            store.saveMessage("assistant", "Yankı: " + raw)
+            session.refreshHistory()
+            connectionStatus.text = "Demo yankı modu · gerçek model isteği gönderilmedi"
+            true
+        } catch (_: Exception) {
+            connectionStatus.text = getString(R.string.status_record_write_failed)
+            false
+        }
+    }
+
     private fun handle(raw: String): Boolean {
         if (session.state.value?.busy == true) return false
+        if (KralCore.parse(raw) is KralCommand.Chat) return recordOmegaEcho(raw)
         return try {
             val command = KralCore.parse(raw)
             val remoteVerified = if (command is KralCommand.Chat && appUnlocked && !storageBlocked) {
