@@ -10,7 +10,6 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 jobs:
   backend:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     uses: ./.github/workflows/ci.yml
   build:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
@@ -310,7 +309,7 @@ jobs:
     needs: [backend, build, emulator, backup-copy]
     if: >-
       (
-        (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+        (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/omega-chat-model-plugin-hub-20261128')) ||
         (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/codex/omega-orba-completion-20261117')
       ) &&
       github.repository == 'mehmetcerdik457-ctrl/Gpt-asistan' &&
@@ -552,7 +551,8 @@ jobs:
   publish-candidate:
     needs: [backend, build, emulator, backup-copy]
     if: >-
-      github.event_name == 'push' && github.ref == 'refs/heads/main' &&
+      github.event_name == 'push' &&
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/omega-chat-model-plugin-hub-20261128') &&
       github.repository == 'mehmetcerdik457-ctrl/Gpt-asistan' &&
       github.actor == 'mehmetcerdik457-ctrl'
     runs-on: ubuntu-24.04
