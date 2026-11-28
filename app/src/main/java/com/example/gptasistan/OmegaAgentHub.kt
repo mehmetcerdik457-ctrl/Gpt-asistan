@@ -12,8 +12,8 @@ object OmegaAgentHub {
             "file_analysis" -> OmegaAgentTask.FILE_ANALYSIS
             "planning" -> OmegaAgentTask.PLANNING
             else -> when {
-                listOf("kod yaz", "kodla", "bug düzelt", "refactor", "python", "kotlin", "java", "fonksiyon yaz").any(normalized::contains) -> OmegaAgentTask.CODING
-                listOf("dosya analiz", "pdf analiz", "belgeyi incele", "dosyayı incele").any(normalized::contains) -> OmegaAgentTask.FILE_ANALYSIS
+                listOf("kod yaz", "kodla", "bug düzelt", "refactor", "python", "kotlin", "java", "fonksiyon yaz").any { normalized.contains(it) } -> OmegaAgentTask.CODING
+                ((normalized.contains("dosya") || normalized.contains("pdf") || normalized.contains("belge")) && (normalized.contains("analiz") || normalized.contains("incele"))) -> OmegaAgentTask.FILE_ANALYSIS
                 listOf("planla", "adım adım", "proje planı", "yol haritası").any(normalized::contains) -> OmegaAgentTask.PLANNING
                 else -> OmegaAgentTask.GENERAL
             }
