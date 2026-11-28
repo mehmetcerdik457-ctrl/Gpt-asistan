@@ -335,6 +335,16 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         button(getString(R.string.action_tasks)) { showLocalTaskMenu() }
         modelButton = button(getString(R.string.action_model)) { configureModel() }
         root.addView(actions)
+        val omegaActions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        omegaActions.addView(Button(this).apply {
+            text = "OMEGA · Modeller"
+            setOnClickListener { showOmegaModelMenu() }
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        omegaActions.addView(Button(this).apply {
+            text = "Eklentiler"
+            setOnClickListener { showOmegaConnectorMenu() }
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        root.addView(omegaActions)
         root.addView(Button(this).apply {
             text = getString(R.string.action_server_registration)
             setOnClickListener { unlock { showRegistration() } }
@@ -404,6 +414,40 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             if (appUnlocked) speakLatestReply()
         }
         tts = TextToSpeech(this, this)
+    }
+
+
+    private fun showOmegaModelMenu() {
+        if (!appUnlocked || !uiReady || storageBlocked || session.state.value?.busy == true) return
+        val providers = OmegaModelCatalog.providers
+        val labels = providers.map { provider ->
+            val selected = prefs.getString("omega_provider", "llama3") == provider.id
+            (if (selected) "✓ " else "") + provider.title +
+                if (provider.requiresSecret) " · güvenli sunucu yapılandırması gerekli" else " · yerel uyumlu uç nokta gerekli"
+        }.toTypedArray()
+        AlertDialog.Builder(this).setTitle("OMEGA model sağlayıcısı")
+            .setMessage("Seçim tercihi kaydedilir. Canlı model bağlantısı, ayrı uç nokta/kimlik bilgisi yapılandırılıp doğrulanmadan etkin sayılmaz. API anahtarları APK'ya yazılmaz.")
+            .setItems(labels) { _, index ->
+                if (!appUnlocked || storageBlocked) return@setItems
+                val selected = providers[index]
+                prefs.edit { putString("omega_provider", selected.id) }
+                notice(selected.title + " seçildi. Bu katalog seçimi canlı sağlayıcı bağlantısı kurmaz; mevcut sahip geçidi ayarları korunur.")
+            }.setNegativeButton("Vazgeç", null).showProtected()
+    }
+
+    private fun showOmegaConnectorMenu() {
+        if (!appUnlocked || !uiReady || storageBlocked || session.state.value?.busy == true) return
+        val message = OmegaConnectorCatalog.connectors.joinToString("\n\n") { connector ->
+            val status = when (connector.state) {
+                OmegaConnectorState.NOT_CONFIGURED -> "YAPILANDIRILMADI"
+                OmegaConnectorState.DISABLED_UNTIL_SANDBOXED -> "GÜVENLİ SANDBOX BEKLİYOR"
+                OmegaConnectorState.OAUTH_REQUIRED -> "OAUTH İZNİ GEREKLİ"
+            }
+            connector.title + " · " + status + "\n" + connector.detail
+        }
+        AlertDialog.Builder(this).setTitle("OMEGA eklentileri")
+            .setMessage(message + "\n\nBağlayıcılar bu sürümde katalog/arayüz düzeyindedir; etkin bağlantı veya kod çalıştırma iddiası yoktur.")
+            .setPositiveButton("Tamam", null).showProtected()
     }
 
     private fun memoryControlsReady() = appUnlocked && uiReady && !storageBlocked &&
