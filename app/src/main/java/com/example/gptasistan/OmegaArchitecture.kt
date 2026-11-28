@@ -12,7 +12,7 @@ data class OmegaModelProvider(
 object OmegaModelCatalog {
     val providers = listOf(
         OmegaModelProvider("openai", "OpenAI · GPT", OmegaProviderKind.OPENAI_COMPATIBLE, "gpt-4.1-mini", "https://api.openai.com/v1/chat/completions", true),
-        OmegaModelProvider("gemini", "Google · Gemini", OmegaProviderKind.GEMINI, "gemini-2.5-flash", "https://generativelanguage.googleapis.com/v1beta/models", true),
+        OmegaModelProvider("gemini", "Google · Gemini", OmegaProviderKind.GEMINI, "gemini-3.5-flash", "https://generativelanguage.googleapis.com/v1beta/models", true),
         OmegaModelProvider("anthropic", "Anthropic · Claude", OmegaProviderKind.ANTHROPIC, "claude-sonnet-4-20250514", "https://api.anthropic.com/v1/messages", true),
         OmegaModelProvider("xai", "xAI · Grok", OmegaProviderKind.OPENAI_COMPATIBLE, "grok-4.7", "https://api.x.ai/v1/chat/completions", true),
         OmegaModelProvider("groq", "Groq · Llama", OmegaProviderKind.OPENAI_COMPATIBLE, "llama-3.3-70b-versatile", "https://api.groq.com/openai/v1/chat/completions", true),
