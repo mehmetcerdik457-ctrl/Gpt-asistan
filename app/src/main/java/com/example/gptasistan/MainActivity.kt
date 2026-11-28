@@ -516,6 +516,24 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             }.setNegativeButton("İptal", null).showProtected()
     }
 
+    private fun effectiveProvider(p: OmegaModelProvider): OmegaModelProvider {
+        val o = prefs.getString("omega_model_${p.id}", "").orEmpty().trim()
+        return if (o.isBlank()) p else p.copy(modelId = o)
+    }
+    private fun showOmegaModelIdEditor() {
+        val base = OmegaModelCatalog.byId(prefs.getString("omega_provider", "openai")) ?: run {
+            notice("Önce bir sağlayıcı seç (Otomatik Mod için model kimliği sağlayıcı bazlıdır)."); return
+        }
+        val input = android.widget.EditText(this).apply { setText(effectiveProvider(base).modelId); isSingleLine = true }
+        AlertDialog.Builder(this).setTitle(base.title + " model kimliği")
+            .setMessage("Varsayılan: " + base.modelId + ". Boş bırakıp kaydedersen varsayılana döner.")
+            .setView(input)
+            .setPositiveButton("Kaydet") { _, _ ->
+                val v = input.text.toString().trim()
+                prefs.edit { if (v.isBlank() || v == base.modelId) remove("omega_model_${base.id}") else putString("omega_model_${base.id}", v) }
+                notice(base.title + " model kimliği: " + (if (v.isBlank()) base.modelId else v))
+            }.setNegativeButton("Vazgeç", null).showProtected()
+    }
     private fun showOmegaModelMenu() {
         if (!appUnlocked || !uiReady || storageBlocked || session.state.value?.busy == true) return
         val providers = OmegaModelCatalog.providers
@@ -523,12 +541,13 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         val labels = listOf((if (autoSelected) "✓ " else "") + "Otomatik Mod · göreve göre sağlayıcı seç") +
             providers.map { provider ->
                 val selected = prefs.getString("omega_provider", "openai") == provider.id
-                (if (selected) "✓ " else "") + provider.title + " · " + provider.modelId
-            }
+                (if (selected) "✓ " else "") + provider.title + " · " + effectiveProvider(provider).modelId
+            } + "✎ Seçili sağlayıcının model kimliğini düzenle (Ultra vb.)"
         AlertDialog.Builder(this).setTitle("Çoklu model seçimi")
             .setMessage("Otomatik Mod, kodlama ve genel sohbet görevlerinde yalnızca yapılandırılmış sağlayıcılar arasından seçim yapar. Görsel analizi için gerçek görsel yükleme henüz desteklenmiyor.")
             .setItems(labels.toTypedArray()) { _, index ->
                 if (!appUnlocked || storageBlocked) return@setItems
+                if (index == providers.size + 1) { showOmegaModelIdEditor(); return@setItems }
                 if (index == 0) {
                     prefs.edit { putString("omega_provider", "auto") }
                     selectedModelLabel.text = "Seçili Model: Otomatik Mod"
@@ -550,8 +569,10 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     private fun showOmegaAgentMenu() {
         if (!appUnlocked || !uiReady || storageBlocked || session.state.value?.busy == true) return
-        val modes = arrayOf("Otomatik görev algılama", "Kod yazma ajanı", "Dosya analiz ajanı", "Planlama ajanı")
-        val ids = arrayOf("auto", "coding", "file_analysis", "planning")
+        val modes = arrayOf("Otomatik görev algılama", "Kod yazma ajanı", "Dosya analiz ajanı", "Planlama ajanı") +
+            OmegaAgentProfiles.all.map { "Ajan · " + it.title }
+        val ids = arrayOf("auto", "coding", "file_analysis", "planning") +
+            OmegaAgentProfiles.all.map { "agent:" + it.id }
         val current = prefs.getString("omega_agent_mode", "auto")
         AlertDialog.Builder(this).setTitle("OMEGA Ajan Hub")
             .setMessage("Ajan, görevin türüne göre seçili model için uzman talimatı hazırlar. Dosya analizinde içeriği sohbete ekle veya yapıştır. Kod çalıştırma ve dış sistem değişiklikleri bu sürümde otomatik yapılmaz.")
@@ -1024,7 +1045,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private fun sendOmegaChat(raw: String): Boolean {
         if (!appUnlocked || !foreground || !uiReady || storageBlocked || raw.isBlank()) return false
         val selectedId = prefs.getString("omega_provider", "openai").orEmpty()
-        val provider = if (selectedId == "auto") {
+        val providerBase = if (selectedId == "auto") {
             val configured = OmegaModelCatalog.providers.filter { candidate ->
                 val keyReady = !candidate.requiresSecret || runCatching {
                     !OmegaSecretVault.read(this, "omega_${candidate.id}_api_key").isNullOrBlank()
@@ -1041,6 +1062,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             connectionStatus.text = route.reason
             route.provider
         } else OmegaModelCatalog.byId(selectedId)
+        val provider = providerBase?.let { effectiveProvider(it) }
         if (provider == null) {
             connectionStatus.text = "Model sağlayıcısı seçilmedi."
             return false

@@ -6,6 +6,12 @@ data class OmegaAgentRequest(val task: OmegaAgentTask, val systemPrompt: String,
 
 object OmegaAgentHub {
     fun route(userText: String, selectedMode: String = "auto"): OmegaAgentRequest {
+        val profile = if (selectedMode.startsWith("agent:")) OmegaAgentProfiles.byId(selectedMode.removePrefix("agent:")) else null
+        if (profile != null) {
+            return OmegaAgentRequest(OmegaAgentTask.GENERAL,
+                OmegaSystemPolicy.SYSTEM_GUIDANCE + "\n\nAJAN PROFİLİ: " + profile.title + ". Bu profil yalnızca danışman rolüdür; araç çalıştırma, dosya yazma veya dış sistem yetkisi vermez. Çalıştırmadığın işi çalıştırdım deme.\n\n" + profile.instruction,
+                profile.title)
+        }
         val normalized = userText.lowercase()
         val task = when (selectedMode) {
             "coding" -> OmegaAgentTask.CODING
