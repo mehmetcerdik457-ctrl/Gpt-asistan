@@ -519,24 +519,32 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private fun showOmegaModelMenu() {
         if (!appUnlocked || !uiReady || storageBlocked || session.state.value?.busy == true) return
         val providers = OmegaModelCatalog.providers
-        val labels = providers.map { provider ->
-            val selected = prefs.getString("omega_provider", "openai") == provider.id
-            (if (selected) "✓ " else "") + provider.title + " · " + provider.modelId
-        }.toTypedArray()
+        val autoSelected = prefs.getString("omega_provider", "openai") == "auto"
+        val labels = listOf((if (autoSelected) "✓ " else "") + "Otomatik Mod · göreve göre sağlayıcı seç") +
+            providers.map { provider ->
+                val selected = prefs.getString("omega_provider", "openai") == provider.id
+                (if (selected) "✓ " else "") + provider.title + " · " + provider.modelId
+            }
         AlertDialog.Builder(this).setTitle("Çoklu model seçimi")
-            .setMessage("OpenAI, Gemini, Claude, Grok, Groq ve yerel Llama/Mistral/Gemma katalogda. Bir sağlayıcıyı kullanmadan önce API anahtarını veya yerel uç noktasını Ayarlar bölümünde yapılandır.")
-            .setItems(labels) { _, index ->
+            .setMessage("Otomatik Mod, kodlama ve genel sohbet görevlerinde yalnızca yapılandırılmış sağlayıcılar arasından seçim yapar. Görsel analizi için gerçek görsel yükleme henüz desteklenmiyor.")
+            .setItems(labels.toTypedArray()) { _, index ->
                 if (!appUnlocked || storageBlocked) return@setItems
-                val selected = providers[index]
-                prefs.edit { putString("omega_provider", selected.id) }
-                selectedModelLabel.text = "Seçili Model: " + selected.title
-                val hasKey = !selected.requiresSecret || runCatching {
-                    !OmegaSecretVault.read(this, "omega_${selected.id}_api_key").isNullOrBlank()
-                }.getOrDefault(false)
-                val hasEndpoint = selected.kind != OmegaProviderKind.LOCAL_OPENAI_COMPATIBLE ||
-                    !prefs.getString("omega_endpoint_${selected.id}", "").isNullOrBlank()
-                notice(if (hasKey && hasEndpoint) selected.title + " seçildi. Sohbet bu sağlayıcıya yönlendirilecek."
-                    else selected.title + " seçildi ancak bağlantı henüz yapılandırılmadı. Ayarlar · API Anahtarı bölümünü aç.")
+                if (index == 0) {
+                    prefs.edit { putString("omega_provider", "auto") }
+                    selectedModelLabel.text = "Seçili Model: Otomatik Mod"
+                    notice("Otomatik Mod etkin. Her mesaj uygun ve yapılandırılmış sağlayıcıya yönlendirilecek.")
+                } else {
+                    val selected = providers[index - 1]
+                    prefs.edit { putString("omega_provider", selected.id) }
+                    selectedModelLabel.text = "Seçili Model: " + selected.title
+                    val hasKey = !selected.requiresSecret || runCatching {
+                        !OmegaSecretVault.read(this, "omega_${selected.id}_api_key").isNullOrBlank()
+                    }.getOrDefault(false)
+                    val hasEndpoint = selected.kind != OmegaProviderKind.LOCAL_OPENAI_COMPATIBLE ||
+                        !prefs.getString("omega_endpoint_${selected.id}", "").isNullOrBlank()
+                    notice(if (hasKey && hasEndpoint) selected.title + " seçildi. Sohbet bu sağlayıcıya yönlendirilecek."
+                        else selected.title + " seçildi ancak bağlantı henüz yapılandırılmadı. Ayarlar · API Anahtarı bölümünü aç.")
+                }
             }.setNegativeButton("Vazgeç", null).showProtected()
     }
 
@@ -1015,7 +1023,24 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     private fun sendOmegaChat(raw: String): Boolean {
         if (!appUnlocked || !foreground || !uiReady || storageBlocked || raw.isBlank()) return false
-        val provider = OmegaModelCatalog.byId(prefs.getString("omega_provider", "openai"))
+        val selectedId = prefs.getString("omega_provider", "openai").orEmpty()
+        val provider = if (selectedId == "auto") {
+            val configured = OmegaModelCatalog.providers.filter { candidate ->
+                val keyReady = !candidate.requiresSecret || runCatching {
+                    !OmegaSecretVault.read(this, "omega_${candidate.id}_api_key").isNullOrBlank()
+                }.getOrDefault(false)
+                val endpointReady = candidate.kind != OmegaProviderKind.LOCAL_OPENAI_COMPATIBLE ||
+                    !prefs.getString("omega_endpoint_${candidate.id}", "").isNullOrBlank()
+                keyReady && endpointReady
+            }
+            val route = OmegaAutoRouter.select(raw, configured)
+            if (route.provider == null) {
+                connectionStatus.text = route.reason
+                return false
+            }
+            connectionStatus.text = route.reason
+            route.provider
+        } else OmegaModelCatalog.byId(selectedId)
         if (provider == null) {
             connectionStatus.text = "Model sağlayıcısı seçilmedi."
             return false
