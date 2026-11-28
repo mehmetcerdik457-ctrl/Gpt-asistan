@@ -310,8 +310,11 @@ jobs:
 # The isolated owner-release job below is the ONLY feature-branch job that receives
   # Android signing secrets. Never pass the keystore into the general build/test job.
   # It signs only the exact pushed feature head after backend, build and emulator gates pass.
+# Sign the exact-source APK as soon as source/build/backend gates pass.
+  # The signed binary is then independently installed by release-smoke on API 30/36;
+  # debug-candidate emulator and backup fixtures remain parallel, not signing blockers.
   release-build:
-    needs: [backend, build, emulator, backup-copy]
+    needs: [backend, build]
     if: >-
       (
         (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/omega-chat-model-plugin-hub-20261128')) ||
