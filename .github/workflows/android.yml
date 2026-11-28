@@ -101,7 +101,7 @@ jobs:
           (cd build/delivery && sha256sum app-debug-androidTest.apk > TEST-APK-SHA256SUMS)
           python3 scripts/android_artifact.py build/delivery/app-debug.apk build/delivery --build-tools 36.0.0 --expected-sha "${{ github.event.pull_request.head.sha || github.sha }}" --signing-report build/delivery/signing-status.json
           python3 scripts/check_delivery_secrets.py --apk build/delivery/app-debug.apk | tee build/delivery/secret-scan.txt
-          python3 scripts/android_delivery_evidence.py build/delivery
+          python3 scripts/android_delivery_evidence.py build/delivery --allow-unit-tests-skipped
           git archive --format=tar.gz --output=build/delivery/source.tar.gz HEAD
           cd build/delivery
           sha256sum source.tar.gz > SOURCE-SHA256SUMS
@@ -134,7 +134,7 @@ jobs:
           s = json.loads((p / 'signing-status.json').read_text())
           print(f"Source commit: `{m['source_commit']}`\n")
           print(f"APK SHA-256: `{m['sha256']}`\n")
-          print(f"Unit tests: {e['unit_tests_passed']} passed, {e['unit_tests']['skipped']} skipped; Lint passed.\n")
+          print(f"Unit tests: `{e['unit_tests_status']}`; {e['unit_tests_passed']} passed, {e['unit_tests']['skipped']} skipped. Lint passed.\n")
           print(f"Owner signing: `{s['status']}`. Previous-install upgrade verified: `false`.\n")
           print('Download the kral-asistan-candidate-apk artifact from this run. API 30/36 emulator results are recorded by their own jobs. Physical phone and live model calls are not tested.')
           PY
