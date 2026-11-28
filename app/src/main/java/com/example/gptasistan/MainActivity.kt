@@ -355,6 +355,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         root.addView(omegaActions)
         selectedModelLabel = TextView(this).apply { text = "Seçili Model: " + OmegaModelCatalog.byId(prefs.getString("omega_provider", "openai"))?.title.orEmpty(); textSize = 13f; setPadding(8, 8, 8, 8) }
         root.addView(selectedModelLabel)
+        refreshModelSummary()
         root.addView(Button(this).apply { text = "Ayarlar · API Anahtarı"; setOnClickListener { showOmegaApiKeyDialog() } })
         root.addView(Button(this).apply {
             text = getString(R.string.action_server_registration)
@@ -508,7 +509,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                         putString("omega_endpoint_${provider.id}", endpoint)
                     }
                     keyInput.text?.clear()
-                    selectedModelLabel.text = "Seçili Model: " + provider.title
+                    refreshModelSummary()
                     notice(provider.title + " yapılandırması kaydedildi. Canlı bağlantı ilk sohbet isteğinde sınanır.")
                 } catch (_: Exception) {
                     notice("Sağlayıcı bilgisi güvenli biçimde kaydedilemedi.")
@@ -516,6 +517,18 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             }.setNegativeButton("İptal", null).showProtected()
     }
 
+    private fun omegaModelEntries(): List<OmegaModelEntry> = OmegaModelListProvider.list(
+        hasKey = { p -> runCatching { !OmegaSecretVault.read(this, "omega_${p.id}_api_key").isNullOrBlank() }.getOrDefault(false) },
+        hasEndpoint = { p -> !prefs.getString("omega_endpoint_${p.id}", "").isNullOrBlank() },
+        modelOverride = { p -> prefs.getString("omega_model_${p.id}", "") }
+    )
+    private fun refreshModelSummary() {
+        if (!::selectedModelLabel.isInitialized) return
+        val e = omegaModelEntries()
+        val sel = prefs.getString("omega_provider", "openai")
+        val name = if (sel == "auto") "Otomatik Mod" else OmegaModelCatalog.byId(sel)?.title.orEmpty()
+        selectedModelLabel.text = "Seçili Model: " + name + " · " + e.size + " model tanımlı, " + e.count { it.readiness == OmegaModelReadiness.READY } + " hazır · " + OmegaAgentProfiles.all.size + " ajan"
+    }
     private fun effectiveProvider(p: OmegaModelProvider): OmegaModelProvider {
         val o = prefs.getString("omega_model_${p.id}", "").orEmpty().trim()
         return if (o.isBlank()) p else p.copy(modelId = o)
@@ -531,7 +544,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             .setPositiveButton("Kaydet") { _, _ ->
                 val v = input.text.toString().trim()
                 prefs.edit { if (v.isBlank() || v == base.modelId) remove("omega_model_${base.id}") else putString("omega_model_${base.id}", v) }
-                notice(base.title + " model kimliği: " + (if (v.isBlank()) base.modelId else v))
+                refreshModelSummary(); notice(base.title + " model kimliği: " + (if (v.isBlank()) base.modelId else v))
             }.setNegativeButton("Vazgeç", null).showProtected()
     }
     private fun showOmegaModelMenu() {
@@ -539,9 +552,9 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         val providers = OmegaModelCatalog.providers
         val autoSelected = prefs.getString("omega_provider", "openai") == "auto"
         val labels = listOf((if (autoSelected) "✓ " else "") + "Otomatik Mod · göreve göre sağlayıcı seç") +
-            providers.map { provider ->
-                val selected = prefs.getString("omega_provider", "openai") == provider.id
-                (if (selected) "✓ " else "") + provider.title + " · " + effectiveProvider(provider).modelId
+            omegaModelEntries().map { entry ->
+                val selected = prefs.getString("omega_provider", "openai") == entry.provider.id
+                (if (selected) "✓ " else "") + entry.label
             } + "✎ Seçili sağlayıcının model kimliğini düzenle (Ultra vb.)"
         AlertDialog.Builder(this).setTitle("Çoklu model seçimi")
             .setMessage("Otomatik Mod, kodlama ve genel sohbet görevlerinde yalnızca yapılandırılmış sağlayıcılar arasından seçim yapar. Görsel analizi için gerçek görsel yükleme henüz desteklenmiyor.")
@@ -550,12 +563,12 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 if (index == providers.size + 1) { showOmegaModelIdEditor(); return@setItems }
                 if (index == 0) {
                     prefs.edit { putString("omega_provider", "auto") }
-                    selectedModelLabel.text = "Seçili Model: Otomatik Mod"
+                    refreshModelSummary()
                     notice("Otomatik Mod etkin. Her mesaj uygun ve yapılandırılmış sağlayıcıya yönlendirilecek.")
                 } else {
                     val selected = providers[index - 1]
                     prefs.edit { putString("omega_provider", selected.id) }
-                    selectedModelLabel.text = "Seçili Model: " + selected.title
+                    refreshModelSummary()
                     val hasKey = !selected.requiresSecret || runCatching {
                         !OmegaSecretVault.read(this, "omega_${selected.id}_api_key").isNullOrBlank()
                     }.getOrDefault(false)
@@ -1220,6 +1233,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     private fun configureModel() {
         if (session.state.value?.busy == true) return
+        if (prefs.getString("endpoint", "").isNullOrBlank()) { showOmegaModelMenu(); return }
         val fields = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(24, 16, 24, 0) }
         val endpoint = EditText(this).apply {
             hint = "https://sana-ait-sunucu.example"
@@ -1233,6 +1247,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         AlertDialog.Builder(this).setTitle("Doğrulanmış modeller")
             .setMessage("Sana ait HTTPS sunucusu sahip ve cihaz imzanı doğrular. Yalnız canlı yanıtla doğrulanan modeller listelenir. Geçmiş ve hafıza otomatik gönderilmez.")
             .setView(fields)
+            .setNeutralButton("Tüm modeller") { _, _ -> showOmegaModelMenu() }
             .setPositiveButton("Bağlantıyı doğrula") { _, _ ->
                 val base = endpoint.text.toString().trim().trimEnd('/')
                 val identity = owner.text.toString().trim()
