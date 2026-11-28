@@ -74,7 +74,7 @@ jobs:
           test "${#test_apks[@]}" -eq 1 || { echo "TEST_APK_OUTPUT_AMBIGUOUS"; exit 1; }
           cp "${test_apks[0]}" build/delivery/app-debug-androidTest.apk
           python3 scripts/android_owner_signing.py --public-only --output build/delivery/signing-status.json
-      - name: Use existing pinned owner signer on the authorized push only
+      - name: Legacy debug-candidate signer (restricted to historical signing branch)
         if: >-
           success() && github.event_name == 'push' &&
           github.repository == 'mehmetcerdik457-ctrl/Gpt-asistan' &&
@@ -307,6 +307,9 @@ jobs:
           name: kral-asistan-backup-copy-evidence-api30
           path: build/backup-copy/evidence/
           if-no-files-found: warn
+# The isolated owner-release job below is the ONLY feature-branch job that receives
+  # Android signing secrets. Never pass the keystore into the general build/test job.
+  # It signs only the exact pushed feature head after backend, build and emulator gates pass.
   release-build:
     needs: [backend, build, emulator, backup-copy]
     if: >-
