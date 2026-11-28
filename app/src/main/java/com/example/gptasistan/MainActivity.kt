@@ -422,7 +422,6 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 val speaker = when {
                     isUser -> "Sen"
                     raw.startsWith("Model:") -> "OMEGA"
-                    raw.startsWith("Yankı:") -> "OMEGA"
                     else -> "OMEGA"
                 }
                 addChatBubble(speaker, raw.removePrefix("Sen: ").removePrefix("Model: "), isUser)
