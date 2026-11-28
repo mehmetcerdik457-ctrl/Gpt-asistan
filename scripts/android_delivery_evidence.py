@@ -8,7 +8,7 @@ from pathlib import Path
 import xml.etree.ElementTree as ET
 
 
-def summarize(tests: Path, lint: Path, allow_unit_tests_skipped: bool) -> dict:
+def summarize(tests: Path, lint: Path, allow_unit_tests_skipped: bool = False) -> dict:
     files = sorted(tests.glob("TEST-*.xml"))
     if not files:
         if not allow_unit_tests_skipped:
